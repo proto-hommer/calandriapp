@@ -24,6 +24,10 @@ import io.github.protohommer.meshpaper.mesh.MAX_TEXT_BYTES
 import io.github.protohommer.meshpaper.mesh.MessageStore
 import io.github.protohommer.meshpaper.mesh.MsgStatus
 import io.github.protohommer.meshpaper.mesh.PhoneLocation
+import io.github.protohommer.meshpaper.mesh.TrackPoint
+import io.github.protohommer.meshpaper.mesh.TrackStore
+import io.github.protohommer.meshpaper.mesh.WaypointStore
+import io.github.protohommer.meshpaper.mesh.Wpt
 import android.location.Location
 import io.github.protohommer.meshpaper.mesh.routingErrorText
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +52,7 @@ import org.meshtastic.proto.MeshProtos.MeshPacket
 import org.meshtastic.proto.MeshProtos.NodeInfo
 import org.meshtastic.proto.MeshProtos.Routing
 import org.meshtastic.proto.MeshProtos.ToRadio
+import org.meshtastic.proto.MeshProtos.Waypoint
 import org.meshtastic.proto.Portnums.PortNum
 
 data class FoundDevice(val device: BluetoothDevice, val name: String, val rssi: Int, val bonded: Boolean)
@@ -65,6 +70,13 @@ data class MeshNode(
     val lon: Double?,
     val channel: Int,         // índice local del canal en que lo oímos (0 = primario)
 )
+
+/**
+ * ¿Es del grupo? Lo oímos por el canal privado (índice 0) después de armar el grupo.
+ * El resto de los nodos solo sirven de repetidores.
+ */
+fun isGroupMember(n: MeshNode, me: Int?, hasGroup: Boolean, since: Long): Boolean =
+    n.num == me || (hasGroup && n.channel == 0 && n.lastHeard > 0 && n.lastHeard >= since)
 
 sealed interface ApplyState {
     data object Idle : ApplyState
@@ -122,6 +134,19 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
 
     private val ackTimeouts = mutableMapOf<Int, Job>()
 
+    // ---------- Mapa: rastros y waypoints ----------
+
+    private val trackStore = TrackStore(app.filesDir)
+    private val waypointStore = WaypointStore(app.filesDir)
+
+    /** Rastro de cada nodo (incluido el propio, con el GPS del teléfono). */
+    private val _tracks = MutableStateFlow<Map<Int, List<TrackPoint>>>(emptyMap())
+    val tracks: StateFlow<Map<Int, List<TrackPoint>>> = _tracks
+
+    /** Waypoints conocidos por id (incluye vencidos; la UI filtra). */
+    private val _waypoints = MutableStateFlow<Map<Int, Wpt>>(emptyMap())
+    val waypoints: StateFlow<Map<Int, Wpt>> = _waypoints
+
     // ---------- Posición del teléfono ----------
 
     private val _position = MutableStateFlow<PositionConfig?>(null)
@@ -141,6 +166,9 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
 
     private val phoneLocation = PhoneLocation(app) { loc ->
         _myFix.value = loc
+        if (!loc.hasAccuracy() || loc.accuracy <= MAX_FIX_ACCURACY_M) {
+            _myNodeNum.value?.let { recordTrack(it, loc.latitude, loc.longitude, loc.time / 1000) }
+        }
         maybeSendPosition(loc)
     }
 
@@ -261,6 +289,8 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         if (lastLoaded != device.address) {
             _myNodeNum.value = null
             _messages.value = emptyList()
+            _tracks.value = emptyMap()
+            _waypoints.value = emptyMap()
         }
         lastLoaded = device.address
         ble.connect(device)
@@ -541,6 +571,122 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun newPacketId(): Int = (1..Int.MAX_VALUE).random()
 
+    // ---------- Rastros ----------
+
+    private fun recordTrack(num: Int, lat: Double, lon: Double, time: Long) {
+        val me = _myNodeNum.value ?: return
+        var changed = false
+        _tracks.update { map ->
+            val next = TrackStore.append(map[num].orEmpty(), TrackPoint(lat, lon, time))
+            changed = next != null
+            if (next == null) map else map + (num to next)
+        }
+        if (!changed) return
+        val snapshot = _tracks.value
+        viewModelScope.launch(Dispatchers.IO) {
+            try { trackStore.save(me, snapshot) } catch (e: Exception) { Log.e(TAG, "guardar rastros", e) }
+        }
+    }
+
+    fun clearTracks() {
+        val me = _myNodeNum.value ?: return
+        _tracks.value = emptyMap()
+        viewModelScope.launch(Dispatchers.IO) { runCatching { trackStore.save(me, emptyMap()) } }
+    }
+
+    // ---------- Waypoints ----------
+
+    /**
+     * Crea un waypoint y lo difunde por el primario (el canal privado del grupo).
+     * Queda bloqueado a nuestro nodo: solo nosotros lo podemos cambiar o borrar.
+     * Devuelve null si salió, o el motivo si no se puede.
+     */
+    fun sendWaypoint(lat: Double, lon: Double, name: String, description: String, icon: Int, expire: Long): String? {
+        val me = _myNodeNum.value ?: return "sin conexión con el nodo"
+        if (link.value != LinkState.Connected) return "sin conexión con el nodo"
+        val n = Wpt.fitBytes(name.trim(), Wpt.MAX_NAME)
+        if (n.isEmpty()) return "ponele un nombre"
+        val w = Wpt(
+            id = newPacketId(), lat = lat, lon = lon, name = n,
+            description = Wpt.fitBytes(description.trim(), Wpt.MAX_DESCRIPTION),
+            icon = icon, expire = expire, lockedTo = me, from = me, time = System.currentTimeMillis() / 1000,
+        )
+        broadcastWaypoint(w.toProto())
+        putWaypoint(w)
+        return null
+    }
+
+    /** ¿Lo podemos borrar para todos? (lo creamos nosotros o no está bloqueado) */
+    fun canDeleteForAll(w: Wpt): Boolean {
+        val me = _myNodeNum.value ?: return false
+        return w.lockedTo == 0 || w.lockedTo == me
+    }
+
+    /**
+     * Borra un waypoint. Si es nuestro (o libre), lo difunde con expire = 1, que es la convención
+     * de la malla para "borrar". Si está bloqueado a otro nodo, solo lo saca de este teléfono.
+     */
+    fun deleteWaypoint(w: Wpt) {
+        if (canDeleteForAll(w) && link.value == LinkState.Connected) {
+            broadcastWaypoint(w.toProto().toBuilder().setExpire(1).build())
+        }
+        removeWaypoint(w.id)
+    }
+
+    private fun broadcastWaypoint(w: Waypoint) {
+        val packet = MeshPacket.newBuilder()
+            .setTo(BROADCAST)
+            .setId(newPacketId())
+            .setChannel(0)
+            .setDecoded(
+                MeshProtos.Data.newBuilder()
+                    .setPortnum(PortNum.WAYPOINT_APP)
+                    .setPayload(w.toByteString())
+            )
+            .build()
+        viewModelScope.launch {
+            try {
+                ble.send(ToRadio.newBuilder().setPacket(packet).build())
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "no pude mandar el waypoint", e)
+            }
+        }
+    }
+
+    private fun onWaypoint(p: MeshPacket) {
+        val w = try { Waypoint.parseFrom(p.decoded.payload) } catch (e: Exception) { return }
+        val from = if (p.from == 0) _myNodeNum.value ?: 0 else p.from
+        val now = System.currentTimeMillis() / 1000
+        val old = _waypoints.value[w.id]
+        // Respetar el bloqueo: solo el dueño lo puede cambiar o borrar.
+        if (old != null && old.lockedTo != 0 && old.lockedTo != from) return
+        val wpt = Wpt.fromProto(w, from, now)
+        if (wpt == null || !wpt.isActive(now)) {
+            if (old != null) removeWaypoint(w.id)
+            return
+        }
+        putWaypoint(wpt)
+    }
+
+    private fun putWaypoint(w: Wpt) {
+        _waypoints.update { it + (w.id to w) }
+        persistWaypoints()
+    }
+
+    private fun removeWaypoint(id: Int) {
+        _waypoints.update { it - id }
+        persistWaypoints()
+    }
+
+    private fun persistWaypoints() {
+        val me = _myNodeNum.value ?: return
+        val snapshot = _waypoints.value
+        viewModelScope.launch(Dispatchers.IO) {
+            try { waypointStore.save(me, snapshot) } catch (e: Exception) { Log.e(TAG, "guardar waypoints", e) }
+        }
+    }
+
     // ---------- FromRadio ----------
 
     private fun onFromRadio(msg: FromRadio) {
@@ -565,6 +711,8 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         if (_myNodeNum.value == num && _messages.value.isNotEmpty()) return
         _myNodeNum.value = num
         _messages.value = store.load(num)
+        _tracks.value = trackStore.load(num)
+        _waypoints.value = waypointStore.load(num)
         _lastRead.value = _messages.value.map { it.conv }.distinct()
             .associateWith { prefs.getLong(readKey(num, it), 0L) }
     }
@@ -575,6 +723,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             PortNum.ROUTING_APP -> onRouting(p)
             PortNum.TEXT_MESSAGE_APP -> onText(p)
             PortNum.POSITION_APP -> onPosition(p)
+            PortNum.WAYPOINT_APP -> onWaypoint(p)
             else -> Unit
         }
         val from = p.from
@@ -609,6 +758,13 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             )
             map + (from to old.copy(lat = pos.latitudeI / 1e7, lon = pos.longitudeI / 1e7))
         }
+        val t = when {
+            pos.time != 0 -> pos.time.toLong() and 0xffffffffL
+            p.rxTime != 0 -> p.rxTime.toLong() and 0xffffffffL
+            else -> System.currentTimeMillis() / 1000
+        }
+        // El propio nodo: su rastro sale del GPS del teléfono, no del eco de su posición.
+        if (from != _myNodeNum.value) recordTrack(from, pos.latitudeI / 1e7, pos.longitudeI / 1e7, t)
     }
 
     private fun upsert(n: NodeInfo) {
@@ -626,6 +782,11 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             channel = n.channel,
         )
         _nodes.update { it + (n.num to node) }
+        if (node.lat != null && node.lon != null && n.num != _myNodeNum.value &&
+            !(n.position.latitudeI == 0 && n.position.longitudeI == 0)) {
+            val t = (n.position.time.toLong() and 0xffffffffL).takeIf { it != 0L } ?: node.lastHeard
+            if (t != 0L) recordTrack(n.num, node.lat, node.lon, t)
+        }
     }
 
     override fun onCleared() {

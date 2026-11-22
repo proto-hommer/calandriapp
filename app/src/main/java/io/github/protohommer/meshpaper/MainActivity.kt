@@ -56,6 +56,7 @@ import io.github.protohommer.meshpaper.ble.LinkState
 import io.github.protohommer.meshpaper.ui.ChatScreen
 import io.github.protohommer.meshpaper.ui.ChatsScreen
 import io.github.protohommer.meshpaper.ui.GroupScreen
+import io.github.protohommer.meshpaper.ui.MapScreen
 import io.github.protohommer.meshpaper.mesh.Conv
 import io.github.protohommer.meshpaper.ui.theme.MeshPaperTheme
 
@@ -130,6 +131,10 @@ fun App(vm: MeshViewModel = viewModel()) {
                     OutlinedButton(onClick = vm::disconnect) { Text("Cancelar") }
                 }
                 screen == "group" -> GroupScreen(vm, onBack = { screen = "nodes" })
+                screen == "map" -> MapScreen(
+                    vm, onBack = { screen = "nodes" },
+                    onMessage = { screen = "chat:" + Conv.Direct(it).key },
+                )
                 screen == "chats" -> ChatsScreen(vm, onOpen = { screen = "chat:$it" }, onBack = { screen = "nodes" })
                 screen.startsWith("chat:") -> ChatScreen(vm, screen.removePrefix("chat:"), onBack = { screen = "chats" })
                 else -> NodesScreen(
@@ -137,6 +142,7 @@ fun App(vm: MeshViewModel = viewModel()) {
                     onAskLocation = { launcher.launch(locationPermissions) },
                     onGroup = { screen = "group" },
                     onChats = { screen = "chats" },
+                    onMap = { screen = "map" },
                     onNode = { screen = "chat:" + Conv.Direct(it).key },
                 )
             }
@@ -228,6 +234,7 @@ private fun NodesScreen(
     onAskLocation: () -> Unit,
     onGroup: () -> Unit,
     onChats: () -> Unit,
+    onMap: () -> Unit,
     onNode: (Int) -> Unit,
 ) {
     val nodes by vm.nodes.collectAsState()
@@ -243,9 +250,7 @@ private fun NodesScreen(
     val hasGroup = remember(channels) { vm.hasPrivateGroup() }
     val groupName = channels[0]?.settings?.name.orEmpty()
 
-    // Miembros: los oímos por el canal privado (índice 0) después de armar el grupo.
-    fun isMember(n: MeshNode) = n.num == me ||
-        (hasGroup && n.channel == 0 && n.lastHeard > 0 && n.lastHeard >= since)
+    fun isMember(n: MeshNode) = isGroupMember(n, me, hasGroup, since)
     val byRecent = compareByDescending<MeshNode> { it.num == me }.thenByDescending { it.lastHeard }
     val members = nodes.values.filter(::isMember).sortedWith(byRecent)
     val others = nodes.values.filterNot(::isMember).sortedWith(byRecent)
@@ -267,8 +272,11 @@ private fun NodesScreen(
         }
         PositionBar(vm, onAskLocation)
         Spacer(Modifier.padding(2.dp))
-        Button(onClick = onChats, Modifier.fillMaxWidth()) {
-            Text(if (unread > 0) "Mensajes ($unread sin leer)" else "Mensajes")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onChats, Modifier.weight(1f)) {
+                Text(if (unread > 0) "Mensajes ($unread)" else "Mensajes")
+            }
+            Button(onClick = onMap, Modifier.weight(1f)) { Text("Mapa") }
         }
         when (val a = apply) {
             is ApplyState.Done -> Row(verticalAlignment = Alignment.CenterVertically) {
