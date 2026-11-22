@@ -9,7 +9,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -131,11 +130,23 @@ private fun ScanScreen(vm: MeshViewModel, link: LinkState) {
         Spacer(Modifier.padding(8.dp))
         LazyColumn {
             items(found, key = { it.device.address }) { d ->
-                Column(
-                    Modifier.fillMaxWidth().clickable { vm.connect(d) }.padding(vertical = 12.dp)
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(d.name, fontWeight = FontWeight.Bold)
-                    Text("${d.device.address} · ${d.rssi} dBm", style = MaterialTheme.typography.bodySmall)
+                    Column(Modifier.weight(1f)) {
+                        Text(d.name, fontWeight = FontWeight.Bold)
+                        Text(
+                            "${d.device.address} · ${d.rssi} dBm · " +
+                                if (d.bonded) "emparejado" else "sin emparejar",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (d.bonded) {
+                        Button(onClick = { vm.connect(d) }) { Text("Conectar") }
+                    } else {
+                        OutlinedButton(onClick = { vm.pairAndConnect(d) }) { Text("Emparejar") }
+                    }
                 }
                 HorizontalDivider()
             }

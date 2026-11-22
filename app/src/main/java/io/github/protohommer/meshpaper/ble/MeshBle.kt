@@ -7,12 +7,19 @@ import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.util.Log
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -67,21 +74,34 @@ class MeshBle(
 
     fun connect(device: BluetoothDevice) {
         disconnect()
-        connected = CompletableDeferred()
-        servicesFound = CompletableDeferred()
         sessionJob = scope.launch {
+            var step = "Emparejando"
             try {
-                _state.value = LinkState.Connecting("Conectando…")
-                val g = device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
-                gatt = g
-                withTimeout(20_000) { connected.await() }
+                step = "Conectando"
+                val g = connectWithRetry(device)
 
-                _state.value = LinkState.Connecting("Negociando MTU…")
-                op { g.requestMtu(512) }
+                // Emparejar sobre el enlace ya abierto, antes de cualquier lectura cifrada.
+                // createBond() sin conexión previa falla en algunos teléfonos (Motorola/MediaTek).
+                if (device.bondState != BluetoothDevice.BOND_BONDED) {
+                    step = "Emparejando"
+                    _state.value = LinkState.Connecting(PAIRING_HINT)
+                    pair(device)
+                }
 
+                step = "Buscando servicio"
                 _state.value = LinkState.Connecting("Buscando servicio Meshtastic…")
+                servicesFound = CompletableDeferred()
                 g.discoverServices()
                 withTimeout(15_000) { servicesFound.await() }
+
+                // MTU alto ayuda pero no es imprescindible: si falla seguimos con el default.
+                _state.value = LinkState.Connecting("Negociando MTU…")
+                try {
+                    op { g.requestMtu(512) }
+                } catch (e: Exception) {
+                    if (e is CancellationException && e !is TimeoutCancellationException) throw e
+                    Log.w(TAG, "requestMtu falló, sigo con el MTU por defecto", e)
+                }
                 val svc = g.getService(MeshUuids.SERVICE)
                     ?: error("El dispositivo no tiene el servicio Meshtastic")
                 toRadio = svc.getCharacteristic(MeshUuids.TO_RADIO)
@@ -91,22 +111,107 @@ class MeshBle(
                     error("Faltan características Meshtastic")
                 }
 
-                // La primera lectura cifrada dispara el emparejamiento (PIN) si hace falta.
-                _state.value = LinkState.Connecting("Pidiendo configuración (puede pedir PIN)…")
+                step = "Pidiendo configuración"
+                _state.value = LinkState.Connecting("Pidiendo configuración…")
                 val nonce = (1..Int.MAX_VALUE).random()
                 send(ToRadio.newBuilder().setWantConfigId(nonce).build())
                 drainFromRadio()
 
+                step = "Suscribiendo a FromNum"
                 enableFromNumNotify()
                 _state.value = LinkState.Connected
                 // Por si llegó algo entre el drenado y la suscripción.
                 drainFromRadio()
             } catch (e: Exception) {
-                Log.w(TAG, "Fallo de conexión", e)
-                _state.value = LinkState.Failed(e.message ?: e.javaClass.simpleName)
+                if (e is CancellationException && e !is TimeoutCancellationException) throw e
+                val why = if (e is TimeoutCancellationException) "no respondió a tiempo" else e.message
+                Log.e(TAG, "Fallo en: $step", e)
+                _state.value = LinkState.Failed("$step: ${why ?: e.javaClass.simpleName}")
                 closeGatt()
             }
         }
+    }
+
+    /**
+     * Empareja con el nodo desde la app. Android abre su diálogo del sistema para el PIN (si la app
+     * está en primer plano; si no, lo manda como notificación). Espera hasta BONDED o falla.
+     */
+    private suspend fun pair(device: BluetoothDevice) {
+        if (device.bondState == BluetoothDevice.BOND_BONDED) return
+        val done = CompletableDeferred<Unit>()
+        val t0 = System.currentTimeMillis()
+        val trace = StringBuilder()
+        fun mark(what: String) {
+            trace.append(" → ").append(what).append(" (").append((System.currentTimeMillis() - t0) / 100 / 10.0).append("s)")
+            Log.e(TAG, "pair: $what")
+        }
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) {
+                val d: BluetoothDevice? = if (Build.VERSION.SDK_INT >= 33) {
+                    i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                }
+                if (d?.address != device.address) return
+                if (i.action == BluetoothDevice.ACTION_PAIRING_REQUEST) {
+                    mark("pide PIN (variante ${i.getIntExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT, -1)})")
+                    return
+                }
+                val st = i.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)
+                mark(when (st) {
+                    BluetoothDevice.BOND_BONDING -> "emparejando"
+                    BluetoothDevice.BOND_BONDED -> "emparejado"
+                    BluetoothDevice.BOND_NONE -> "sin emparejar"
+                    else -> "estado $st"
+                })
+                when (st) {
+                    BluetoothDevice.BOND_BONDED -> done.complete(Unit)
+                    BluetoothDevice.BOND_NONE ->
+                        done.completeExceptionally(IllegalStateException("falló:$trace"))
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+            addAction(BluetoothDevice.ACTION_PAIRING_REQUEST)
+        }
+        ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
+        try {
+            mark("createBond")
+            if (device.bondState != BluetoothDevice.BOND_BONDING && !device.createBond()) {
+                error("Android no quiso iniciar el emparejamiento")
+            }
+            withTimeout(90_000) { done.await() }
+        } finally {
+            context.unregisterReceiver(receiver)
+        }
+        delay(500) // dejar que el stack termine de guardar las claves
+    }
+
+    /** connectGatt con reintentos: el 133 al conectar suele ser transitorio. */
+    private suspend fun connectWithRetry(device: BluetoothDevice): BluetoothGatt {
+        var last: Exception? = null
+        repeat(3) { attempt ->
+            _state.value = LinkState.Connecting(
+                if (attempt == 0) "Conectando…" else "Conectando (reintento ${attempt + 1}/3)…"
+            )
+            connected = CompletableDeferred()
+            val g = device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
+            gatt = g
+            try {
+                withTimeout(20_000) { connected.await() }
+                delay(600) // algunos stacks necesitan un respiro antes de discoverServices/MTU
+                return g
+            } catch (e: CancellationException) {
+                if (e is TimeoutCancellationException) last = e else throw e
+            } catch (e: Exception) {
+                last = e
+            }
+            closeGatt()
+            delay(1_000)
+        }
+        throw last ?: IllegalStateException("no conectó")
     }
 
     fun disconnect() {
@@ -254,7 +359,9 @@ class MeshBle(
         }
     }
 
-    private companion object {
-        const val TAG = "MeshBle"
+    companion object {
+        private const val TAG = "MeshBle"
+        const val PAIRING_HINT = "Emparejando: poné el PIN que muestra el nodo (por defecto 123456). " +
+            "Si no aparece el cuadro, mirá las notificaciones."
     }
 }

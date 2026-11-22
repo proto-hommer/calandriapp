@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.update
 import org.meshtastic.proto.MeshProtos.FromRadio
 import org.meshtastic.proto.MeshProtos.NodeInfo
 
-data class FoundDevice(val device: BluetoothDevice, val name: String, val rssi: Int)
+data class FoundDevice(val device: BluetoothDevice, val name: String, val rssi: Int, val bonded: Boolean)
 
 data class MeshNode(
     val num: Int,
@@ -61,7 +61,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             val d = result.device
             val name = result.scanRecord?.deviceName ?: d.name ?: d.address
             _found.update { list ->
-                (list.filterNot { it.device.address == d.address } + FoundDevice(d, name, result.rssi))
+                (list.filterNot { it.device.address == d.address } + FoundDevice(d, name, result.rssi, d.bondState == BluetoothDevice.BOND_BONDED))
                     .sortedByDescending { it.rssi }
             }
         }
@@ -85,6 +85,9 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         adapter?.bluetoothLeScanner?.stopScan(scanCallback)
         _scanning.value = false
     }
+
+    /** El emparejamiento (diálogo de PIN de Android) ocurre dentro de la conexión. */
+    fun pairAndConnect(d: FoundDevice) = connect(d)
 
     fun connect(d: FoundDevice) {
         stopScan()
