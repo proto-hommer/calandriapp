@@ -74,6 +74,16 @@ fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
                     Text("Grupo: ${current.getSettings(0).name}", style = MaterialTheme.typography.titleLarge)
                     Text("Mostrale este QR a los demás para que se unan (sirve con esta app o la oficial).")
                     QrCard(Group.toUrl(current))
+                    if (vm.trackingConfigured() == false) {
+                        Text(
+                            "El nodo todavía difunde la posición con la config por defecto (cada hora). " +
+                                "Para seguir al grupo en el campo conviene cada 5 min, o antes si te movés 25 m.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        OutlinedButton(onClick = { vm.applyTracking(); onBack() }, Modifier.fillMaxWidth()) {
+                            Text("Ajustar el nodo para rastreo")
+                        }
+                    }
                 } else {
                     Text("Este nodo no tiene grupo privado", style = MaterialTheme.typography.titleLarge)
                     Text("Hoy usa el canal público como principal: lo que mandes (incluida tu posición) lo puede leer cualquiera.")

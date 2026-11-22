@@ -29,10 +29,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import android.location.Location
+import io.github.protohommer.meshpaper.mesh.PhoneLocation
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,6 +67,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private val locationPermissions = arrayOf(
+    Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION,
+)
+
 private val blePermissions: Array<String> =
     if (Build.VERSION.SDK_INT >= 31) {
         arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
@@ -81,7 +89,11 @@ fun App(vm: MeshViewModel = viewModel()) {
     }
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { res -> granted = res.values.all { it } }
+    ) { res ->
+        granted = blePermissions.all { res[it] ?: (ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED) }
+        vm.locationPermitted = hasLocation(context)
+    }
+    LaunchedEffect(Unit) { vm.locationPermitted = hasLocation(context) }
 
     val link by vm.link.collectAsState()
     val apply by vm.apply.collectAsState()
@@ -100,7 +112,7 @@ fun App(vm: MeshViewModel = viewModel()) {
                 !granted -> Center {
                     Text("La app necesita permiso de Bluetooth para hablar con el nodo.")
                     Spacer(Modifier.padding(8.dp))
-                    Button(onClick = { launcher.launch(blePermissions) }) { Text("Dar permiso") }
+                    Button(onClick = { launcher.launch(blePermissions + locationPermissions) }) { Text("Dar permiso") }
                 }
                 !vm.bluetoothOn -> Center { Text("Prendé el Bluetooth y volvé a abrir la app.") }
                 apply is ApplyState.Working -> Center {
@@ -122,6 +134,7 @@ fun App(vm: MeshViewModel = viewModel()) {
                 screen.startsWith("chat:") -> ChatScreen(vm, screen.removePrefix("chat:"), onBack = { screen = "chats" })
                 else -> NodesScreen(
                     vm,
+                    onAskLocation = { launcher.launch(locationPermissions) },
                     onGroup = { screen = "group" },
                     onChats = { screen = "chats" },
                     onNode = { screen = "chat:" + Conv.Direct(it).key },
@@ -210,7 +223,13 @@ private fun ScanScreen(vm: MeshViewModel, link: LinkState) {
 }
 
 @Composable
-private fun NodesScreen(vm: MeshViewModel, onGroup: () -> Unit, onChats: () -> Unit, onNode: (Int) -> Unit) {
+private fun NodesScreen(
+    vm: MeshViewModel,
+    onAskLocation: () -> Unit,
+    onGroup: () -> Unit,
+    onChats: () -> Unit,
+    onNode: (Int) -> Unit,
+) {
     val nodes by vm.nodes.collectAsState()
     val me by vm.myNodeNum.collectAsState()
     val channels by vm.channels.collectAsState()
@@ -219,6 +238,7 @@ private fun NodesScreen(vm: MeshViewModel, onGroup: () -> Unit, onChats: () -> U
     val msgs by vm.messages.collectAsState()
     val lastRead by vm.lastRead.collectAsState()
     val unread = msgs.count { !it.mine && it.time > (lastRead[it.conv] ?: 0) }
+    val fix by vm.myFix.collectAsState()
     val now = System.currentTimeMillis() / 1000
     val hasGroup = remember(channels) { vm.hasPrivateGroup() }
     val groupName = channels[0]?.settings?.name.orEmpty()
@@ -245,13 +265,14 @@ private fun NodesScreen(vm: MeshViewModel, onGroup: () -> Unit, onChats: () -> U
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = vm::disconnect) { Text("Salir") }
         }
+        PositionBar(vm, onAskLocation)
         Spacer(Modifier.padding(2.dp))
         Button(onClick = onChats, Modifier.fillMaxWidth()) {
             Text(if (unread > 0) "Mensajes ($unread sin leer)" else "Mensajes")
         }
         when (val a = apply) {
             is ApplyState.Done -> Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Grupo aplicado al nodo.", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
+                Text(a.text, Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
                 TextButton(onClick = vm::dismissApply) { Text("OK") }
             }
             is ApplyState.Failed -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -262,7 +283,7 @@ private fun NodesScreen(vm: MeshViewModel, onGroup: () -> Unit, onChats: () -> U
         }
         Spacer(Modifier.padding(4.dp))
         LazyColumn {
-            items(members, key = { it.num }) { n -> NodeRow(n, me, now, onClick = onNode) }
+            items(members, key = { it.num }) { n -> NodeRow(n, me, now, fix, onClick = onNode) }
             if (others.isNotEmpty()) {
                 item(key = "others") {
                     TextButton(onClick = { showOthers = !showOthers }) {
@@ -270,14 +291,16 @@ private fun NodesScreen(vm: MeshViewModel, onGroup: () -> Unit, onChats: () -> U
                             (if (hasGroup) "Otros nodos / repetidores (${others.size})" else "Nodos (${others.size})"))
                     }
                 }
-                if (showOthers) items(others, key = { it.num }) { n -> NodeRow(n, me, now, dim = hasGroup, onClick = onNode) }
+                if (showOthers) items(others, key = { it.num }) { n -> NodeRow(n, me, now, fix, dim = hasGroup, onClick = onNode) }
             }
         }
     }
 }
 
 @Composable
-private fun NodeRow(n: MeshNode, me: Int?, now: Long, dim: Boolean = false, onClick: (Int) -> Unit = {}) {
+private fun NodeRow(
+    n: MeshNode, me: Int?, now: Long, fix: Location?, dim: Boolean = false, onClick: (Int) -> Unit = {},
+) {
     val alpha = if (dim) 0.6f else 1f
     val tap = if (n.num != me) Modifier.clickable { onClick(n.num) } else Modifier
     Column(Modifier.fillMaxWidth().then(tap).padding(vertical = 10.dp)) {
@@ -295,7 +318,12 @@ private fun NodeRow(n: MeshNode, me: Int?, now: Long, dim: Boolean = false, onCl
             n.hopsAway?.let { add(if (it == 0) "directo" else "$it saltos") }
             if (n.hopsAway == 0 && n.snr != 0f) add("SNR %.1f".format(n.snr))
             n.battery?.let { add(if (it > 100) "enchufado" else "bat $it%") }
-            if (n.lat != null) add("con posición")
+            if (n.lat != null && n.lon != null) {
+                if (fix != null && n.num != me) {
+                    val (d, b) = PhoneLocation.distanceAndBearing(fix.latitude, fix.longitude, n.lat, n.lon)
+                    add("a ${PhoneLocation.formatDistance(d)} ${PhoneLocation.cardinal(b)}")
+                } else add("con posición")
+            }
         }
         Text(
             parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall,
@@ -303,6 +331,38 @@ private fun NodeRow(n: MeshNode, me: Int?, now: Long, dim: Boolean = false, onCl
         )
     }
     HorizontalDivider()
+}
+
+private fun hasLocation(context: android.content.Context) = locationPermissions.any {
+    ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+}
+
+/** Estado de la posición propia: si se comparte, cuándo se mandó y con qué precisión. */
+@Composable
+private fun PositionBar(vm: MeshViewModel, onAskLocation: () -> Unit) {
+    val context = LocalContext.current
+    val share by vm.sharePosition.collectAsState()
+    val fix by vm.myFix.collectAsState()
+    val sent by vm.lastPosSent.collectAsState()
+    var tick by remember { mutableStateOf(0L) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5_000); tick++ } }
+    val permitted = remember(tick) { hasLocation(context) }
+    val nowS = remember(tick, sent) { System.currentTimeMillis() / 1000 }
+    val text = when {
+        !share -> "Tu posición: no se comparte"
+        !permitted -> "Tu posición: falta permiso de ubicación"
+        fix == null -> "Tu posición: buscando GPS…"
+        sent == 0L -> "Tu posición: GPS ±${fix!!.accuracy.toInt()} m, todavía sin mandar"
+        else -> "Tu posición: mandada ${ago(nowS, sent / 1000)} (±${fix!!.accuracy.toInt()} m)"
+    }
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+        if (share && !permitted) {
+            TextButton(onClick = onAskLocation) { Text("Permitir") }
+        } else {
+            Switch(checked = share, onCheckedChange = vm::setSharePosition)
+        }
+    }
 }
 
 private fun ago(now: Long, t: Long): String {

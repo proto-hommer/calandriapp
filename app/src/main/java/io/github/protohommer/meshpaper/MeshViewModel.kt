@@ -23,6 +23,8 @@ import io.github.protohommer.meshpaper.mesh.Group
 import io.github.protohommer.meshpaper.mesh.MAX_TEXT_BYTES
 import io.github.protohommer.meshpaper.mesh.MessageStore
 import io.github.protohommer.meshpaper.mesh.MsgStatus
+import io.github.protohommer.meshpaper.mesh.PhoneLocation
+import android.location.Location
 import io.github.protohommer.meshpaper.mesh.routingErrorText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -39,6 +41,7 @@ import org.meshtastic.proto.ChannelProtos.Channel
 import org.meshtastic.proto.ChannelProtos.ChannelSettings
 import org.meshtastic.proto.ConfigProtos.Config
 import org.meshtastic.proto.ConfigProtos.Config.LoRaConfig
+import org.meshtastic.proto.ConfigProtos.Config.PositionConfig
 import org.meshtastic.proto.MeshProtos
 import org.meshtastic.proto.MeshProtos.FromRadio
 import org.meshtastic.proto.MeshProtos.MeshPacket
@@ -66,7 +69,7 @@ data class MeshNode(
 sealed interface ApplyState {
     data object Idle : ApplyState
     data class Working(val step: String) : ApplyState
-    data object Done : ApplyState
+    data class Done(val text: String) : ApplyState
     data class Failed(val reason: String) : ApplyState
 }
 
@@ -119,7 +122,90 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
 
     private val ackTimeouts = mutableMapOf<Int, Job>()
 
+    // ---------- Posición del teléfono ----------
+
+    private val _position = MutableStateFlow<PositionConfig?>(null)
+
+    /** Compartir la posición del celular con el grupo (a través del nodo). */
+    private val _sharePosition = MutableStateFlow(prefs.getBoolean("sharePosition", true))
+    val sharePosition: StateFlow<Boolean> = _sharePosition
+
+    /** Último fix del teléfono (aunque no se haya mandado). */
+    private val _myFix = MutableStateFlow<Location?>(null)
+    val myFix: StateFlow<Location?> = _myFix
+
+    /** Cuándo (epoch ms) se mandó la última posición al nodo. 0 = nunca en esta sesión. */
+    private val _lastPosSent = MutableStateFlow(0L)
+    val lastPosSent: StateFlow<Long> = _lastPosSent
+    private var lastSentFix: Location? = null
+
+    private val phoneLocation = PhoneLocation(app) { loc ->
+        _myFix.value = loc
+        maybeSendPosition(loc)
+    }
+
+    /** La UI avisa cuándo hay permiso de ubicación; arranca o frena el GPS según la conexión. */
+    var locationPermitted = false
+        set(v) { field = v; updateLocationUpdates() }
+
     val bluetoothOn: Boolean get() = adapter?.isEnabled == true
+
+    init {
+        viewModelScope.launch { link.collect { updateLocationUpdates() } }
+    }
+
+    fun setSharePosition(on: Boolean) {
+        prefs.edit().putBoolean("sharePosition", on).apply()
+        _sharePosition.value = on
+        updateLocationUpdates()
+    }
+
+    private fun updateLocationUpdates() {
+        if (locationPermitted && _sharePosition.value && link.value == LinkState.Connected) phoneLocation.start()
+        else phoneLocation.stop()
+    }
+
+    /**
+     * Le pasa al nodo la posición del teléfono. El nodo la difunde por el primer canal con
+     * position_precision > 0 (el privado del grupo), con su difusión "smart".
+     * Mandamos si nos movimos >= 10 m (cada 30 s como mucho) o cada 2 min igual, para que
+     * el nodo tenga hora y posición frescas. El firmware descarta más de una cada 10 s.
+     */
+    private fun maybeSendPosition(loc: Location) {
+        val me = _myNodeNum.value ?: return
+        if (link.value != LinkState.Connected || !_sharePosition.value) return
+        if (loc.hasAccuracy() && loc.accuracy > MAX_FIX_ACCURACY_M) return
+        val now = System.currentTimeMillis()
+        val since = now - _lastPosSent.value
+        val moved = lastSentFix?.distanceTo(loc) ?: Float.MAX_VALUE
+        val due = since >= POS_HEARTBEAT_MS || (since >= POS_MIN_INTERVAL_MS && moved >= POS_MIN_MOVE_M)
+        if (!due) return
+        _lastPosSent.value = now
+        lastSentFix = loc
+        viewModelScope.launch {
+            try {
+                ble.send(ToRadio.newBuilder().setPacket(PhoneLocation.toPacket(loc, me, newPacketId())).build())
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "no pude mandar la posición", e)
+                _lastPosSent.value = 0L
+            }
+        }
+    }
+
+    /**
+     * Config de posición del nodo para rastreo de campo: difusión "smart" (sale antes si se mueve
+     * 25 m, como mucho una por minuto) y un latido cada 5 min. Nada de posición fija: así el nodo
+     * acepta la del teléfono. Respeta el resto de lo que ya tenga (pines de GPS, flags).
+     */
+    private fun trackingPosition(current: PositionConfig?): PositionConfig =
+        (current?.toBuilder() ?: PositionConfig.newBuilder())
+            .setFixedPosition(false)
+            .setPositionBroadcastSmartEnabled(true)
+            .setBroadcastSmartMinimumDistance(25)
+            .setBroadcastSmartMinimumIntervalSecs(60)
+            .setPositionBroadcastSecs(300)
+            .build()
 
     private var lastDevice: BluetoothDevice? = null
     private var lastLoaded: String? = null
@@ -169,6 +255,9 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         _nodes.value = emptyMap()
         _channels.value = emptyMap()
         _lora.value = null
+        _position.value = null
+        _lastPosSent.value = 0L
+        lastSentFix = null
         if (lastLoaded != device.address) {
             _myNodeNum.value = null
             _messages.value = emptyList()
@@ -212,7 +301,44 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
      * begin_edit → set_channel (0..7) → set_config(lora) → commit_edit.
      * Al hacer commit el nodo guarda, apaga el BLE y puede reiniciarse: reconectamos solos.
      */
-    fun applyChannelSet(set: ChannelSet) {
+    fun applyChannelSet(set: ChannelSet) = runEdit("Escribiendo canales en el nodo…", "Grupo aplicado al nodo.") { me ->
+        for (i in 0 until MAX_CHANNELS) {
+            val ch = Channel.newBuilder().setIndex(i)
+            if (i < set.settingsCount) {
+                ch.setSettings(set.getSettings(i))
+                    .setRole(if (i == 0) Channel.Role.PRIMARY else Channel.Role.SECONDARY)
+            } else {
+                ch.setSettings(ChannelSettings.getDefaultInstance()).setRole(Channel.Role.DISABLED)
+            }
+            sendAdmin(me, AdminMessage.newBuilder().setSetChannel(ch).build())
+        }
+        if (set.hasLoraConfig()) {
+            val lora = Group.mergeLora(set.loraConfig, _lora.value)
+            sendAdmin(me, AdminMessage.newBuilder().setSetConfig(Config.newBuilder().setLora(lora)).build())
+        }
+        val pos = trackingPosition(_position.value)
+        if (pos != _position.value) {
+            sendAdmin(me, AdminMessage.newBuilder().setSetConfig(Config.newBuilder().setPosition(pos)).build())
+        }
+        val now = System.currentTimeMillis() / 1000
+        prefs.edit().putLong("groupSince", now).apply()
+        _groupSince.value = now
+    }
+
+    /** ¿El nodo ya tiene la config de posición para rastreo? (null = todavía no la leímos) */
+    fun trackingConfigured(): Boolean? = _position.value?.let { it == trackingPosition(it) }
+
+    /** Solo la config de posición para rastreo (nodos que ya tenían el grupo). */
+    fun applyTracking() = runEdit("Ajustando la posición del nodo…", "Nodo listo para rastreo.") { me ->
+        sendAdmin(me, AdminMessage.newBuilder()
+            .setSetConfig(Config.newBuilder().setPosition(trackingPosition(_position.value))).build())
+    }
+
+    /**
+     * Transacción de edición: begin_edit → [escrituras] → commit_edit. Al hacer commit el nodo
+     * guarda, apaga el BLE y puede reiniciarse: reconectamos solos.
+     */
+    private fun runEdit(firstStep: String, doneText: String, writes: suspend (me: Int) -> Unit) {
         val me = _myNodeNum.value ?: run {
             _apply.value = ApplyState.Failed("todavía no sé cuál es el nodo local")
             return
@@ -221,27 +347,10 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         applyJob?.cancel()
         applyJob = viewModelScope.launch {
             try {
-                _apply.value = ApplyState.Working("Escribiendo canales en el nodo…")
+                _apply.value = ApplyState.Working(firstStep)
                 sendAdmin(me, AdminMessage.newBuilder().setBeginEditSettings(true).build())
-                for (i in 0 until MAX_CHANNELS) {
-                    val ch = Channel.newBuilder().setIndex(i)
-                    if (i < set.settingsCount) {
-                        ch.setSettings(set.getSettings(i))
-                            .setRole(if (i == 0) Channel.Role.PRIMARY else Channel.Role.SECONDARY)
-                    } else {
-                        ch.setSettings(ChannelSettings.getDefaultInstance()).setRole(Channel.Role.DISABLED)
-                    }
-                    sendAdmin(me, AdminMessage.newBuilder().setSetChannel(ch).build())
-                }
-                if (set.hasLoraConfig()) {
-                    val lora = Group.mergeLora(set.loraConfig, _lora.value)
-                    sendAdmin(me, AdminMessage.newBuilder().setSetConfig(Config.newBuilder().setLora(lora)).build())
-                }
+                writes(me)
                 sendAdmin(me, AdminMessage.newBuilder().setCommitEditSettings(true).build())
-
-                val now = System.currentTimeMillis() / 1000
-                prefs.edit().putLong("groupSince", now).apply()
-                _groupSince.value = now
 
                 _apply.value = ApplyState.Working("El nodo está guardando y reiniciando…")
                 // Esperar a que el nodo corte y volver a conectar.
@@ -257,7 +366,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     if (st is LinkState.Connected) { ok = true; break }
                 }
-                _apply.value = if (ok) ApplyState.Done
+                _apply.value = if (ok) ApplyState.Done(doneText)
                 else ApplyState.Failed("se aplicó, pero no pude reconectar: probá Conectar a mano")
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -442,8 +551,11 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 val c = msg.channel
                 _channels.update { if (c.role == Channel.Role.DISABLED) it - c.index else it + (c.index to c) }
             }
-            FromRadio.PayloadVariantCase.CONFIG ->
-                if (msg.config.payloadVariantCase == Config.PayloadVariantCase.LORA) _lora.value = msg.config.lora
+            FromRadio.PayloadVariantCase.CONFIG -> when (msg.config.payloadVariantCase) {
+                Config.PayloadVariantCase.LORA -> _lora.value = msg.config.lora
+                Config.PayloadVariantCase.POSITION -> _position.value = msg.config.position
+                else -> Unit
+            }
             FromRadio.PayloadVariantCase.PACKET -> onPacket(msg.packet)
             else -> Unit
         }
@@ -462,6 +574,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         if (p.hasDecoded()) when (p.decoded.portnum) {
             PortNum.ROUTING_APP -> onRouting(p)
             PortNum.TEXT_MESSAGE_APP -> onText(p)
+            PortNum.POSITION_APP -> onPosition(p)
             else -> Unit
         }
         val from = p.from
@@ -485,6 +598,19 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Posición que llega por la malla (o la propia que el nodo nos reenvía). */
+    private fun onPosition(p: MeshPacket) {
+        val pos = try { MeshProtos.Position.parseFrom(p.decoded.payload) } catch (e: Exception) { return }
+        if (!pos.hasLatitudeI() || !pos.hasLongitudeI() || (pos.latitudeI == 0 && pos.longitudeI == 0)) return
+        val from = if (p.from == 0) _myNodeNum.value ?: return else p.from
+        _nodes.update { map ->
+            val old = map[from] ?: MeshNode(
+                from, "!%08x".format(from), "", "", 0, 0f, null, null, null, null, p.channel,
+            )
+            map + (from to old.copy(lat = pos.latitudeI / 1e7, lon = pos.longitudeI / 1e7))
+        }
+    }
+
     private fun upsert(n: NodeInfo) {
         val node = MeshNode(
             num = n.num,
@@ -503,6 +629,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        phoneLocation.stop()
         stopScan()
         ble.disconnect()
     }
@@ -512,5 +639,9 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         const val MAX_CHANNELS = 8
         const val AUTO_ATTEMPTS = 2           // 1 envío + 1 reintento automático
         const val ACK_TIMEOUT_MS = 180_000L   // el firmware se rinde antes; esto cubre cortes de BLE
+        const val MAX_FIX_ACCURACY_M = 100f
+        const val POS_MIN_INTERVAL_MS = 30_000L
+        const val POS_HEARTBEAT_MS = 120_000L
+        const val POS_MIN_MOVE_M = 10f
     }
 }
