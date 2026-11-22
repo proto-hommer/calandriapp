@@ -1,0 +1,19 @@
+# Notas privadas de Claude
+CLAUDE.local.md
+
+# Android / Gradle
+.gradle/
+build/
+/local.properties
+/captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# Android Studio
+.idea/
+*.iml
+.DS_Store
