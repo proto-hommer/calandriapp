@@ -226,9 +226,12 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                     })
                 }
                 fix?.let { f ->
+                    // El teléfono y el nodo conectado están en el mismo lugar: un solo marcador
+                    // con el nombre del nodo, para no confundirlo con otro nodo parecido.
+                    val myLabel = me?.let { nodes[it] }?.let { it.shortName.ifEmpty { it.id.takeLast(4) } }
                     mv.overlays.add(Marker(mv).apply {
                         position = GeoPoint(f.latitude, f.longitude)
-                        icon = meIcon(mv.context)
+                        icon = meIcon(mv.context, myLabel)
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         infoWindow = null
                         setOnMarkerClickListener { _, _ -> me?.let { selectedNode = it; selectedWpt = null }; true }
@@ -700,20 +703,42 @@ private fun nodeIcon(ctx: Context, label: String, color: Int, filled: Boolean, l
         BitmapDrawable(ctx.resources, bmp)
     }
 
-/** El teléfono: punto cian con retícula. */
-private fun meIcon(ctx: Context): BitmapDrawable = iconCache.getOrPut("me") {
+/**
+ * El teléfono (y el nodo conectado, que está con él): punto cian con retícula y, abajo, el nombre
+ * corto del nodo. El bitmap es simétrico para que el anclaje al centro caiga justo en el punto.
+ */
+private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.getOrPut("me:$label") {
     val size = dpPx(ctx, 34f).toInt()
-    val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val tag = if (label != null) dpPx(ctx, 16f).toInt() else 0
+    val w = max(size, dpPx(ctx, 64f).toInt())
+    val h = size + 2 * tag
+    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
+    val cx = w / 2f
+    val cy = h / 2f
     val r = size / 2f
     val cyan = HudCyan.toArgb()
-    c.drawCircle(r, r, r - dpPx(ctx, 1f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; alpha = 40 })
+    c.drawCircle(cx, cy, r - dpPx(ctx, 1f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; alpha = 40 })
     val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; strokeWidth = dpPx(ctx, 1.5f) }
     val g = dpPx(ctx, 7f)
-    c.drawLine(r, 0f, r, g, line); c.drawLine(r, size - g, r, size.toFloat(), line)
-    c.drawLine(0f, r, g, r, line); c.drawLine(size - g, r, size.toFloat(), r, line)
-    c.drawCircle(r, r, dpPx(ctx, 6f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
-    c.drawCircle(r, r, dpPx(ctx, 4.5f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan })
+    c.drawLine(cx, cy - r, cx, cy - r + g, line); c.drawLine(cx, cy + r - g, cx, cy + r, line)
+    c.drawLine(cx - r, cy, cx - r + g, cy, line); c.drawLine(cx + r - g, cy, cx + r, cy, line)
+    c.drawCircle(cx, cy, dpPx(ctx, 6f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
+    c.drawCircle(cx, cy, dpPx(ctx, 4.5f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan })
+    if (label != null) {
+        val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = cyan
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+            textSize = dpPx(ctx, 10f)
+        }
+        val t = label.take(6).uppercase()
+        val tw = text.measureText(t) + dpPx(ctx, 8f)
+        val top = cy + r + dpPx(ctx, 1f)
+        c.drawRect(cx - tw / 2, top, cx + tw / 2, top + dpPx(ctx, 14f),
+            Paint().apply { color = android.graphics.Color.argb(220, 5, 9, 13) })
+        c.drawText(t, cx, top + dpPx(ctx, 7f) - (text.descent() + text.ascent()) / 2, text)
+    }
     BitmapDrawable(ctx.resources, bmp)
 }
 
