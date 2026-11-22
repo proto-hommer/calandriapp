@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -39,6 +40,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -46,7 +49,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.protohommer.meshpaper.ble.LinkState
+import io.github.protohommer.meshpaper.ui.ChatScreen
+import io.github.protohommer.meshpaper.ui.ChatsScreen
 import io.github.protohommer.meshpaper.ui.GroupScreen
+import io.github.protohommer.meshpaper.mesh.Conv
 import io.github.protohommer.meshpaper.ui.theme.MeshPaperTheme
 
 class MainActivity : ComponentActivity() {
@@ -79,7 +85,11 @@ fun App(vm: MeshViewModel = viewModel()) {
 
     val link by vm.link.collectAsState()
     val apply by vm.apply.collectAsState()
-    var showGroup by remember { mutableStateOf(false) }
+    // Pantalla dentro de la sesión conectada: "nodes", "group", "chats" o "chat:<conv>".
+    var screen by rememberSaveable { mutableStateOf("nodes") }
+    BackHandler(enabled = link is LinkState.Connected && screen != "nodes") {
+        screen = if (screen.startsWith("chat:")) "chats" else "nodes"
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -107,8 +117,15 @@ fun App(vm: MeshViewModel = viewModel()) {
                     Spacer(Modifier.padding(8.dp))
                     OutlinedButton(onClick = vm::disconnect) { Text("Cancelar") }
                 }
-                showGroup -> GroupScreen(vm, onBack = { showGroup = false })
-                else -> NodesScreen(vm, onGroup = { showGroup = true })
+                screen == "group" -> GroupScreen(vm, onBack = { screen = "nodes" })
+                screen == "chats" -> ChatsScreen(vm, onOpen = { screen = "chat:$it" }, onBack = { screen = "nodes" })
+                screen.startsWith("chat:") -> ChatScreen(vm, screen.removePrefix("chat:"), onBack = { screen = "chats" })
+                else -> NodesScreen(
+                    vm,
+                    onGroup = { screen = "group" },
+                    onChats = { screen = "chats" },
+                    onNode = { screen = "chat:" + Conv.Direct(it).key },
+                )
             }
         }
     }
@@ -193,12 +210,15 @@ private fun ScanScreen(vm: MeshViewModel, link: LinkState) {
 }
 
 @Composable
-private fun NodesScreen(vm: MeshViewModel, onGroup: () -> Unit) {
+private fun NodesScreen(vm: MeshViewModel, onGroup: () -> Unit, onChats: () -> Unit, onNode: (Int) -> Unit) {
     val nodes by vm.nodes.collectAsState()
     val me by vm.myNodeNum.collectAsState()
     val channels by vm.channels.collectAsState()
     val since by vm.groupSince.collectAsState()
     val apply by vm.apply.collectAsState()
+    val msgs by vm.messages.collectAsState()
+    val lastRead by vm.lastRead.collectAsState()
+    val unread = msgs.count { !it.mine && it.time > (lastRead[it.conv] ?: 0) }
     val now = System.currentTimeMillis() / 1000
     val hasGroup = remember(channels) { vm.hasPrivateGroup() }
     val groupName = channels[0]?.settings?.name.orEmpty()
@@ -225,6 +245,10 @@ private fun NodesScreen(vm: MeshViewModel, onGroup: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = vm::disconnect) { Text("Salir") }
         }
+        Spacer(Modifier.padding(2.dp))
+        Button(onClick = onChats, Modifier.fillMaxWidth()) {
+            Text(if (unread > 0) "Mensajes ($unread sin leer)" else "Mensajes")
+        }
         when (val a = apply) {
             is ApplyState.Done -> Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Grupo aplicado al nodo.", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
@@ -238,7 +262,7 @@ private fun NodesScreen(vm: MeshViewModel, onGroup: () -> Unit) {
         }
         Spacer(Modifier.padding(4.dp))
         LazyColumn {
-            items(members, key = { it.num }) { n -> NodeRow(n, me, now) }
+            items(members, key = { it.num }) { n -> NodeRow(n, me, now, onClick = onNode) }
             if (others.isNotEmpty()) {
                 item(key = "others") {
                     TextButton(onClick = { showOthers = !showOthers }) {
@@ -246,16 +270,17 @@ private fun NodesScreen(vm: MeshViewModel, onGroup: () -> Unit) {
                             (if (hasGroup) "Otros nodos / repetidores (${others.size})" else "Nodos (${others.size})"))
                     }
                 }
-                if (showOthers) items(others, key = { it.num }) { n -> NodeRow(n, me, now, dim = hasGroup) }
+                if (showOthers) items(others, key = { it.num }) { n -> NodeRow(n, me, now, dim = hasGroup, onClick = onNode) }
             }
         }
     }
 }
 
 @Composable
-private fun NodeRow(n: MeshNode, me: Int?, now: Long, dim: Boolean = false) {
+private fun NodeRow(n: MeshNode, me: Int?, now: Long, dim: Boolean = false, onClick: (Int) -> Unit = {}) {
     val alpha = if (dim) 0.6f else 1f
-    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+    val tap = if (n.num != me) Modifier.clickable { onClick(n.num) } else Modifier
+    Column(Modifier.fillMaxWidth().then(tap).padding(vertical = 10.dp)) {
         Row {
             Text(
                 "${n.shortName.ifEmpty { "?" }}  ${n.longName.ifEmpty { n.id }}",

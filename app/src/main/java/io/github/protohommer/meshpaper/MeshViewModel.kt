@@ -16,7 +16,15 @@ import androidx.lifecycle.viewModelScope
 import io.github.protohommer.meshpaper.ble.LinkState
 import io.github.protohommer.meshpaper.ble.MeshBle
 import io.github.protohommer.meshpaper.ble.MeshUuids
+import io.github.protohommer.meshpaper.mesh.BROADCAST
+import io.github.protohommer.meshpaper.mesh.ChatMsg
+import io.github.protohommer.meshpaper.mesh.Conv
 import io.github.protohommer.meshpaper.mesh.Group
+import io.github.protohommer.meshpaper.mesh.MAX_TEXT_BYTES
+import io.github.protohommer.meshpaper.mesh.MessageStore
+import io.github.protohommer.meshpaper.mesh.MsgStatus
+import io.github.protohommer.meshpaper.mesh.routingErrorText
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +43,7 @@ import org.meshtastic.proto.MeshProtos
 import org.meshtastic.proto.MeshProtos.FromRadio
 import org.meshtastic.proto.MeshProtos.MeshPacket
 import org.meshtastic.proto.MeshProtos.NodeInfo
+import org.meshtastic.proto.MeshProtos.Routing
 import org.meshtastic.proto.MeshProtos.ToRadio
 import org.meshtastic.proto.Portnums.PortNum
 
@@ -98,9 +107,22 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     }
     val link: StateFlow<LinkState> = ble.state
 
+    private val store = MessageStore(app.filesDir)
+
+    /** Mensajes del nodo local conectado (todas las conversaciones), en orden de llegada. */
+    private val _messages = MutableStateFlow<List<ChatMsg>>(emptyList())
+    val messages: StateFlow<List<ChatMsg>> = _messages
+
+    /** Última vez (epoch s) que se leyó cada conversación. */
+    private val _lastRead = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val lastRead: StateFlow<Map<String, Long>> = _lastRead
+
+    private val ackTimeouts = mutableMapOf<Int, Job>()
+
     val bluetoothOn: Boolean get() = adapter?.isEnabled == true
 
     private var lastDevice: BluetoothDevice? = null
+    private var lastLoaded: String? = null
     private var applyJob: Job? = null
 
     private val scanCallback = object : ScanCallback() {
@@ -147,7 +169,11 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         _nodes.value = emptyMap()
         _channels.value = emptyMap()
         _lora.value = null
-        _myNodeNum.value = null
+        if (lastLoaded != device.address) {
+            _myNodeNum.value = null
+            _messages.value = emptyList()
+        }
+        lastLoaded = device.address
         ble.connect(device)
     }
 
@@ -256,11 +282,161 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         delay(150) // no saturar la cola del nodo
     }
 
+    // ---------- Mensajes ----------
+
+    private fun readKey(me: Int, conv: String) = "read:%08x:%s".format(me, conv)
+
+    fun markRead(conv: String) {
+        val me = _myNodeNum.value ?: return
+        val t = System.currentTimeMillis() / 1000
+        prefs.edit().putLong(readKey(me, conv), t).apply()
+        _lastRead.update { it + (conv to t) }
+    }
+
+    /** Manda texto a una conversación. Devuelve null si salió, o el motivo si no se puede. */
+    fun sendText(conv: String, raw: String): String? {
+        val text = raw.trim()
+        if (text.isEmpty()) return "mensaje vacío"
+        if (text.toByteArray(Charsets.UTF_8).size > MAX_TEXT_BYTES) return "mensaje demasiado largo"
+        val me = _myNodeNum.value ?: return "sin conexión con el nodo"
+        val c = Conv.parse(conv) ?: return "conversación inválida"
+        val (to, ch) = when (c) {
+            is Conv.Channel -> BROADCAST to c.index
+            // DM: el firmware lo cifra con PKI si conoce la clave del destino; si no, con el canal.
+            is Conv.Direct -> c.num to (_nodes.value[c.num]?.channel ?: 0)
+        }
+        val m = ChatMsg(
+            conv = conv, id = newPacketId(), from = me, to = to, channel = ch, text = text,
+            time = System.currentTimeMillis() / 1000, mine = true, status = MsgStatus.SENDING,
+        )
+        addMessage(m)
+        transmit(m)
+        markRead(conv)
+        return null
+    }
+
+    /** Reintento manual de un mensaje fallido: sale con id nuevo. */
+    fun retry(m: ChatMsg) {
+        if (!m.mine || m.status != MsgStatus.FAILED) return
+        val again = m.copy(id = newPacketId(), status = MsgStatus.SENDING, error = null, attempt = m.attempt + 1)
+        replaceMessage(m.id, again)
+        transmit(again)
+    }
+
+    private fun transmit(m: ChatMsg) {
+        if (link.value != LinkState.Connected) {
+            fail(m.id, "sin conexión con el nodo", autoRetry = false)
+            return
+        }
+        val packet = MeshPacket.newBuilder()
+            .setTo(m.to)
+            .setId(m.id)
+            .setChannel(m.channel)
+            .setWantAck(true)
+            .setDecoded(
+                MeshProtos.Data.newBuilder()
+                    .setPortnum(PortNum.TEXT_MESSAGE_APP)
+                    .setPayload(com.google.protobuf.ByteString.copyFromUtf8(m.text))
+            )
+            .build()
+        viewModelScope.launch {
+            try {
+                ble.send(ToRadio.newBuilder().setPacket(packet).build())
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                fail(m.id, "no se pudo pasar al nodo", autoRetry = false)
+                return@launch
+            }
+            // El firmware siempre contesta (ACK o MAX_RETRANSMIT); esto es por si se corta el BLE.
+            ackTimeouts.remove(m.id)?.cancel()
+            ackTimeouts[m.id] = launch {
+                delay(ACK_TIMEOUT_MS)
+                if (_messages.value.any { it.id == m.id && it.status == MsgStatus.SENDING }) {
+                    fail(m.id, "sin confirmación", autoRetry = false)
+                }
+            }
+        }
+    }
+
+    private fun onRouting(p: MeshPacket) {
+        val reqId = p.decoded.requestId
+        if (reqId == 0) return
+        val m = _messages.value.firstOrNull { it.mine && it.id == reqId } ?: return
+        val r = try { Routing.parseFrom(p.decoded.payload) } catch (e: Exception) { return }
+        if (r.variantCase != Routing.VariantCase.ERROR_REASON) return
+        Log.e(TAG, "ACK de ${"%08x".format(p.from)} para ${m.id}: ${r.errorReason}")
+        if (m.status == MsgStatus.DELIVERED) return
+        if (r.errorReason == Routing.Error.NONE) {
+            // ACK real = viene del destinatario. ACK implícito = viene de nuestro propio nodo
+            // (oyó que otro lo repitió).
+            val delivered = m.to != BROADCAST && p.from == m.to
+            ackTimeouts.remove(m.id)?.cancel()
+            replaceMessage(m.id, m.copy(status = if (delivered) MsgStatus.DELIVERED else MsgStatus.RELAYED, error = null))
+        } else {
+            fail(m.id, routingErrorText(r.errorReason), autoRetry = true)
+        }
+    }
+
+    /** Marca el mensaje como fallido; la primera vez lo reenvía solo, con id nuevo. */
+    private fun fail(id: Int, why: String, autoRetry: Boolean) {
+        ackTimeouts.remove(id)?.cancel()
+        val m = _messages.value.firstOrNull { it.mine && it.id == id } ?: return
+        if (autoRetry && m.attempt < AUTO_ATTEMPTS && link.value == LinkState.Connected) {
+            Log.e(TAG, "mensaje ${m.id} falló ($why), reintento automático")
+            val again = m.copy(id = newPacketId(), status = MsgStatus.SENDING, error = null, attempt = m.attempt + 1)
+            replaceMessage(id, again)
+            transmit(again)
+        } else {
+            replaceMessage(id, m.copy(status = MsgStatus.FAILED, error = why))
+        }
+    }
+
+    private fun onText(p: MeshPacket) {
+        val me = _myNodeNum.value ?: return
+        if (p.from == 0) return
+        val mine = p.from == me
+        val conv = when {
+            p.to == me -> Conv.Direct(p.from).key
+            mine && p.to != BROADCAST -> Conv.Direct(p.to).key // mandado desde la pantalla del nodo
+            else -> Conv.Channel(p.channel).key
+        }
+        if (_messages.value.any { it.id == p.id && it.from == p.from }) return // duplicado
+        val t = if (p.hasRxTime() && p.rxTime != 0) p.rxTime.toLong() and 0xffffffffL
+        else System.currentTimeMillis() / 1000
+        addMessage(
+            ChatMsg(
+                conv = conv, id = p.id, from = p.from, to = p.to, channel = p.channel,
+                text = p.decoded.payload.toStringUtf8(), time = t, mine = mine,
+                status = if (mine) MsgStatus.RELAYED else MsgStatus.RECEIVED,
+            )
+        )
+    }
+
+    private fun addMessage(m: ChatMsg) {
+        _messages.update { it + m }
+        persist()
+    }
+
+    private fun replaceMessage(id: Int, m: ChatMsg) {
+        _messages.update { list -> list.map { if (it.id == id && it.mine) m else it } }
+        persist()
+    }
+
+    private fun persist() {
+        val me = _myNodeNum.value ?: return
+        val snapshot = _messages.value
+        viewModelScope.launch(Dispatchers.IO) {
+            try { store.save(me, snapshot) } catch (e: Exception) { Log.e(TAG, "guardar mensajes", e) }
+        }
+    }
+
+    private fun newPacketId(): Int = (1..Int.MAX_VALUE).random()
+
     // ---------- FromRadio ----------
 
     private fun onFromRadio(msg: FromRadio) {
         when (msg.payloadVariantCase) {
-            FromRadio.PayloadVariantCase.MY_INFO -> _myNodeNum.value = msg.myInfo.myNodeNum
+            FromRadio.PayloadVariantCase.MY_INFO -> onMyInfo(msg.myInfo.myNodeNum)
             FromRadio.PayloadVariantCase.NODE_INFO -> upsert(msg.nodeInfo)
             FromRadio.PayloadVariantCase.CHANNEL -> {
                 val c = msg.channel
@@ -273,8 +449,21 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private fun onMyInfo(num: Int) {
+        if (_myNodeNum.value == num && _messages.value.isNotEmpty()) return
+        _myNodeNum.value = num
+        _messages.value = store.load(num)
+        _lastRead.value = _messages.value.map { it.conv }.distinct()
+            .associateWith { prefs.getLong(readKey(num, it), 0L) }
+    }
+
     /** Cada paquete recibido actualiza "último oído" y el canal del nodo que lo mandó. */
     private fun onPacket(p: MeshPacket) {
+        if (p.hasDecoded()) when (p.decoded.portnum) {
+            PortNum.ROUTING_APP -> onRouting(p)
+            PortNum.TEXT_MESSAGE_APP -> onText(p)
+            else -> Unit
+        }
         val from = p.from
         if (from == 0 || from == _myNodeNum.value) return
         val t = if (p.hasRxTime()) p.rxTime.toLong() and 0xffffffffL else System.currentTimeMillis() / 1000
@@ -321,5 +510,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     private companion object {
         const val TAG = "MeshVM"
         const val MAX_CHANNELS = 8
+        const val AUTO_ATTEMPTS = 2           // 1 envío + 1 reintento automático
+        const val ACK_TIMEOUT_MS = 180_000L   // el firmware se rinde antes; esto cubre cortes de BLE
     }
 }
