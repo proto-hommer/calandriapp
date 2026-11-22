@@ -42,6 +42,8 @@ object MeshUuids {
 sealed interface LinkState {
     data object Disconnected : LinkState
     data class Connecting(val step: String) : LinkState
+    /** El nodo pide PIN: la app muestra su propio cuadro y responde con [MeshBle.submitPin]. */
+    data object NeedPin : LinkState
     data object Connected : LinkState
     data class Failed(val reason: String) : LinkState
 }
@@ -75,29 +77,34 @@ class MeshBle(
     fun connect(device: BluetoothDevice) {
         disconnect()
         sessionJob = scope.launch {
-            var step = "Emparejando"
+            var step = "Conectando"
+            val bond = BondWatcher(device)
             try {
-                step = "Conectando"
+                // El receptor va antes de conectar: el nodo pide seguridad apenas se abre el enlace.
+                bond.register()
                 val g = connectWithRetry(device)
 
                 // Emparejar sobre el enlace ya abierto, antes de cualquier lectura cifrada.
                 // createBond() sin conexión previa falla en algunos teléfonos (Motorola/MediaTek).
                 if (device.bondState != BluetoothDevice.BOND_BONDED) {
                     step = "Emparejando"
-                    _state.value = LinkState.Connecting(PAIRING_HINT)
-                    pair(device)
+                    if (_state.value !is LinkState.NeedPin) _state.value = LinkState.Connecting(PAIRING_HINT)
+                    bond.pair()
                 }
+                // El watcher sigue activo: hay nodos que piden re-emparejar en cada conexión.
 
                 step = "Buscando servicio"
                 _state.value = LinkState.Connecting("Buscando servicio Meshtastic…")
                 servicesFound = CompletableDeferred()
                 g.discoverServices()
                 withTimeout(15_000) { servicesFound.await() }
+                Log.e(TAG, "servicios ok")
 
                 // MTU alto ayuda pero no es imprescindible: si falla seguimos con el default.
                 _state.value = LinkState.Connecting("Negociando MTU…")
                 try {
                     op { g.requestMtu(512) }
+                    Log.e(TAG, "mtu ok")
                 } catch (e: Exception) {
                     if (e is CancellationException && e !is TimeoutCancellationException) throw e
                     Log.w(TAG, "requestMtu falló, sigo con el MTU por defecto", e)
@@ -115,7 +122,9 @@ class MeshBle(
                 _state.value = LinkState.Connecting("Pidiendo configuración…")
                 val nonce = (1..Int.MAX_VALUE).random()
                 send(ToRadio.newBuilder().setWantConfigId(nonce).build())
+                Log.e(TAG, "want_config escrito")
                 drainFromRadio()
+                Log.e(TAG, "config drenada")
 
                 step = "Suscribiendo a FromNum"
                 enableFromNumNotify()
@@ -128,24 +137,50 @@ class MeshBle(
                 Log.e(TAG, "Fallo en: $step", e)
                 _state.value = LinkState.Failed("$step: ${why ?: e.javaClass.simpleName}")
                 closeGatt()
+            } finally {
+                if (_state.value == LinkState.Connected) activeBond = bond else bond.unregister()
             }
         }
     }
 
+    private var activeBond: BondWatcher? = null
+
+    /** PIN que se prueba solo; si el nodo lo rechaza, la próxima vez se pregunta. */
+    @Volatile var knownPin: String = DEFAULT_PIN
+    @Volatile private var askPin = false
+    var onPinAccepted: (String) -> Unit = {}
+    private var lastPin: String? = null
+
+    @Volatile private var pinDevice: BluetoothDevice? = null
+
+    /** Respuesta al cuadro de PIN de la app. */
+    fun submitPin(pin: String) {
+        val d = pinDevice ?: return
+        lastPin = pin
+        Log.e(TAG, "pair: setPin -> ${d.setPin(pin.toByteArray())}")
+        if (_state.value is LinkState.NeedPin) _state.value = LinkState.Connecting("Emparejando…")
+    }
+
     /**
-     * Empareja con el nodo desde la app. Android abre su diálogo del sistema para el PIN (si la app
-     * está en primer plano; si no, lo manda como notificación). Espera hasta BONDED o falla.
+     * Sigue el emparejamiento con el nodo. El firmware (Secure Connections + MITM) pide seguridad
+     * él mismo al conectar; como no lo inició la app, Android mandaría el PIN a una notificación.
+     * Por eso atrapamos ACTION_PAIRING_REQUEST (broadcast ordenado, prioridad alta), lo cortamos y
+     * pedimos el PIN en la app. Si el nodo no lo pide solo, lo iniciamos con createBond().
      */
-    private suspend fun pair(device: BluetoothDevice) {
-        if (device.bondState == BluetoothDevice.BOND_BONDED) return
-        val done = CompletableDeferred<Unit>()
-        val t0 = System.currentTimeMillis()
-        val trace = StringBuilder()
-        fun mark(what: String) {
+    private inner class BondWatcher(private val device: BluetoothDevice) {
+        private val done = CompletableDeferred<Unit>()
+        private var asked = false
+        private var autoTried = false
+        private var registered = false
+        private val t0 = System.currentTimeMillis()
+        private val trace = StringBuilder()
+
+        private fun mark(what: String) {
             trace.append(" → ").append(what).append(" (").append((System.currentTimeMillis() - t0) / 100 / 10.0).append("s)")
             Log.e(TAG, "pair: $what")
         }
-        val receiver = object : BroadcastReceiver() {
+
+        private val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context, i: Intent) {
                 val d: BluetoothDevice? = if (Build.VERSION.SDK_INT >= 33) {
                     i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
@@ -155,7 +190,21 @@ class MeshBle(
                 }
                 if (d?.address != device.address) return
                 if (i.action == BluetoothDevice.ACTION_PAIRING_REQUEST) {
-                    mark("pide PIN (variante ${i.getIntExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT, -1)})")
+                    val variant = i.getIntExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT, -1)
+                    mark("pide PIN (variante $variant)")
+                    asked = true
+                    if (variant == BluetoothDevice.PAIRING_VARIANT_PIN && isOrderedBroadcast) {
+                        abortBroadcast() // que no vaya a la notificación del sistema
+                        pinDevice = d
+                        // El nodo da pocos segundos: probamos solo el PIN conocido y, si falla,
+                        // la próxima vez preguntamos.
+                        if (!askPin) {
+                            autoTried = true
+                            submitPin(knownPin)
+                        } else {
+                            _state.value = LinkState.NeedPin
+                        }
+                    }
                     return
                 }
                 val st = i.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)
@@ -166,27 +215,60 @@ class MeshBle(
                     else -> "estado $st"
                 })
                 when (st) {
-                    BluetoothDevice.BOND_BONDED -> done.complete(Unit)
-                    BluetoothDevice.BOND_NONE ->
-                        done.completeExceptionally(IllegalStateException("falló:$trace"))
+                    BluetoothDevice.BOND_BONDING -> asked = true
+                    BluetoothDevice.BOND_BONDED -> {
+                        lastPin?.let { knownPin = it; onPinAccepted(it) }
+                        askPin = false
+                        done.complete(Unit)
+                    }
+                    BluetoothDevice.BOND_NONE -> {
+                        val why = if (autoTried && !askPin) {
+                            askPin = true
+                            "el nodo rechazó el PIN $knownPin. Tocá de nuevo para poner otro."
+                        } else {
+                            "falló:$trace"
+                        }
+                        autoTried = false
+                        done.completeExceptionally(IllegalStateException(why))
+                        // Si ya estábamos conectados, cortar: sin emparejar el nodo no responde.
+                        if (_state.value == LinkState.Connected) {
+                            _state.value = LinkState.Failed("Se perdió el emparejamiento: $why")
+                            closeGatt()
+                        }
+                    }
                 }
             }
         }
-        val filter = IntentFilter().apply {
-            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
-            addAction(BluetoothDevice.ACTION_PAIRING_REQUEST)
-        }
-        ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
-        try {
-            mark("createBond")
-            if (device.bondState != BluetoothDevice.BOND_BONDING && !device.createBond()) {
-                error("Android no quiso iniciar el emparejamiento")
+
+        fun register() {
+            val filter = IntentFilter().apply {
+                addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+                addAction(BluetoothDevice.ACTION_PAIRING_REQUEST)
+                priority = IntentFilter.SYSTEM_HIGH_PRIORITY - 1
             }
-            withTimeout(90_000) { done.await() }
-        } finally {
-            context.unregisterReceiver(receiver)
+            ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
+            registered = true
         }
-        delay(500) // dejar que el stack termine de guardar las claves
+
+        fun unregister() {
+            if (!registered) return
+            registered = false
+            pinDevice = null
+            try { context.unregisterReceiver(receiver) } catch (_: IllegalArgumentException) {}
+        }
+
+        suspend fun pair() {
+            if (device.bondState == BluetoothDevice.BOND_BONDED) return
+            // Darle un momento al nodo para que pida seguridad él solo.
+            val until = System.currentTimeMillis() + 2_000
+            while (!asked && device.bondState == BluetoothDevice.BOND_NONE && System.currentTimeMillis() < until) delay(100)
+            if (!asked && device.bondState == BluetoothDevice.BOND_NONE) {
+                mark("createBond")
+                if (!device.createBond()) error("Android no quiso iniciar el emparejamiento")
+            }
+            withTimeout(120_000) { done.await() }
+            delay(500) // dejar que el stack termine de guardar las claves
+        }
     }
 
     /** connectGatt con reintentos: el 133 al conectar suele ser transitorio. */
@@ -197,10 +279,15 @@ class MeshBle(
                 if (attempt == 0) "Conectando…" else "Conectando (reintento ${attempt + 1}/3)…"
             )
             connected = CompletableDeferred()
-            val g = device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
+            // Los reintentos van con autoConnect: usa la lista de resolución del controlador, y así
+            // encuentra al nodo emparejado aunque anuncie con dirección privada (RPA).
+            val auto = attempt > 0
+            Log.e(TAG, "connectGatt intento ${attempt + 1} autoConnect=$auto")
+            val g = device.connectGatt(context, auto, callback, BluetoothDevice.TRANSPORT_LE)
             gatt = g
             try {
-                withTimeout(20_000) { connected.await() }
+                withTimeout(if (auto) 30_000 else 15_000) { connected.await() }
+                Log.e(TAG, "conectado")
                 delay(600) // algunos stacks necesitan un respiro antes de discoverServices/MTU
                 return g
             } catch (e: CancellationException) {
@@ -215,6 +302,8 @@ class MeshBle(
     }
 
     fun disconnect() {
+        activeBond?.unregister()
+        activeBond = null
         sessionJob?.cancel()
         sessionJob = null
         closeGatt()
@@ -246,6 +335,7 @@ class MeshBle(
         val c = fromRadio ?: return
         while (true) {
             val bytes = op { g.readCharacteristic(c) } as? ByteArray ?: return
+            Log.e(TAG, "FromRadio ${bytes.size} bytes")
             if (bytes.isEmpty()) return
             try {
                 onFromRadio(FromRadio.parseFrom(bytes))
@@ -281,7 +371,8 @@ class MeshBle(
             pending = null
             error("La operación GATT no arrancó")
         }
-        withTimeout(10_000) { d.await() }
+        // El firmware bloquea onRead hasta ~20 s esperando a la tarea principal (NimbleBluetooth.cpp).
+        withTimeout(25_000) { d.await() }
     }
 
     private fun complete(status: Int, value: Any? = null) {
@@ -303,6 +394,7 @@ class MeshBle(
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 connected.complete(Unit)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                Log.e(TAG, "desconectado status=$status")
                 connected.completeExceptionally(IllegalStateException("Desconectado (status $status)"))
                 pending?.completeExceptionally(IllegalStateException("Desconectado"))
                 pending = null
@@ -361,7 +453,7 @@ class MeshBle(
 
     companion object {
         private const val TAG = "MeshBle"
-        const val PAIRING_HINT = "Emparejando: poné el PIN que muestra el nodo (por defecto 123456). " +
-            "Si no aparece el cuadro, mirá las notificaciones."
+        const val PAIRING_HINT = "Emparejando con el nodo…"
+        const val DEFAULT_PIN = "123456"
     }
 }

@@ -66,6 +66,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.protobuf.kotlin.lite)
+    implementation(libs.zxing.core)
+    implementation(libs.zxing.embedded) { isTransitive = false } // solo la pantalla de escaneo; core va arriba
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     testImplementation(libs.junit)

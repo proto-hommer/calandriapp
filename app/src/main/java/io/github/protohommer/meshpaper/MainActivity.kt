@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -25,8 +26,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -38,10 +41,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.protohommer.meshpaper.ble.LinkState
+import io.github.protohommer.meshpaper.ui.GroupScreen
 import io.github.protohommer.meshpaper.ui.theme.MeshPaperTheme
 
 class MainActivity : ComponentActivity() {
@@ -73,6 +78,8 @@ fun App(vm: MeshViewModel = viewModel()) {
     ) { res -> granted = res.values.all { it } }
 
     val link by vm.link.collectAsState()
+    val apply by vm.apply.collectAsState()
+    var showGroup by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -86,7 +93,13 @@ fun App(vm: MeshViewModel = viewModel()) {
                     Button(onClick = { launcher.launch(blePermissions) }) { Text("Dar permiso") }
                 }
                 !vm.bluetoothOn -> Center { Text("Prendé el Bluetooth y volvé a abrir la app.") }
+                apply is ApplyState.Working -> Center {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.padding(8.dp))
+                    Text((apply as ApplyState.Working).step)
+                }
                 link is LinkState.Disconnected || link is LinkState.Failed -> ScanScreen(vm, link)
+                link is LinkState.NeedPin -> PinScreen(vm)
                 link is LinkState.Connecting -> Center {
                     CircularProgressIndicator()
                     Spacer(Modifier.padding(8.dp))
@@ -94,7 +107,8 @@ fun App(vm: MeshViewModel = viewModel()) {
                     Spacer(Modifier.padding(8.dp))
                     OutlinedButton(onClick = vm::disconnect) { Text("Cancelar") }
                 }
-                else -> NodesScreen(vm)
+                showGroup -> GroupScreen(vm, onBack = { showGroup = false })
+                else -> NodesScreen(vm, onGroup = { showGroup = true })
             }
         }
     }
@@ -107,6 +121,30 @@ private fun Center(content: @Composable () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) { content() }
+}
+
+@Composable
+private fun PinScreen(vm: MeshViewModel) {
+    var pin by remember { mutableStateOf("123456") }
+    Center {
+        Text("El nodo pide PIN", style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.padding(4.dp))
+        Text("Poné el que muestra la pantalla del nodo (por defecto 123456).")
+        Spacer(Modifier.padding(8.dp))
+        OutlinedTextField(
+            value = pin,
+            onValueChange = { pin = it.filter(Char::isDigit).take(6) },
+            label = { Text("PIN") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+        )
+        Spacer(Modifier.padding(8.dp))
+        Row {
+            OutlinedButton(onClick = vm::disconnect) { Text("Cancelar") }
+            Spacer(Modifier.width(12.dp))
+            Button(onClick = { vm.submitPin(pin) }, enabled = pin.length == 6) { Text("Emparejar") }
+        }
+    }
 }
 
 @Composable
@@ -155,44 +193,91 @@ private fun ScanScreen(vm: MeshViewModel, link: LinkState) {
 }
 
 @Composable
-private fun NodesScreen(vm: MeshViewModel) {
+private fun NodesScreen(vm: MeshViewModel, onGroup: () -> Unit) {
     val nodes by vm.nodes.collectAsState()
     val me by vm.myNodeNum.collectAsState()
+    val channels by vm.channels.collectAsState()
+    val since by vm.groupSince.collectAsState()
+    val apply by vm.apply.collectAsState()
     val now = System.currentTimeMillis() / 1000
-    val sorted = nodes.values.sortedWith(
-        compareByDescending<MeshNode> { it.num == me }.thenByDescending { it.lastHeard }
-    )
+    val hasGroup = remember(channels) { vm.hasPrivateGroup() }
+    val groupName = channels[0]?.settings?.name.orEmpty()
+
+    // Miembros: los oímos por el canal privado (índice 0) después de armar el grupo.
+    fun isMember(n: MeshNode) = n.num == me ||
+        (hasGroup && n.channel == 0 && n.lastHeard > 0 && n.lastHeard >= since)
+    val byRecent = compareByDescending<MeshNode> { it.num == me }.thenByDescending { it.lastHeard }
+    val members = nodes.values.filter(::isMember).sortedWith(byRecent)
+    val others = nodes.values.filterNot(::isMember).sortedWith(byRecent)
+    var showOthers by remember { mutableStateOf(!hasGroup) }
+
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("${nodes.size} nodos", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.weight(1f))
-            OutlinedButton(onClick = vm::disconnect) { Text("Desconectar") }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (hasGroup) "Grupo: $groupName" else "Sin grupo privado",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (hasGroup) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                )
+                Text("${members.size} en el grupo · ${others.size} otros", style = MaterialTheme.typography.bodySmall)
+            }
+            Button(onClick = onGroup) { Text(if (hasGroup) "QR" else "Armar grupo") }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = vm::disconnect) { Text("Salir") }
+        }
+        when (val a = apply) {
+            is ApplyState.Done -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Grupo aplicado al nodo.", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
+                TextButton(onClick = vm::dismissApply) { Text("OK") }
+            }
+            is ApplyState.Failed -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("No se pudo aplicar: ${a.reason}", Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = vm::dismissApply) { Text("OK") }
+            }
+            else -> Unit
         }
         Spacer(Modifier.padding(4.dp))
         LazyColumn {
-            items(sorted, key = { it.num }) { n ->
-                Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-                    Row {
-                        Text(
-                            "${n.shortName.ifEmpty { "?" }}  ${n.longName.ifEmpty { n.id }}",
-                            fontWeight = FontWeight.Bold,
-                        )
-                        if (n.num == me) Text("  (este nodo)", color = MaterialTheme.colorScheme.primary)
+            items(members, key = { it.num }) { n -> NodeRow(n, me, now) }
+            if (others.isNotEmpty()) {
+                item(key = "others") {
+                    TextButton(onClick = { showOthers = !showOthers }) {
+                        Text((if (showOthers) "▾ " else "▸ ") +
+                            (if (hasGroup) "Otros nodos / repetidores (${others.size})" else "Nodos (${others.size})"))
                     }
-                    val parts = buildList {
-                        add(n.id)
-                        if (n.num != me) add(ago(now, n.lastHeard))
-                        n.hopsAway?.let { add(if (it == 0) "directo" else "$it saltos") }
-                        if (n.hopsAway == 0 && n.snr != 0f) add("SNR %.1f".format(n.snr))
-                        n.battery?.let { add(if (it > 100) "enchufado" else "bat $it%") }
-                        if (n.lat != null) add("con posición")
-                    }
-                    Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
                 }
-                HorizontalDivider()
+                if (showOthers) items(others, key = { it.num }) { n -> NodeRow(n, me, now, dim = hasGroup) }
             }
         }
     }
+}
+
+@Composable
+private fun NodeRow(n: MeshNode, me: Int?, now: Long, dim: Boolean = false) {
+    val alpha = if (dim) 0.6f else 1f
+    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Row {
+            Text(
+                "${n.shortName.ifEmpty { "?" }}  ${n.longName.ifEmpty { n.id }}",
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
+            )
+            if (n.num == me) Text("  (este nodo)", color = MaterialTheme.colorScheme.primary)
+        }
+        val parts = buildList {
+            add(n.id)
+            if (n.num != me) add(ago(now, n.lastHeard))
+            n.hopsAway?.let { add(if (it == 0) "directo" else "$it saltos") }
+            if (n.hopsAway == 0 && n.snr != 0f) add("SNR %.1f".format(n.snr))
+            n.battery?.let { add(if (it > 100) "enchufado" else "bat $it%") }
+            if (n.lat != null) add("con posición")
+        }
+        Text(
+            parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
+        )
+    }
+    HorizontalDivider()
 }
 
 private fun ago(now: Long, t: Long): String {
