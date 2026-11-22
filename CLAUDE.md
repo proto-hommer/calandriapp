@@ -47,12 +47,35 @@ oficial, tiene que mandar la posición del teléfono al nodo.
 
 ## Alcance
 
-**A definir en la primera sesión con el usuario.** Ideas sobre la mesa:
-- Lista de nodos y mensajes (canal y DM).
-- Mandar la posición del celular al nodo (hoy lo hace la app oficial).
-- Ver en el celular el radar y los waypoints del nodo, sobre un mapa.
+App **liviana para trabajo de campo**: sin cuentas, sin nube, sin Google Play Services, todo local.
+Prioridades: comunicación, puntos en el mapa y rastreo de nodos, dentro de un **grupo cerrado**.
+Los nodos ajenos solo sirven de repetidores. Los del grupo pueden ser de cualquier tipo (Mesh Paper,
+custom o comerciales) y cada uno usa la app que quiera, esta o la oficial.
 
-Empezar por lo mínimo que funcione de punta a punta (conectar + listar nodos) y crecer desde ahí.
+### Grupo cerrado (confirmado en la doc 2.8 y en `C:\mt/src/mesh/RadioInterface.cpp`)
+
+- Región **ANZ** (Argentina figura como ANZ en la tabla region-by-country, 915–928 MHz).
+- **Primario (índice 0) = canal privado del grupo**, con PSK AES-256 aleatoria. La posición y la
+  telemetría periódicas salen por el primario, así que quedan cifradas.
+- **Secundario = canal público** (LongFast, clave por defecto) para hablar con gente de afuera.
+- **`lora.channel_num = 20` fijo.** El slot sale de `djb2(nombre del primario) % slots`. En ANZ con
+  LongFast hay 52 slots, y "LongFast" da el slot 20 (919,875 MHz). Si no se fija, renombrar el primario
+  cambia la frecuencia y los nodos públicos dejan de oírnos.
+- Los nodos públicos con `rebroadcast_mode = ALL` (el valor por defecto) repiten los paquetes de otras
+  redes con los mismos parámetros de modem aunque cambie el cifrado. Con `LOCAL_ONLY`/`KNOWN_ONLY`, no.
+- Uplink y downlink MQTT apagados en el canal privado. Ojo: los encabezados (from, to, saltos) van sin cifrar.
+- El grupo se comparte con la **URL/QR estándar de Meshtastic** (`ChannelSet` en `apponly.proto`, que
+  incluye `lora_config`). Así es compatible con la app oficial.
+
+### Etapas
+
+1. Conectar por BLE, emparejar, leer la config y listar los nodos.
+2. Grupo: crear el canal privado (con el slot fijado) y compartirlo o unirse por QR. La UI filtra a los
+   miembros y muestra el resto como repetidores.
+3. Mensajes de canal y DM, con ACK de entrega y reintento.
+4. Mandar la posición del celular al nodo, periódica, por el primario.
+5. Mapa **offline** con osmdroid: descargar una zona, ver los nodos del grupo con su rastro y los
+   waypoints (crearlos y recibirlos).
 
 ## Reglas de trabajo
 
