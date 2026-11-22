@@ -29,7 +29,7 @@ Servicio y características de Meshtastic. **Confirmarlos contra la documentaci�
 | Servicio | `6ba1b218-15a8-461f-9fa8-5dcae273eafd` |
 | ToRadio (escribir) | `f75c76d2-129e-4dad-a1dd-7866124401e7` |
 | FromRadio (leer) | `2c55e69e-4993-11ed-b878-0242ac120002` |
-| FromNum (notify) | `ed9da18b-a800-4f66-a670-aa7547e34453` |
+| FromNum (notify) | `ed9da18c-a800-4f66-a670-aa7547e34453` |
 
 Flujo: conectar → pedir MTU alto → escribir `ToRadio{want_config_id}` → leer `FromRadio` en loop
 hasta que venga vacío (llegan MyNodeInfo, NodeInfo, Config, Channels, `config_complete_id`) →
