@@ -3,10 +3,13 @@ package io.github.protohommer.meshpaper.ui
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color as AColor
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.BitmapDrawable
+import android.location.Location
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -21,29 +24,29 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -57,8 +60,16 @@ import io.github.protohommer.meshpaper.MeshViewModel
 import io.github.protohommer.meshpaper.isGroupMember
 import io.github.protohommer.meshpaper.map.MapTiles
 import io.github.protohommer.meshpaper.mesh.PhoneLocation
+import io.github.protohommer.meshpaper.mesh.Signal
+import io.github.protohommer.meshpaper.mesh.Tone
 import io.github.protohommer.meshpaper.mesh.Wpt
+import io.github.protohommer.meshpaper.ui.theme.HudCyan
+import io.github.protohommer.meshpaper.ui.theme.SigFair
+import io.github.protohommer.meshpaper.ui.theme.SigGood
+import io.github.protohommer.meshpaper.ui.theme.SigRelay
+import io.github.protohommer.meshpaper.ui.theme.SigWeak
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.events.MapEventsReceiver
@@ -70,16 +81,17 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+import org.osmdroid.views.overlay.ScaleBarOverlay
 import java.io.File
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Mapa con los nodos del grupo, su rastro y los waypoints. Funciona sin señal con los tiles que
- * ya se miraron (caché) y con los `.mbtiles` importados.
+ * Pantalla principal: mapa con los nodos (color según grupo y señal), rastros y waypoints.
+ * Anda sin señal con la caché de tiles y los `.mbtiles` importados.
  */
 @Composable
-fun MapScreen(vm: MeshViewModel, onBack: () -> Unit, onMessage: (Int) -> Unit) {
+fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val nodes by vm.nodes.collectAsState()
     val me by vm.myNodeNum.collectAsState()
@@ -89,29 +101,46 @@ fun MapScreen(vm: MeshViewModel, onBack: () -> Unit, onMessage: (Int) -> Unit) {
     val waypoints by vm.waypoints.collectAsState()
     val fix by vm.myFix.collectAsState()
     val hasGroup = remember(channels) { vm.hasPrivateGroup() }
-    val colors = MaterialTheme.colorScheme
 
-    var showOthers by remember { mutableStateOf(!hasGroup) }
+    var showOthers by remember { mutableStateOf(true) }
+    var showTracks by remember { mutableStateOf(true) }
+    val mapPrefs = remember { context.getSharedPreferences("map", Context.MODE_PRIVATE) }
+    var showLegend by remember { mutableStateOf(mapPrefs.getBoolean("legend", true)) }
     var selectedNode by remember { mutableStateOf<Int?>(null) }
     var selectedWpt by remember { mutableStateOf<Int?>(null) }
     var newWptAt by remember { mutableStateOf<GeoPoint?>(null) }
-    var showOffline by remember { mutableStateOf(false) }
-    var showTracks by remember { mutableStateOf(true) }
+    var showLayers by remember { mutableStateOf(false) }
+    var dark by remember { mutableStateOf(MapTiles.darkMap(context)) }
+
+    // Reloj para que los colores "perdido" se actualicen solos.
+    var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() / 1000 } }
 
     val map = remember {
         MapTiles.init(context)
         MapView(context).apply {
             setTileProvider(MapTiles.newProvider(context))
             setMultiTouchControls(true)
-            zoomController.setVisibility(CustomZoomButtonsController.Visibility.SHOW_AND_FADEOUT)
+            zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             isTilesScaledToDpi = true
             minZoomLevel = 2.0
             maxZoomLevel = 20.0
+            setBackgroundColor(android.graphics.Color.rgb(5, 9, 13))
             restoreCamera(context, this, fix?.let { GeoPoint(it.latitude, it.longitude) })
         }
     }
+    val scaleBar = remember {
+        ScaleBarOverlay(map).apply {
+            setAlignBottom(true)
+            setAlignRight(true)
+            setScaleBarOffset(dpPx(context, 12f).toInt(), dpPx(context, 12f).toInt())
+            textPaint.color = HudCyan.toArgb()
+            textPaint.typeface = Typeface.MONOSPACE
+            barPaint.color = HudCyan.toArgb()
+            barPaint.strokeWidth = dpPx(context, 1.5f)
+        }
+    }
 
-    // Ciclo de vida del MapView (hilos de tiles) y guardar la cámara al salir.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val obs = LifecycleEventObserver { _, e ->
@@ -131,189 +160,225 @@ fun MapScreen(vm: MeshViewModel, onBack: () -> Unit, onMessage: (Int) -> Unit) {
         }
     }
 
+    fun isMember(n: MeshNode) = isGroupMember(n, me, hasGroup, since)
     val visibleNodes = nodes.values.filter { n ->
-        n.lat != null && n.lon != null &&
-            (showOthers || isGroupMember(n, me, hasGroup, since))
+        n.lat != null && n.lon != null && (showOthers || isMember(n))
     }
-    val now = System.currentTimeMillis() / 1000
     val activeWpts = waypoints.values.filter { it.isActive(now) }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            TextButton(onClick = onBack) { Text("‹ Volver") }
-            FilterChip(selected = showOthers, onClick = { showOthers = !showOthers }, label = { Text("Repetidores") })
-            FilterChip(selected = showTracks, onClick = { showTracks = !showTracks }, label = { Text("Rastros") })
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = { showOffline = true }) { Text("Offline") }
-        }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            AndroidView(
-                factory = { map },
-                modifier = Modifier.fillMaxSize(),
-                update = { mv ->
-                    mv.overlays.clear()
-                    mv.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
-                        override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
-                            selectedNode = null; selectedWpt = null
-                            return false
-                        }
-                        override fun longPressHelper(p: GeoPoint?): Boolean {
-                            if (p != null) newWptAt = p
-                            return true
-                        }
-                    }))
-                    if (showTracks) for (n in visibleNodes + listOfNotNull(me?.let { nodes[it] })) {
-                        val pts = tracks[n.num] ?: continue
-                        if (pts.size < 2) continue
-                        mv.overlays.add(Polyline(mv).apply {
-                            setPoints(pts.map { GeoPoint(it.lat, it.lon) })
-                            outlinePaint.color = trackColor(n.num, me, colors.primary.toArgb())
-                            outlinePaint.strokeWidth = 6f
-                            outlinePaint.alpha = 170
-                            infoWindow = null
-                            setOnClickListener { _, _, _ -> selectedNode = n.num; true }
-                        })
+    // clipToBounds: el MapView de osmdroid dibuja fuera de su lugar y taparía la barra de arriba.
+    Box(modifier.fillMaxSize().clipToBounds()) {
+        AndroidView(
+            factory = { map },
+            modifier = Modifier.fillMaxSize().clipToBounds(),
+            update = { mv ->
+                mv.overlayManager.tilesOverlay.setColorFilter(if (dark) darkFilter else null)
+                mv.overlays.clear()
+                mv.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
+                    override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
+                        selectedNode = null; selectedWpt = null
+                        return false
                     }
-                    for (w in activeWpts) {
-                        mv.overlays.add(Marker(mv).apply {
-                            position = GeoPoint(w.lat, w.lon)
-                            icon = emojiIcon(mv.context, w.iconText)
-                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                            infoWindow = null
-                            setOnMarkerClickListener { _, _ -> selectedWpt = w.id; selectedNode = null; true }
-                        })
+                    override fun longPressHelper(p: GeoPoint?): Boolean {
+                        if (p != null) newWptAt = p
+                        return true
                     }
-                    for (n in visibleNodes) {
-                        if (n.num == me && fix != null) continue // el propio se dibuja con el GPS
-                        val member = isGroupMember(n, me, hasGroup, since)
-                        mv.overlays.add(Marker(mv).apply {
-                            position = GeoPoint(n.lat!!, n.lon!!)
-                            icon = nodeIcon(
-                                mv.context, n.shortName.ifEmpty { n.id.takeLast(4) },
-                                when {
-                                    n.num == me -> AColor.rgb(25, 118, 210)
-                                    member -> colors.primary.toArgb()
-                                    else -> AColor.GRAY
-                                },
-                                stale = now - n.lastHeard > STALE_S,
-                            )
-                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                            infoWindow = null
-                            setOnMarkerClickListener { _, _ -> selectedNode = n.num; selectedWpt = null; true }
-                        })
-                    }
-                    fix?.let { f ->
-                        mv.overlays.add(Marker(mv).apply {
-                            position = GeoPoint(f.latitude, f.longitude)
-                            icon = meIcon(mv.context)
-                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                            infoWindow = null
-                            setOnMarkerClickListener { _, _ -> me?.let { selectedNode = it }; true }
-                        })
-                    }
-                    mv.invalidate()
-                },
-            )
-            Column(Modifier.align(Alignment.BottomEnd).padding(12.dp), horizontalAlignment = Alignment.End) {
-                if (visibleNodes.isNotEmpty()) {
-                    OutlinedButton(onClick = { fitAll(map, visibleNodes, fix) }) { Text("Ver todos") }
-                    Spacer(Modifier.padding(2.dp))
+                }))
+                mv.overlays.add(scaleBar)
+                if (showTracks) for (n in visibleNodes + listOfNotNull(me?.let { nodes[it] })) {
+                    val pts = tracks[n.num] ?: continue
+                    if (pts.size < 2) continue
+                    val tone = Signal.tone(n, me, isMember(n), now)
+                    mv.overlays.add(Polyline(mv).apply {
+                        setPoints(pts.map { GeoPoint(it.lat, it.lon) })
+                        outlinePaint.color = tone.color().toArgb()
+                        outlinePaint.strokeWidth = dpPx(mv.context, 2.5f)
+                        outlinePaint.alpha = 150
+                        outlinePaint.pathEffect = if (tone == Tone.RELAY || tone == Tone.MUTE)
+                            DashPathEffect(floatArrayOf(dpPx(mv.context, 6f), dpPx(mv.context, 4f)), 0f) else null
+                        infoWindow = null
+                        setOnClickListener { _, _, _ -> selectedNode = n.num; selectedWpt = null; true }
+                    })
                 }
-                Button(onClick = {
-                    fix?.let { map.controller.animateTo(GeoPoint(it.latitude, it.longitude), max(map.zoomLevelDouble, 16.0), 600L) }
-                }, enabled = fix != null) { Text("Centrar en mí") }
+                for (w in activeWpts) {
+                    mv.overlays.add(Marker(mv).apply {
+                        position = GeoPoint(w.lat, w.lon)
+                        icon = waypointIcon(mv.context, w.iconText)
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        infoWindow = null
+                        setOnMarkerClickListener { _, _ -> selectedWpt = w.id; selectedNode = null; true }
+                    })
+                }
+                // Primero los ajenos, arriba los del grupo.
+                val ordered = visibleNodes.sortedBy { if (isMember(it)) 1 else 0 }
+                for (n in ordered) {
+                    if (n.num == me && fix != null) continue // el propio se dibuja con el GPS del teléfono
+                    val tone = Signal.tone(n, me, isMember(n), now)
+                    mv.overlays.add(Marker(mv).apply {
+                        position = GeoPoint(n.lat!!, n.lon!!)
+                        icon = nodeIcon(
+                            mv.context, n.shortName.ifEmpty { n.id.takeLast(4) }, tone.color().toArgb(),
+                            filled = tone != Tone.RELAY && tone != Tone.MUTE, lost = Signal.isLost(n, now),
+                        )
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        infoWindow = null
+                        setOnMarkerClickListener { _, _ -> selectedNode = n.num; selectedWpt = null; true }
+                    })
+                }
+                fix?.let { f ->
+                    mv.overlays.add(Marker(mv).apply {
+                        position = GeoPoint(f.latitude, f.longitude)
+                        icon = meIcon(mv.context)
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        infoWindow = null
+                        setOnMarkerClickListener { _, _ -> me?.let { selectedNode = it; selectedWpt = null }; true }
+                    })
+                }
+                mv.invalidate()
+            },
+        )
+
+        // Marco tipo visor.
+        Box(Modifier.fillMaxSize().padding(6.dp).hudCorners(len = 22.dp))
+
+        // Herramientas.
+        Column(
+            Modifier.align(Alignment.CenterEnd).padding(end = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            HudIconButton("+", onClick = { map.controller.zoomIn() })
+            HudIconButton("−", onClick = { map.controller.zoomOut() })
+            HudIconButton("YO", enabled = fix != null, onClick = {
+                fix?.let { map.controller.animateTo(GeoPoint(it.latitude, it.longitude), max(map.zoomLevelDouble, 16.0), 600L) }
+            })
+            HudIconButton("TODO", enabled = visibleNodes.isNotEmpty(), onClick = { fitAll(map, visibleNodes, fix) })
+            HudIconButton("RAS", active = showTracks, onClick = { showTracks = !showTracks })
+            HudIconButton("REP", active = showOthers, onClick = { showOthers = !showOthers })
+            HudIconButton("CAPA", onClick = { showLayers = true })
+        }
+
+        val bottom = Modifier.align(Alignment.BottomStart).padding(12.dp)
+        when {
+            selectedNode != null && nodes[selectedNode] != null -> {
+                val n = nodes.getValue(selectedNode!!)
+                NodeCard(vm, n, me, isMember(n), fix, now, bottom, onMessage, onClose = { selectedNode = null })
             }
-            if (selectedNode == null && selectedWpt == null) {
-                Text(
-                    "Mantené apretado el mapa para marcar un waypoint.",
-                    Modifier.align(Alignment.TopCenter).padding(8.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurface.copy(alpha = 0.7f),
-                )
-            }
-            selectedNode?.let { num -> nodes[num] }?.let { n ->
-                NodeCard(vm, n, me, fix, Modifier.align(Alignment.BottomStart), onMessage,
-                    onClose = { selectedNode = null })
-            }
-            selectedWpt?.let { waypoints[it] }?.let { w ->
-                WaypointCard(vm, w, nodes, fix, Modifier.align(Alignment.BottomStart), onClose = { selectedWpt = null })
-            }
+            selectedWpt != null && waypoints[selectedWpt] != null ->
+                WaypointCard(vm, waypoints.getValue(selectedWpt!!), nodes, fix, now, bottom, onClose = { selectedWpt = null })
+            else -> Legend(
+                bottom, expanded = showLegend,
+                onToggle = { showLegend = !showLegend; mapPrefs.edit().putBoolean("legend", showLegend).apply() },
+                members = nodes.values.count { isMember(it) && it.num != me },
+                relays = nodes.values.count { !isMember(it) && !it.mute },
+            )
         }
     }
 
-    newWptAt?.let { at ->
-        NewWaypointDialog(vm, at, onDone = { newWptAt = null })
-    }
-    if (showOffline) {
-        OfflineDialog(map, onClose = { showOffline = false })
+    newWptAt?.let { at -> NewWaypointDialog(vm, at, onDone = { newWptAt = null }) }
+    if (showLayers) {
+        LayersDialog(map, dark, onDark = { dark = it; MapTiles.setDarkMap(context, it) }, onClose = { showLayers = false })
     }
 }
 
-private const val STALE_S = 2 * 3600L
+/** Mapa oscuro: invierte el brillo y lo lleva a azules (las rutas quedan marcadas por sus bordes). */
+private val darkFilter = ColorMatrixColorFilter(ColorMatrix().apply {
+    fun row(a: Float, c: Float) = floatArrayOf(-0.299f * a, -0.587f * a, -0.114f * a, 0f, 255f * a + c)
+    set(row(0.33f, 6f) + row(0.55f, 12f) + row(0.78f, 20f) + floatArrayOf(0f, 0f, 0f, 1f, 0f))
+})
+
+@Composable
+private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, members: Int, relays: Int) {
+    HudPanel(modifier.width(210.dp), padding = androidx.compose.foundation.layout.PaddingValues(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            HudLabel("Grupo $members · Rep $relays", Modifier.weight(1f), color = HudCyan)
+            TextButton(onClick = onToggle, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                Text(if (expanded) "–" else "+")
+            }
+        }
+        if (expanded) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                LegendItem(SigGood, "Buena señal")
+                LegendItem(SigFair, "Media / 1 salto")
+                LegendItem(SigWeak, "Mala / perdido")
+                LegendItem(SigRelay, "Repetidor ajeno")
+            }
+            Spacer(Modifier.padding(2.dp))
+            HudLabel("Apretá largo = waypoint")
+        }
+    }
+}
 
 @Composable
 private fun NodeCard(
-    vm: MeshViewModel, n: MeshNode, me: Int?, fix: android.location.Location?, modifier: Modifier,
+    vm: MeshViewModel, n: MeshNode, me: Int?, member: Boolean, fix: Location?, now: Long, modifier: Modifier,
     onMessage: (Int) -> Unit, onClose: () -> Unit,
 ) {
     val tracks by vm.tracks.collectAsState()
-    val now = System.currentTimeMillis() / 1000
-    Surface(modifier.padding(12.dp).width(260.dp), tonalElevation = 6.dp, shadowElevation = 4.dp, shape = MaterialTheme.shapes.medium) {
-        Column(Modifier.padding(12.dp)) {
-            Text("${n.shortName.ifEmpty { "?" }}  ${n.longName.ifEmpty { n.id }}", fontWeight = FontWeight.Bold)
-            val parts = buildList {
-                if (n.num == me) add("este nodo") else add(agoText(now, n.lastHeard))
-                n.hopsAway?.let { add(if (it == 0) "directo" else "$it saltos") }
-                n.battery?.let { add(if (it > 100) "enchufado" else "bat $it%") }
-                if (fix != null && n.num != me && n.lat != null && n.lon != null) {
-                    val (d, b) = PhoneLocation.distanceAndBearing(fix.latitude, fix.longitude, n.lat, n.lon)
-                    add("a ${PhoneLocation.formatDistance(d)} ${PhoneLocation.cardinal(b)}")
-                }
-                tracks[n.num]?.size?.takeIf { it > 1 }?.let { add("rastro: $it puntos") }
+    val tone = Signal.tone(n, me, member, now)
+    val kind = when (tone) {
+        Tone.ME -> "Este nodo"
+        Tone.RELAY -> "Repetidor ajeno"
+        Tone.MUTE -> "Ajeno · no repite"
+        else -> if (Signal.isLost(n, now)) "Grupo · sin noticias" else "Grupo"
+    }
+    HudPanel(modifier.width(280.dp), title = kind, accent = tone.color()) {
+        Text(
+            "${n.shortName.ifEmpty { "?" }}  ${n.longName.ifEmpty { n.id }}",
+            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.padding(3.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (n.num != me) HudStat("Oído", agoText(now, n.lastHeard).removePrefix("hace "))
+            HudStat("Enlace", Signal.describe(n)?.substringBefore(" · ") ?: "—", color = tone.color())
+            n.battery?.let { HudStat("Bat", if (it > 100) "USB" else "$it%") }
+        }
+        val extra = buildList {
+            if (n.hopsAway == 0) n.rssi?.let { add("RSSI $it dBm") }
+            if (fix != null && n.num != me && n.lat != null && n.lon != null) {
+                val (d, b) = PhoneLocation.distanceAndBearing(fix.latitude, fix.longitude, n.lat, n.lon)
+                add("${PhoneLocation.formatDistance(d)} al ${PhoneLocation.cardinal(b)}")
             }
-            Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
-            Row {
-                if (n.num != me) TextButton(onClick = { onMessage(n.num) }) { Text("Mensaje") }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onClose) { Text("Cerrar") }
-            }
+            tracks[n.num]?.size?.takeIf { it > 1 }?.let { add("rastro $it pts") }
+        }
+        if (extra.isNotEmpty()) {
+            Spacer(Modifier.padding(2.dp))
+            HudLabel(extra.joinToString("  ·  "), color = MaterialTheme.colorScheme.onSurface)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (n.num != me) TextButton(onClick = { onMessage(n.num) }) { Text("MENSAJE") }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onClose) { Text("CERRAR") }
         }
     }
 }
 
 @Composable
 private fun WaypointCard(
-    vm: MeshViewModel, w: Wpt, nodes: Map<Int, MeshNode>, fix: android.location.Location?,
+    vm: MeshViewModel, w: Wpt, nodes: Map<Int, MeshNode>, fix: Location?, now: Long,
     modifier: Modifier, onClose: () -> Unit,
 ) {
     var confirm by remember { mutableStateOf(false) }
-    val now = System.currentTimeMillis() / 1000
-    Surface(modifier.padding(12.dp).width(280.dp), tonalElevation = 6.dp, shadowElevation = 4.dp, shape = MaterialTheme.shapes.medium) {
-        Column(Modifier.padding(12.dp)) {
-            Text("${w.iconText}  ${w.name}", fontWeight = FontWeight.Bold)
-            if (w.description.isNotEmpty()) Text(w.description, style = MaterialTheme.typography.bodyMedium)
-            val parts = buildList {
-                val by = nodes[w.from]?.let { it.shortName.ifEmpty { it.id } } ?: if (w.from != 0) "!%08x".format(w.from) else null
-                by?.let { add("de $it") }
-                add(if (w.expire == 0L) "no vence" else "vence ${agoText(w.expire, now).removePrefix("hace ").let { "en $it" }}")
-                if (fix != null) {
-                    val (d, b) = PhoneLocation.distanceAndBearing(fix.latitude, fix.longitude, w.lat, w.lon)
-                    add("a ${PhoneLocation.formatDistance(d)} ${PhoneLocation.cardinal(b)}")
-                }
+    HudPanel(modifier.width(280.dp), title = "Waypoint") {
+        Text("${w.iconText}  ${w.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        if (w.description.isNotEmpty()) Text(w.description, style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.padding(3.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            val by = nodes[w.from]?.let { it.shortName.ifEmpty { it.id } } ?: if (w.from != 0) "!%08x".format(w.from) else "—"
+            HudStat("De", by)
+            HudStat("Vence", if (w.expire == 0L) "nunca" else "en " + agoText(w.expire, now).removePrefix("hace "))
+            if (fix != null) {
+                val (d, b) = PhoneLocation.distanceAndBearing(fix.latitude, fix.longitude, w.lat, w.lon)
+                HudStat("Dist", "${PhoneLocation.formatDistance(d)} ${PhoneLocation.cardinal(b)}")
             }
-            Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
-            Text("%.5f, %.5f".format(w.lat, w.lon), style = MaterialTheme.typography.bodySmall)
-            Row {
-                TextButton(onClick = { confirm = true }) {
-                    Text(if (vm.canDeleteForAll(w)) "Borrar" else "Ocultar", color = MaterialTheme.colorScheme.error)
-                }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onClose) { Text("Cerrar") }
+        }
+        Spacer(Modifier.padding(2.dp))
+        HudLabel("%.5f, %.5f".format(w.lat, w.lon))
+        Row {
+            TextButton(onClick = { confirm = true }) {
+                Text(if (vm.canDeleteForAll(w)) "BORRAR" else "OCULTAR", color = MaterialTheme.colorScheme.error)
             }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onClose) { Text("CERRAR") }
         }
     }
     if (confirm) {
@@ -327,14 +392,14 @@ private fun WaypointCard(
                     else "Lo creó otro nodo: solo se saca de este teléfono."
                 )
             },
-            confirmButton = { TextButton(onClick = { vm.deleteWaypoint(w); confirm = false; onClose() }) { Text("Sí") } },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("No") } },
+            confirmButton = { TextButton(onClick = { vm.deleteWaypoint(w); confirm = false; onClose() }) { Text("SÍ") } },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("NO") } },
         )
     }
 }
 
 private val ICONS = listOf(0x1F4CD, 0x26FA, 0x1F697, 0x1F6B0, 0x26A0, 0x1F3C1, 0x1F6A9, 0x2B50)
-private val EXPIRES = listOf("No vence" to 0L, "1 hora" to 3600L, "1 día" to 86_400L, "1 semana" to 604_800L)
+private val EXPIRES = listOf("Nunca" to 0L, "1 h" to 3600L, "1 día" to 86_400L, "1 sem" to 604_800L)
 
 @Composable
 private fun NewWaypointDialog(vm: MeshViewModel, at: GeoPoint, onDone: () -> Unit) {
@@ -345,11 +410,10 @@ private fun NewWaypointDialog(vm: MeshViewModel, at: GeoPoint, onDone: () -> Uni
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDone,
-        title = { Text("Nuevo waypoint") },
+        title = { Text("NUEVO WAYPOINT") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("%.5f, %.5f".format(at.latitude, at.longitude), style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.padding(4.dp))
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                HudLabel("%.5f, %.5f".format(at.latitude, at.longitude))
                 OutlinedTextField(
                     value = name, singleLine = true, label = { Text("Nombre") },
                     onValueChange = { name = Wpt.fitBytes(it, Wpt.MAX_NAME) },
@@ -358,22 +422,20 @@ private fun NewWaypointDialog(vm: MeshViewModel, at: GeoPoint, onDone: () -> Uni
                     value = desc, label = { Text("Descripción (opcional)") },
                     onValueChange = { desc = Wpt.fitBytes(it, Wpt.MAX_DESCRIPTION) },
                 )
-                Spacer(Modifier.padding(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    for (cp in ICONS) {
-                        val t = String(Character.toChars(cp))
-                        FilterChip(selected = icon == cp, onClick = { icon = cp }, label = { Text(t) })
-                    }
+                HudLabel("Ícono")
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    for (cp in ICONS.take(4)) IconChip(cp, icon == cp) { icon = cp }
                 }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    for (cp in ICONS.drop(4)) IconChip(cp, icon == cp) { icon = cp }
+                }
+                HudLabel("Vence")
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     EXPIRES.forEachIndexed { i, (label, _) ->
                         FilterChip(selected = expire == i, onClick = { expire = i }, label = { Text(label) })
                     }
                 }
-                Text(
-                    "Sale por el canal del grupo. Solo vos lo podés borrar.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                HudLabel("Sale por el canal del grupo · solo vos lo borrás")
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -383,13 +445,18 @@ private fun NewWaypointDialog(vm: MeshViewModel, at: GeoPoint, onDone: () -> Uni
                 val exp = if (secs == 0L) 0L else System.currentTimeMillis() / 1000 + secs
                 error = vm.sendWaypoint(at.latitude, at.longitude, name, desc, icon, exp)
                 if (error == null) onDone()
-            }) { Text("Mandar") }
+            }) { Text("MANDAR") }
         },
-        dismissButton = { TextButton(onClick = onDone) { Text("Cancelar") } },
+        dismissButton = { TextButton(onClick = onDone) { Text("CANCELAR") } },
     )
 }
 
-// ---------- Mapas offline ----------
+@Composable
+private fun IconChip(cp: Int, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(selected = selected, onClick = onClick, label = { Text(String(Character.toChars(cp))) })
+}
+
+// ---------- Capas / mapas offline ----------
 
 private sealed interface DlState {
     data object Idle : DlState
@@ -398,7 +465,7 @@ private sealed interface DlState {
 }
 
 @Composable
-private fun OfflineDialog(map: MapView, onClose: () -> Unit) {
+private fun LayersDialog(map: MapView, dark: Boolean, onDark: (Boolean) -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var files by remember { mutableStateOf(MapTiles.archives(context)) }
@@ -407,10 +474,11 @@ private fun OfflineDialog(map: MapView, onClose: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<String?>(null) }
     var dl by remember { mutableStateOf<DlState>(DlState.Idle) }
-    var cacheBytes by remember { mutableStateOf(cacheSize(context)) }
+    var cacheBytes by remember { mutableLongStateOf(cacheSize(context)) }
 
     fun reload() {
         map.setTileProvider(MapTiles.newProvider(context))
+        map.overlayManager.tilesOverlay.setColorFilter(if (dark) darkFilter else null)
         files = MapTiles.archives(context)
         cacheBytes = cacheSize(context)
     }
@@ -428,57 +496,47 @@ private fun OfflineDialog(map: MapView, onClose: () -> Unit) {
 
     val zoom = map.zoomLevelDouble.toInt().coerceIn(2, 19)
     var maxZoom by remember { mutableIntStateOf(min(zoom + 3, 17)) }
-    val source = map.tileProvider.tileSource
-    val canBulk = MapTiles.canBulkDownload(source)
+    val canBulk = MapTiles.canBulkDownload(map.tileProvider.tileSource)
     val box: BoundingBox = map.boundingBox
-    val tileCount = remember(box, zoom, maxZoom) {
+    val tileCount = remember(zoom, maxZoom) {
         runCatching { CacheManager(map).possibleTilesInArea(box, zoom, max(zoom, maxZoom)) }.getOrDefault(0)
     }
 
     AlertDialog(
         onDismissRequest = { if (dl !is DlState.Running) onClose() },
-        title = { Text("Mapas offline") },
+        title = { Text("CAPAS Y MAPAS OFFLINE") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Usar internet")
-                        Text(
-                            if (online) "Baja lo que mirás y lo guarda" else "Solo caché y archivos importados",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    Switch(checked = online, onCheckedChange = {
-                        online = it
-                        MapTiles.setUseInternet(context, it)
-                        map.setUseDataConnection(it)
-                    })
+                SwitchRow("Mapa oscuro", if (dark) "Estilo HUD" else "Colores normales (mejor a pleno sol)", dark, onDark)
+                SwitchRow(
+                    "Usar internet",
+                    if (online) "Baja lo que mirás y lo guarda" else "Solo caché y archivos importados",
+                    online,
+                ) {
+                    online = it
+                    MapTiles.setUseInternet(context, it)
+                    map.setUseDataConnection(it)
                 }
-                Text("Caché: ${MapTiles.formatSize(cacheBytes)}", style = MaterialTheme.typography.bodySmall)
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                HudLabel("Caché: ${MapTiles.formatSize(cacheBytes)}")
+                HorizontalDivider(Modifier.padding(vertical = 10.dp))
 
-                Text("Archivos .mbtiles", fontWeight = FontWeight.Bold)
-                Text(
-                    "Armalos en la PC (QGIS, MOBAC, mbutil…) y pasalos al teléfono.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                if (files.isEmpty()) Text("Ninguno todavía.", style = MaterialTheme.typography.bodySmall)
+                HudLabel("Archivos .mbtiles", color = HudCyan)
+                Text("Armalos en la PC (QGIS, MOBAC, mbutil…) y pasalos al teléfono.", style = MaterialTheme.typography.bodySmall)
+                if (files.isEmpty()) HudLabel("Ninguno todavía")
                 for (f in files) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("${f.name} (${MapTiles.formatSize(f.length())})", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { MapTiles.delete(f); reload() }) {
-                            Text("Quitar", color = MaterialTheme.colorScheme.error)
-                        }
+                        TextButton(onClick = { MapTiles.delete(f); reload() }) { Text("QUITAR", color = MaterialTheme.colorScheme.error) }
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !busy) { Text("Importar .mbtiles") }
+                    HudOutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !busy) { Text("IMPORTAR .MBTILES") }
                     if (busy) { Spacer(Modifier.width(8.dp)); CircularProgressIndicator(Modifier.padding(4.dp)) }
                 }
                 msg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(Modifier.padding(vertical = 10.dp))
 
-                Text("Servidor de tiles", fontWeight = FontWeight.Bold)
+                HudLabel("Servidor de tiles", color = HudCyan)
                 OutlinedTextField(
                     value = url, singleLine = true,
                     onValueChange = { url = it },
@@ -490,10 +548,10 @@ private fun OfflineDialog(map: MapView, onClose: () -> Unit) {
                 TextButton(
                     onClick = { MapTiles.setCustomUrl(context, url); reload() },
                     enabled = urlOk && url.trim() != MapTiles.customUrl(context),
-                ) { Text("Usar este servidor") }
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                ) { Text("USAR ESTE SERVIDOR") }
+                HorizontalDivider(Modifier.padding(vertical = 10.dp))
 
-                Text("Descargar la zona visible", fontWeight = FontWeight.Bold)
+                HudLabel("Descargar la zona visible", color = HudCyan)
                 if (!canBulk) {
                     Text(
                         "OpenStreetMap no permite bajar zonas enteras. Con OSM se guarda lo que vas " +
@@ -502,7 +560,7 @@ private fun OfflineDialog(map: MapView, onClose: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                     )
                 } else {
-                    Text("Zoom $zoom a $maxZoom", style = MaterialTheme.typography.bodySmall)
+                    HudLabel("Zoom $zoom a $maxZoom")
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         for (z in (zoom..min(zoom + 5, 19))) {
                             FilterChip(selected = maxZoom == z, onClick = { maxZoom = z }, label = { Text("$z") })
@@ -520,16 +578,15 @@ private fun OfflineDialog(map: MapView, onClose: () -> Unit) {
                                 progress = { if (d.total > 0) d.done / d.total.toFloat() else 0f },
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             )
-                            Text("${d.done} / ${d.total}", style = MaterialTheme.typography.bodySmall)
+                            HudLabel("${d.done} / ${d.total}")
                         }
                         is DlState.Finished -> Text(d.text, style = MaterialTheme.typography.bodySmall)
                         DlState.Idle -> Unit
                     }
-                    Button(
+                    HudButton(
                         onClick = {
-                            val mgr = CacheManager(map)
                             dl = DlState.Running(0, tileCount)
-                            mgr.downloadAreaAsyncNoUI(context, box, zoom, maxZoom, object : CacheManager.CacheManagerCallback {
+                            CacheManager(map).downloadAreaAsyncNoUI(context, box, zoom, maxZoom, object : CacheManager.CacheManagerCallback {
                                 override fun onTaskComplete() { dl = DlState.Finished("Zona guardada."); cacheBytes = cacheSize(context) }
                                 override fun onTaskFailed(errors: Int) { dl = DlState.Finished("Terminó con $errors tiles fallidos."); cacheBytes = cacheSize(context) }
                                 override fun updateProgress(progress: Int, currentZoomLevel: Int, zoomMin: Int, zoomMax: Int) {
@@ -540,15 +597,24 @@ private fun OfflineDialog(map: MapView, onClose: () -> Unit) {
                             })
                         },
                         enabled = online && !tooMany && tileCount > 0 && dl !is DlState.Running,
-                    ) { Text("Descargar") }
+                    ) { Text("DESCARGAR") }
                     if (!online) Text("Prendé \"Usar internet\" para descargar.", style = MaterialTheme.typography.bodySmall)
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onClose, enabled = dl !is DlState.Running) { Text("Listo") }
-        },
+        confirmButton = { TextButton(onClick = onClose, enabled = dl !is DlState.Running) { Text("LISTO") } },
     )
+}
+
+@Composable
+private fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
 }
 
 private fun cacheSize(ctx: Context): Long =
@@ -565,7 +631,7 @@ private fun restoreCamera(ctx: Context, mv: MapView, fallback: GeoPoint?) {
         mv.controller.setZoom(15.0)
         mv.controller.setCenter(fallback)
     } else {
-        // Sin nada: Argentina.
+        // Sin nada todavía: Argentina.
         mv.controller.setZoom(4.0)
         mv.controller.setCenter(GeoPoint(-38.4, -63.6))
     }
@@ -580,7 +646,7 @@ private fun saveCamera(ctx: Context, mv: MapView) {
         .apply()
 }
 
-private fun fitAll(mv: MapView, nodes: List<MeshNode>, fix: android.location.Location?) {
+private fun fitAll(mv: MapView, nodes: List<MeshNode>, fix: Location?) {
     val pts = nodes.mapNotNull { n -> if (n.lat != null && n.lon != null) GeoPoint(n.lat, n.lon) else null } +
         listOfNotNull(fix?.let { GeoPoint(it.latitude, it.longitude) })
     if (pts.isEmpty()) return
@@ -588,67 +654,85 @@ private fun fitAll(mv: MapView, nodes: List<MeshNode>, fix: android.location.Loc
         mv.controller.animateTo(pts[0], max(mv.zoomLevelDouble, 15.0), 600L)
         return
     }
-    val bb = BoundingBox.fromGeoPointsSafe(pts)
-    mv.zoomToBoundingBox(bb.increaseByScale(1.3f), true, 64)
+    // Margen amplio: abajo están la leyenda/ficha y a la derecha las herramientas.
+    mv.zoomToBoundingBox(BoundingBox.fromGeoPointsSafe(pts).increaseByScale(1.7f), true, 96)
 }
 
 // ---------- Íconos ----------
 
 private val iconCache = HashMap<String, BitmapDrawable>()
 
-private fun dp(ctx: Context, v: Float) = v * ctx.resources.displayMetrics.density
+private fun dpPx(ctx: Context, v: Float) = v * ctx.resources.displayMetrics.density
 
-/** Círculo con el nombre corto del nodo. */
-private fun nodeIcon(ctx: Context, label: String, color: Int, stale: Boolean): BitmapDrawable =
-    iconCache.getOrPut("n:$label:$color:$stale") {
-        val size = dp(ctx, 34f).toInt()
+/**
+ * Marcador de nodo estilo HUD: anillo de color con el nombre corto adentro.
+ * Los del grupo llevan un relleno tenue del color; los ajenos, anillo solo.
+ * Perdido = anillo punteado y apagado.
+ */
+private fun nodeIcon(ctx: Context, label: String, color: Int, filled: Boolean, lost: Boolean): BitmapDrawable =
+    iconCache.getOrPut("n:$label:$color:$filled:$lost") {
+        val size = dpPx(ctx, 40f).toInt()
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         val r = size / 2f
-        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; alpha = if (stale) 120 else 255 }
-        val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = AColor.WHITE; style = Paint.Style.STROKE; strokeWidth = dp(ctx, 2.5f) }
-        c.drawCircle(r, r, r - dp(ctx, 2f), fill)
-        c.drawCircle(r, r, r - dp(ctx, 2f), ring)
+        val ringR = r - dpPx(ctx, 5f)
+        val alpha = if (lost) 130 else 255
+        // halo
+        c.drawCircle(r, r, r - dpPx(ctx, 1f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color; this.alpha = if (lost) 20 else 45
+        })
+        // fondo oscuro
+        c.drawCircle(r, r, ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = android.graphics.Color.argb(225, 5, 9, 13) })
+        if (filled) c.drawCircle(r, r, ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; this.alpha = if (lost) 25 else 55 })
+        // anillo
+        c.drawCircle(r, r, ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color; this.alpha = alpha
+            style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 2.5f)
+            if (lost) pathEffect = DashPathEffect(floatArrayOf(dpPx(ctx, 4f), dpPx(ctx, 3f)), 0f)
+        })
         val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = AColor.WHITE
-            typeface = Typeface.DEFAULT_BOLD
+            this.color = color; this.alpha = alpha
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             textAlign = Paint.Align.CENTER
-            textSize = dp(ctx, if (label.length <= 2) 14f else 10.5f)
+            textSize = dpPx(ctx, if (label.length <= 2) 13f else 9.5f)
         }
         c.drawText(label.take(4), r, r - (text.descent() + text.ascent()) / 2, text)
         BitmapDrawable(ctx.resources, bmp)
     }
 
-/** Punto azul del teléfono. */
+/** El teléfono: punto cian con retícula. */
 private fun meIcon(ctx: Context): BitmapDrawable = iconCache.getOrPut("me") {
-    val size = dp(ctx, 22f).toInt()
+    val size = dpPx(ctx, 34f).toInt()
     val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
     val r = size / 2f
-    c.drawCircle(r, r, r, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AColor.WHITE })
-    c.drawCircle(r, r, r - dp(ctx, 3f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AColor.rgb(25, 118, 210) })
+    val cyan = HudCyan.toArgb()
+    c.drawCircle(r, r, r - dpPx(ctx, 1f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; alpha = 40 })
+    val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; strokeWidth = dpPx(ctx, 1.5f) }
+    val g = dpPx(ctx, 7f)
+    c.drawLine(r, 0f, r, g, line); c.drawLine(r, size - g, r, size.toFloat(), line)
+    c.drawLine(0f, r, g, r, line); c.drawLine(size - g, r, size.toFloat(), r, line)
+    c.drawCircle(r, r, dpPx(ctx, 6f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
+    c.drawCircle(r, r, dpPx(ctx, 4.5f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan })
     BitmapDrawable(ctx.resources, bmp)
 }
 
-/** Emoji del waypoint sobre un pin chico. */
-private fun emojiIcon(ctx: Context, emoji: String): BitmapDrawable = iconCache.getOrPut("w:$emoji") {
-    val size = dp(ctx, 36f).toInt()
-    val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+/** Emoji del waypoint sobre una base chica. */
+private fun waypointIcon(ctx: Context, emoji: String): BitmapDrawable = iconCache.getOrPut("w:$emoji") {
+    val w = dpPx(ctx, 34f).toInt()
+    val h = dpPx(ctx, 42f).toInt()
+    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
-    val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = dp(ctx, 26f); textAlign = Paint.Align.CENTER }
-    c.drawText(emoji, size / 2f, size - p.descent(), p)
+    val cyan = HudCyan.toArgb()
+    val cx = w / 2f
+    c.drawLine(cx, h - dpPx(ctx, 10f), cx, h.toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; strokeWidth = dpPx(ctx, 2f) })
+    c.drawCircle(cx, h - dpPx(ctx, 1.5f), dpPx(ctx, 2f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan })
+    val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = dpPx(ctx, 24f); textAlign = Paint.Align.CENTER }
+    c.drawText(emoji, cx, h - dpPx(ctx, 12f) - p.descent(), p)
     BitmapDrawable(ctx.resources, bmp)
 }
 
-/** Un color por nodo para distinguir rastros; el propio, azul. */
-private fun trackColor(num: Int, me: Int?, primary: Int): Int {
-    if (num == me) return AColor.rgb(25, 118, 210)
-    val palette = intArrayOf(primary, AColor.rgb(216, 67, 21), AColor.rgb(46, 125, 50),
-        AColor.rgb(123, 31, 162), AColor.rgb(0, 131, 143), AColor.rgb(249, 168, 37))
-    return palette[(num.toLong() and 0xffffffffL).rem(palette.size).toInt()]
-}
-
-private fun agoText(now: Long, t: Long): String {
+fun agoText(now: Long, t: Long): String {
     if (t == 0L) return "nunca oído"
     val s = (now - t).coerceAtLeast(0)
     return when {

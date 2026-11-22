@@ -69,6 +69,14 @@ object MapTiles {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("online", on).apply()
     }
 
+    /** Estilo HUD oscuro (filtro de color sobre los tiles). */
+    fun darkMap(ctx: Context): Boolean =
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("dark", true)
+
+    fun setDarkMap(ctx: Context, on: Boolean) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("dark", on).apply()
+    }
+
     fun tileSource(ctx: Context): OnlineTileSourceBase {
         val url = customUrl(ctx)
         return if (isValidTemplate(url)) TemplateTileSource(url) else TileSourceFactory.MAPNIK

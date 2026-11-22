@@ -1,7 +1,12 @@
 package io.github.protohommer.meshpaper.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.CutCornerShape
+import io.github.protohommer.meshpaper.ui.theme.HudCyan
+import io.github.protohommer.meshpaper.ui.theme.SigFair
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,7 +71,7 @@ fun convTitle(vm: MeshViewModel, key: String): String = when (val c = Conv.parse
 
 /** Lista de conversaciones: los canales activos primero, después los DM con mensajes. */
 @Composable
-fun ChatsScreen(vm: MeshViewModel, onOpen: (String) -> Unit, onBack: () -> Unit) {
+fun ChatsScreen(vm: MeshViewModel, onOpen: (String) -> Unit) {
     val msgs by vm.messages.collectAsState()
     val channels by vm.channels.collectAsState()
     val lastRead by vm.lastRead.collectAsState()
@@ -77,35 +82,34 @@ fun ChatsScreen(vm: MeshViewModel, onOpen: (String) -> Unit, onBack: () -> Unit)
         .sortedByDescending { k -> msgs.lastOrNull { it.conv == k }?.time ?: 0 }
     val keys = channelKeys + dmKeys + msgs.map { it.conv }.distinct().filter { it !in channelKeys && it !in dmKeys }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        TextButton(onClick = onBack) { Text("← Volver") }
-        Text("Mensajes", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.padding(4.dp))
-        LazyColumn {
+    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+        HudHeader("Mensajes")
+        LazyColumn(Modifier.weight(1f)) {
             items(keys, key = { it }) { k ->
                 val last = msgs.lastOrNull { it.conv == k }
                 val unread = msgs.count { it.conv == k && !it.mine && it.time > (lastRead[k] ?: 0) }
+                val isDm = k.startsWith("dm:")
                 Row(
                     Modifier.fillMaxWidth().clickable { onOpen(k) }.padding(vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    Box(Modifier.width(3.dp).height(34.dp).background(if (isDm) SigFair else HudCyan))
+                    Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(convTitle(vm, k), fontWeight = FontWeight.Bold)
+                        Text(convTitle(vm, k), fontWeight = FontWeight.SemiBold)
                         Text(
                             last?.let { (if (it.mine) "Vos: " else "") + it.text } ?: "Sin mensajes",
                             style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    if (unread > 0) Badge { Text("$unread") }
+                    if (last != null) HudLabel(timeFmt.format(Date(last.time * 1000)))
+                    if (unread > 0) { Spacer(Modifier.width(8.dp)); Badge(containerColor = SigFair) { Text("$unread") } }
                 }
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
             }
         }
-        Spacer(Modifier.padding(4.dp))
-        Text(
-            "Para un mensaje directo, tocá un nodo en la lista.",
-            style = MaterialTheme.typography.bodySmall,
-        )
+        HudLabel("Mensaje directo: tocá un nodo en el mapa o en NODOS", Modifier.padding(vertical = 10.dp))
     }
 }
 
@@ -125,11 +129,7 @@ fun ChatScreen(vm: MeshViewModel, conv: String, onBack: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize().imePadding().padding(horizontal = 12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("←") }
-            Text(convTitle(vm, conv), style = MaterialTheme.typography.titleMedium, maxLines = 1,
-                overflow = TextOverflow.Ellipsis)
-        }
+        HudHeader(convTitle(vm, conv), onBack = onBack)
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(msgs, key = { "${it.from}:${it.id}" }) { m ->
                 val sender = if (m.mine) null else nodes[m.from]?.let { n ->
@@ -153,13 +153,13 @@ fun ChatScreen(vm: MeshViewModel, conv: String, onBack: () -> Unit) {
                 maxLines = 4,
             )
             Spacer(Modifier.width(8.dp))
-            Button(
+            HudButton(
                 onClick = {
                     val why = vm.sendText(conv, text)
                     if (why == null) text = "" else error = why
                 },
                 enabled = text.isNotBlank() && bytes <= MAX_TEXT_BYTES,
-            ) { Text("Enviar") }
+            ) { Text("ENVIAR") }
         }
     }
 }
@@ -168,16 +168,22 @@ private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
 
 @Composable
 private fun Bubble(m: ChatMsg, sender: String?, onRetry: () -> Unit) {
-    val bg = if (m.mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-    val fg = if (m.mine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+    val bg = if (m.mine) HudCyan.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant
+    val fg = MaterialTheme.colorScheme.onSurface
+    val edge = when (m.status) {
+        MsgStatus.FAILED -> MaterialTheme.colorScheme.error
+        else -> if (m.mine) HudCyan.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline
+    }
+    val shape = if (m.mine) CutCornerShape(topStart = 10.dp, bottomEnd = 10.dp) else CutCornerShape(topEnd = 10.dp, bottomStart = 10.dp)
     Box(Modifier.fillMaxWidth(), contentAlignment = if (m.mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Column(
             Modifier.widthIn(max = 300.dp)
-                .background(bg, RoundedCornerShape(12.dp))
+                .background(bg, shape)
+                .border(1.dp, edge, shape)
                 .then(if (m.status == MsgStatus.FAILED) Modifier.clickable(onClick = onRetry) else Modifier)
                 .padding(horizontal = 10.dp, vertical = 6.dp),
         ) {
-            sender?.let { Text(it, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = fg) }
+            sender?.let { Text(it, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = HudCyan) }
             Text(m.text, color = fg)
             val status = when (m.status) {
                 MsgStatus.RECEIVED -> ""

@@ -62,9 +62,7 @@ fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row {
-            TextButton(onClick = { if (mode == Mode.Menu) onBack() else mode = Mode.Menu }) { Text("← Volver") }
-        }
+        HudHeader("Grupo", onBack = if (mode == Mode.Menu) null else ({ mode = Mode.Menu }))
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
         when (mode) {
@@ -80,7 +78,7 @@ fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
                                 "Para seguir al grupo en el campo conviene cada 5 min, o antes si te movés 25 m.",
                             style = MaterialTheme.typography.bodySmall,
                         )
-                        OutlinedButton(onClick = { vm.applyTracking(); onBack() }, Modifier.fillMaxWidth()) {
+                        HudOutlinedButton(onClick = { vm.applyTracking(); onBack() }, Modifier.fillMaxWidth()) {
                             Text("Ajustar el nodo para rastreo")
                         }
                     }
@@ -88,12 +86,12 @@ fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
                     Text("Este nodo no tiene grupo privado", style = MaterialTheme.typography.titleLarge)
                     Text("Hoy usa el canal público como principal: lo que mandes (incluida tu posición) lo puede leer cualquiera.")
                 }
-                Button(onClick = { mode = Mode.Create }, Modifier.fillMaxWidth()) { Text("Crear grupo nuevo") }
-                OutlinedButton(onClick = {
+                HudButton(onClick = { mode = Mode.Create }, Modifier.fillMaxWidth()) { Text("Crear grupo nuevo") }
+                HudOutlinedButton(onClick = {
                     scan.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                         .setPrompt("Apuntá al QR del grupo").setBeepEnabled(false).setOrientationLocked(false))
                 }, Modifier.fillMaxWidth()) { Text("Unirme escaneando QR") }
-                OutlinedButton(onClick = { mode = Mode.Join }, Modifier.fillMaxWidth()) { Text("Unirme pegando el link") }
+                HudOutlinedButton(onClick = { mode = Mode.Join }, Modifier.fillMaxWidth()) { Text("Unirme pegando el link") }
             }
 
             Mode.Create -> {
@@ -107,7 +105,7 @@ fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Button(
+                HudButton(
                     onClick = { pending = vm.newGroup(name); mode = Mode.Review },
                     enabled = name.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
@@ -122,7 +120,7 @@ fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
                     label = { Text("https://meshtastic.org/e/#…") },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Button(onClick = {
+                HudButton(onClick = {
                     val set = Group.fromUrl(text)
                     if (set == null) error = "Ese link no es un grupo de Meshtastic."
                     else { pending = set; mode = Mode.Review; error = null }
@@ -136,7 +134,7 @@ fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
                     "Se reemplazan los canales del nodo y su radio. El nodo se reinicia y la app se reconecta sola.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                Button(onClick = { vm.applyChannelSet(set); onBack() }, Modifier.fillMaxWidth()) {
+                HudButton(onClick = { vm.applyChannelSet(set); onBack() }, Modifier.fillMaxWidth()) {
                     Text("Aplicar al nodo")
                 }
             }
@@ -183,7 +181,7 @@ private fun QrCard(url: String) {
         Column(Modifier.padding(12.dp)) {
             Image(bmp.asImageBitmap(), contentDescription = "QR del grupo", Modifier.size(300.dp))
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = {
+            HudOutlinedButton(onClick = {
                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url)
                 context.startActivity(Intent.createChooser(send, "Compartir grupo"))
             }) { Text("Compartir link") }

@@ -69,6 +69,8 @@ data class MeshNode(
     val lat: Double?,
     val lon: Double?,
     val channel: Int,         // índice local del canal en que lo oímos (0 = primario)
+    val rssi: Int? = null,    // del último paquete que llegó directo (0 saltos)
+    val mute: Boolean = false, // rol CLIENT_MUTE: no repite, no aporta cobertura
 )
 
 /**
@@ -179,7 +181,43 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     val bluetoothOn: Boolean get() = adapter?.isEnabled == true
 
     init {
-        viewModelScope.launch { link.collect { updateLocationUpdates() } }
+        viewModelScope.launch {
+            link.collect {
+                updateLocationUpdates()
+                if (it == LinkState.Connected) lastDevice?.let { d -> prefs.edit().putString("lastDevice", d.address).apply() }
+            }
+        }
+    }
+
+    /** Nombre del último nodo al que nos conectamos (para el botón "Reconectar"). */
+    fun lastDeviceName(): String? = lastBonded()?.let { runCatching { it.name }.getOrNull() ?: it.address }
+
+    /**
+     * El último nodo al que nos conectamos. Si no hay uno guardado, un emparejado que tenga en
+     * caché el servicio de Meshtastic.
+     */
+    private fun lastBonded(): BluetoothDevice? = runCatching {
+        val bonded = adapter?.bondedDevices.orEmpty()
+        val addr = prefs.getString("lastDevice", null)
+        if (addr != null) bonded.firstOrNull { it.address == addr }
+        else bonded.firstOrNull { d -> d.uuids?.any { it.uuid == MeshUuids.SERVICE } == true }
+    }.getOrNull()
+
+    private var autoTried = false
+
+    /** Al abrir la app: reconecta solo al último nodo emparejado (una vez). */
+    fun autoConnect() {
+        if (autoTried) return
+        autoTried = true
+        if (link.value == LinkState.Disconnected) reconnectLast()
+    }
+
+    /** Reconecta al último nodo, si sigue emparejado. Devuelve false si no hay a cuál. */
+    fun reconnectLast(): Boolean {
+        val d = lastBonded() ?: return false
+        stopScan()
+        connectDevice(d)
+        return true
     }
 
     fun setSharePosition(on: Boolean) {
@@ -732,17 +770,24 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         val user = if (p.hasDecoded() && p.decoded.portnum == PortNum.NODEINFO_APP) {
             try { MeshProtos.User.parseFrom(p.decoded.payload) } catch (e: Exception) { null }
         } else null
+        // Saltos: hop_start - hop_limit. hop_start == 0 = firmware viejo o desconocido.
+        val hops = if (p.hopStart != 0 && p.hopStart >= p.hopLimit) p.hopStart - p.hopLimit else null
+        val direct = hops == 0
         _nodes.update { map ->
             val old = map[from] ?: MeshNode(
                 from, "!%08x".format(from), "", "", 0, 0f, null, null, null, null, p.channel,
             )
             map + (from to old.copy(
                 lastHeard = t,
-                snr = if (p.rxSnr != 0f) p.rxSnr else old.snr,
+                hopsAway = hops ?: old.hopsAway,
+                // SNR/RSSI de un paquete repetido son del repetidor, no del nodo: solo si llegó directo.
+                snr = if (direct && p.rxSnr != 0f) p.rxSnr else old.snr,
+                rssi = if (direct && p.hasRxRssi()) p.rxRssi else old.rssi,
                 channel = p.channel,
                 longName = user?.longName?.ifEmpty { null } ?: old.longName,
                 shortName = user?.shortName?.ifEmpty { null } ?: old.shortName,
                 id = user?.id?.ifEmpty { null } ?: old.id,
+                mute = user?.let { it.role == Config.DeviceConfig.Role.CLIENT_MUTE } ?: old.mute,
             ))
         }
     }
@@ -780,6 +825,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             lat = if (n.position.hasLatitudeI()) n.position.latitudeI / 1e7 else null,
             lon = if (n.position.hasLongitudeI()) n.position.longitudeI / 1e7 else null,
             channel = n.channel,
+            mute = n.user.role == Config.DeviceConfig.Role.CLIENT_MUTE,
         )
         _nodes.update { it + (n.num to node) }
         if (node.lat != null && node.lon != null && n.num != _myNodeNum.value &&

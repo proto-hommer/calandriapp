@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.MeshPaper" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Oscuro desde el arranque: sin fogonazo blanco antes de que cargue Compose. -->
+    <style name="Theme.MeshPaper" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/hud_bg</item>
+        <item name="android:colorBackground">@color/hud_bg</item>
+    </style>
 </resources>
