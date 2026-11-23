@@ -12,7 +12,7 @@ CalandriApp
 **Una app Android chica y propia para usar nodos Meshtastic en el campo: mensajes, mapa offline y
 seguimiento de un grupo cerrado, sin cuentas, sin nube y sin internet.**
 
-Versión **1.2.1** | Android 8 o más nuevo | *powered by Meshtastic®*
+Versión **1.3.1** | Android 8 o más nuevo | *powered by Meshtastic®*
 
 [![Descargar APK](https://img.shields.io/github/v/release/proto-hommer/calandriapp?label=descargar%20APK&color=2ea44f)](https://github.com/proto-hommer/calandriapp/releases/latest)
 
@@ -43,6 +43,8 @@ de Meshtastic. **No es un fork de la app oficial**: es una app más simple, hech
 trabajo de campo con un grupo cerrado:
 
 - **Mensajes** al grupo, al canal público y directos, con confirmación de entrega y reintento.
+- **Avisos de mensajes nuevos**: un cartel dentro de la app y notificaciones con la app cerrada o la
+  pantalla apagada (la conexión sigue en segundo plano y se reconecta sola si se corta).
 - **Mapa offline** con los nodos del grupo, su rastro y los waypoints (se crean con un toque largo
   y llegan los de los demás).
 - **Colores que se leen de un vistazo**:
@@ -60,7 +62,8 @@ trabajo de campo con un grupo cerrado:
   con lo bajado en verde, lo que se está bajando en amarillo y lo que falta en rojo. Se elige qué
   cuadrantes bajar y se baja todo junto: el relieve y, si la fuente lo permite, el mapa.
 - **Grupo cerrado en dos toques**: crea un canal privado con clave AES-256 y lo comparte por QR
-  (el formato estándar de Meshtastic, así que sirve también con la app oficial).
+  (el formato estándar de Meshtastic, así que sirve también con la app oficial). El nombre del grupo
+  se puede cambiar después (los demás vuelven a escanear el QR).
 - **Posición del celular** al grupo a través del nodo, para nodos sin GPS.
 - **Ajustes del nodo conectado**: nombre, rol, posición, radio, canales, reinicio.
 
@@ -91,7 +94,7 @@ sin cuentas, sin nube ni servicios de Google: todo queda en el teléfono.
 Descargar e instalar
 --------------------
 
-1. Bajá el `CalandriApp-1.2.1.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
+1. Bajá el `CalandriApp-1.3.1.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
 2. Abrilo en el celular. Android va a pedir permiso para **instalar apps de origen desconocido**:
    dáselo al navegador o al gestor de archivos con el que lo abriste.
 3. Abrí CalandriApp, dale los permisos de **Bluetooth** y **ubicación**, tocá **BUSCAR** y
