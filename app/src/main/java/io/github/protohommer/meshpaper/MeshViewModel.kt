@@ -71,15 +71,18 @@ data class MeshNode(
     val channel: Int?,        // índice local del canal en que lo oímos (0 = primario); null = sin prueba
     val rssi: Int? = null,    // del último paquete que llegó directo (0 saltos)
     val mute: Boolean = false, // rol CLIENT_MUTE: no repite, no aporta cobertura
+    val group: Boolean = false, // alguna vez lo oímos (con prueba) por el canal privado: tiene la clave
 )
 
 /**
- * ¿Es del grupo? Lo oímos por el canal privado (índice 0) después de armar el grupo.
+ * ¿Es del grupo? Alguna vez lo oímos por el canal privado (índice 0) después de armar el grupo.
  * El resto de los nodos solo sirven de repetidores. El canal tiene que estar probado
- * (ver [channelProof] y [MeshViewModel.upsert]): un 0 sin prueba no cuenta.
+ * (ver [channelProof] y [MeshViewModel.upsert]): un 0 sin prueba no cuenta. Es "pegajoso":
+ * un miembro que tiene el público como primario manda su NodeInfo y telemetría por el público,
+ * pero si alguna vez habló por el privado, tiene la clave.
  */
 fun isGroupMember(n: MeshNode, me: Int?, hasGroup: Boolean, since: Long): Boolean =
-    n.num == me || (hasGroup && n.channel == 0 && n.lastHeard > 0 && n.lastHeard >= since)
+    n.num == me || (hasGroup && n.group && n.lastHeard > 0 && n.lastHeard >= since)
 
 /**
  * Canal que un paquete prueba para su emisor, o null si no prueba nada. Dos casos traen
@@ -115,6 +118,9 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _nodes = MutableStateFlow<Map<Int, MeshNode>>(emptyMap())
     val nodes: StateFlow<Map<Int, MeshNode>> = _nodes
+
+    /** Nodos que alguna vez oímos por el canal privado. Se guarda por nodo propio y se borra al cambiar el grupo. */
+    @Volatile private var groupNums: Set<Int> = emptySet()
 
     /** Canales del nodo, por índice (solo los activos). */
     private val _channels = MutableStateFlow<Map<Int, Channel>>(emptyMap())
@@ -401,8 +407,23 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             sendAdmin(me, AdminMessage.newBuilder().setSetConfig(Config.newBuilder().setPosition(pos)).build())
         }
         val now = System.currentTimeMillis() / 1000
-        prefs.edit().putLong("groupSince", now).apply()
+        prefs.edit().putLong("groupSince", now).remove(groupKey(me)).apply()
         _groupSince.value = now
+        groupNums = emptySet()
+        _nodes.update { m -> m.mapValues { it.value.copy(group = false) } }
+    }
+
+    private fun groupKey(me: Int) = "group:%08x".format(me)
+
+    private fun loadGroup(me: Int): Set<Int> =
+        prefs.getStringSet(groupKey(me), emptySet()).orEmpty().mapNotNull { it.toLongOrNull(16)?.toInt() }.toSet()
+
+    /** Anota un miembro probado (y lo guarda, para que siga siéndolo al reconectar). */
+    private fun markGroup(num: Int) {
+        if (num in groupNums) return
+        groupNums = groupNums + num
+        val me = _myNodeNum.value ?: return
+        prefs.edit().putStringSet(groupKey(me), groupNums.map { "%08x".format(it) }.toSet()).apply()
     }
 
     /** ¿El nodo ya tiene la config de posición para rastreo? (null = todavía no la leímos) */
@@ -761,6 +782,11 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         if (_myNodeNum.value == num && _messages.value.isNotEmpty()) return
         _myNodeNum.value = num
         _messages.value = store.load(num)
+        // Los mensajes guardados del canal privado también prueban que el emisor tiene la clave.
+        val since = _groupSince.value
+        groupNums = loadGroup(num) + _messages.value
+            .filter { !it.mine && it.conv == Conv.Channel(0).key && it.time >= since && it.from != num }
+            .map { it.from }
         _tracks.value = trackStore.load(num)
         _waypoints.value = waypointStore.load(num)
         _lastRead.value = _messages.value.map { it.conv }.distinct()
@@ -786,6 +812,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         val hops = if (p.hopStart != 0 && p.hopStart >= p.hopLimit) p.hopStart - p.hopLimit else null
         val direct = hops == 0
         val channel = channelProof(p)
+        if (channel == 0) markGroup(from)
         _nodes.update { map ->
             val old = map[from] ?: MeshNode(
                 from, "!%08x".format(from), "", "", 0, 0f, null, null, null, null, channel,
@@ -801,6 +828,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 shortName = user?.shortName?.ifEmpty { null } ?: old.shortName,
                 id = user?.id?.ifEmpty { null } ?: old.id,
                 mute = user?.let { it.role == Config.DeviceConfig.Role.CLIENT_MUTE } ?: old.mute,
+                group = from in groupNums,
             ))
         }
     }
@@ -814,7 +842,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             val old = map[from] ?: MeshNode(
                 from, "!%08x".format(from), "", "", 0, 0f, null, null, null, null, channelProof(p),
             )
-            map + (from to old.copy(lat = pos.latitudeI / 1e7, lon = pos.longitudeI / 1e7))
+            map + (from to old.copy(lat = pos.latitudeI / 1e7, lon = pos.longitudeI / 1e7, group = from in groupNums))
         }
         val t = when {
             pos.time != 0 -> pos.time.toLong() and 0xffffffffL
@@ -826,6 +854,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun upsert(n: NodeInfo) {
+        if (n.hasUser() && n.channel == 0 && n.num != _myNodeNum.value) markGroup(n.num)
         val node = MeshNode(
             num = n.num,
             id = n.user.id.ifEmpty { "!%08x".format(n.num) },
@@ -841,6 +870,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             // por defecto, aunque lo hayamos oído por el público. Ese 0 no prueba nada.
             channel = if (n.hasUser()) n.channel else _nodes.value[n.num]?.channel,
             mute = n.user.role == Config.DeviceConfig.Role.CLIENT_MUTE,
+            group = n.num in groupNums,
         )
         _nodes.update { it + (n.num to node) }
         if (node.lat != null && node.lon != null && n.num != _myNodeNum.value &&
