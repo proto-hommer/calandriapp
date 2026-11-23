@@ -692,7 +692,7 @@ private fun NodeRow(
                 }
                 if (!member && n.mute) add("no repite")
             }
-            HudLabel(parts.joinToString(" · "))
+            HudLabel(parts.joinToString(" · ") { it.replace(' ', '\u00A0') }, maxLines = 2)
         }
         if (n.num != me) {
             Spacer(Modifier.width(8.dp))

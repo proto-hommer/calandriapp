@@ -42,7 +42,11 @@ val RouteColor = NeonCopper
 
 /** Panel de arriba mientras se navega: destino, lo que falta, medio y estado de la ruta. */
 @Composable
-fun NavPanel(s: Nav.State, modifier: Modifier = Modifier, onCenter: () -> Unit) {
+fun NavPanel(
+    s: Nav.State, modifier: Modifier = Modifier, onCenter: () -> Unit,
+    /** "Guardar el camino": baja relieve (y mapa, si la fuente deja) de los cuadrantes de la ruta. */
+    onSave: (() -> Unit)? = null, saving: String? = null,
+) {
     val tight = PaddingValues(horizontal = 6.dp)
     HudPanel(modifier.width(300.dp), title = "Ir a", accent = RouteColor, padding = PaddingValues(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -71,12 +75,17 @@ fun NavPanel(s: Nav.State, modifier: Modifier = Modifier, onCenter: () -> Unit) 
         }
         when (val st = s.status) {
             Nav.Status.Routing -> HudLabel("Calculando la ruta…", color = HudCyan)
-            Nav.Status.Ok -> HudLabel(
-                if (s.offRoute) "Fuera de la ruta: recalculando…"
-                else "Por calle/sendero · ${PhoneLocation.formatDistance((s.route?.distanceM ?: 0).toFloat())} en total" +
-                    (s.route?.ascendM?.takeIf { it > 20 }?.let { " · sube $it m" } ?: ""),
-                color = if (s.offRoute) SigFair else HudTextDim, maxLines = 2,
-            )
+            Nav.Status.Ok -> {
+                HudLabel(
+                    if (s.offRoute) "Fuera de la ruta: recalculando…"
+                    else "Por calle/sendero · ${PhoneLocation.formatDistance((s.route?.distanceM ?: 0).toFloat())} en total" +
+                        (s.route?.ascendM?.takeIf { it > 20 }?.let { " · sube $it m" } ?: ""),
+                    color = if (s.offRoute) SigFair else HudTextDim, maxLines = 2,
+                )
+                if (saving != null) Text(saving, style = MaterialTheme.typography.bodySmall, color = HudTextDim)
+                val busyOrDone = saving?.let { it.startsWith("Guardando") || it.startsWith("Camino guardado") } == true
+                if (onSave != null && !busyOrDone) TextButton(onClick = onSave, contentPadding = tight) { Text("GUARDAR EL CAMINO") }
+            }
             is Nav.Status.NeedData -> NeedData(st.tiles)
             is Nav.Status.Downloading -> {
                 HudLabel("Bajando rutas de ${st.tile}…")

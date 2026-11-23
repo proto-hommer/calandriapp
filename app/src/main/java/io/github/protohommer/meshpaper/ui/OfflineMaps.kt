@@ -82,6 +82,7 @@ fun OfflineMapsPanel(modifier: Modifier = Modifier) {
                 "permite) y el relieve para los perfiles, todo junto.",
             style = MaterialTheme.typography.bodySmall,
         )
+        Spacer(Modifier.height(4.dp))
         HudLabel("Relieve guardado: ${stored.tiles} tiles · ${MapTiles.formatSize(stored.bytes)}")
         Spacer(Modifier.height(6.dp))
         HudButton(onClick = { open = true }) { Text("ABRIR CUADRÍCULA") }
@@ -255,7 +256,7 @@ private fun OfflineMapsScreen(onClose: () -> Unit) {
 }
 
 /** Baja el mapa de un cuadrante con el CacheManager de osmdroid. Devuelve los tiles fallidos. */
-private suspend fun downloadMap(map: MapView, c: Cell, maxZoom: Int, progress: (Int) -> Unit): Int =
+internal suspend fun downloadMap(map: MapView, c: Cell, maxZoom: Int, progress: (Int) -> Unit): Int =
     suspendCancellableCoroutine { cont ->
         val cm = CacheManager(map)
         val box = BoundingBox(c.north, c.east, c.south, c.west)

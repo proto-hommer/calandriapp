@@ -229,6 +229,36 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         val key = "${s.target.nodeNum}/${s.target.wptId}/${s.mode}"
         if (s.route != null && fittedFor != key) { fittedFor = key; fitNav() }
     }
+    // "Guardar el camino": relieve (y mapa, si la fuente lo permite) de los cuadrantes de la ruta,
+    // con la misma descarga que la cuadrícula de Ajustes → Mapas sin conexión, así quedan marcados.
+    var saving by remember { mutableStateOf<String?>(null) }
+    val saveScope = rememberCoroutineScope()
+    fun saveCorridor() {
+        val r = Nav.state.value?.route ?: return
+        if (!MapTiles.useInternet(context)) { saving = "Prendé \"Usar internet\" (CAPA) para guardar."; return }
+        val cells = io.github.protohommer.meshpaper.map.OfflineCells.along(r.points)
+        val src = MapTiles.tileSource(context)
+        val canMap = MapTiles.canBulkDownload(src)
+        saveScope.launch {
+            var fails = 0
+            cells.forEachIndexed { i, c ->
+                saving = "Guardando el camino: cuadrante ${i + 1} de ${cells.size}…"
+                for ((x, y) in io.github.protohommer.meshpaper.map.OfflineCells.demTiles(c)) {
+                    if (!withContext(Dispatchers.IO) { Dem.download(context, x, y) }) fails++
+                }
+                if (canMap) {
+                    val errors = downloadMap(map, c, 15) {}
+                    if (errors == 0) io.github.protohommer.meshpaper.map.OfflineCells.markMap(context, c, src.name(), 15) else fails += errors
+                }
+            }
+            saving = if (fails == 0) {
+                "Camino guardado: ${cells.size} cuadrantes" + if (canMap) " (mapa y relieve)." else
+                    " de relieve. Las calles se guardan al verlas con internet."
+            } else "Guardado con $fails fallas: tocá de nuevo para reintentar."
+        }
+    }
+    LaunchedEffect(nav?.target, nav?.route == null) { if (saving?.startsWith("Guardando") != true) saving = null }
+
     fun startNav(t: Nav.Target) {
         fittedFor = null
         selectedNode = null; selectedWpt = null; rangeNode = null; stack = emptyList()
@@ -498,6 +528,8 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
             NavPanel(
                 s, Modifier.align(Alignment.TopStart).padding(top = topInset).padding(12.dp),
                 onCenter = { fitNav() },
+                onSave = { saveCorridor() }.takeIf { s.route != null },
+                saving = saving?.takeIf { s.route != null },
             )
         }
 
@@ -691,7 +723,7 @@ private fun NodeCard(
         }
         if (extra.isNotEmpty()) {
             Spacer(Modifier.padding(2.dp))
-            HudLabel(extra.joinToString("  ·  "), color = MaterialTheme.colorScheme.onSurface, maxLines = 3)
+            HudLabel(extra.joinToString("  ·  ") { it.replace(' ', '\u00A0') }, color = MaterialTheme.colorScheme.onSurface, maxLines = 3)
         }
         // El modelo en su propia línea: con RSSI, distancia y rastro no entraba y se cortaba.
         n.hw?.takeIf { it != org.meshtastic.proto.MeshProtos.HardwareModel.UNSET }?.let {
@@ -719,13 +751,14 @@ private fun NodeCard(
             )
         }
         val tight = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (n.num != me) TextButton(onClick = { onMessage(n.num) }, contentPadding = tight) { Text("MENSAJE") }
-            onGo?.let { TextButton(onClick = it, contentPadding = tight) { Text("IR", color = RouteColor) } }
-            onProfile?.let { TextButton(onClick = it, contentPadding = tight) { Text("PERFIL") } }
-            TextButton(onClick = onAntenna, contentPadding = tight) { Text("ANTENA") }
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = onClose, contentPadding = tight) { Text("✕") }
+        // Si no entran en una línea, siguen en la de abajo (antes "ANTENA" se partía en dos).
+        @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+        androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.Center) {
+            if (n.num != me) TextButton(onClick = { onMessage(n.num) }, contentPadding = tight) { Text("MENSAJE", softWrap = false) }
+            onGo?.let { TextButton(onClick = it, contentPadding = tight) { Text("IR", color = RouteColor, softWrap = false) } }
+            onProfile?.let { TextButton(onClick = it, contentPadding = tight) { Text("PERFIL", softWrap = false) } }
+            TextButton(onClick = onAntenna, contentPadding = tight) { Text("ANTENA", softWrap = false) }
+            TextButton(onClick = onClose, contentPadding = tight) { Text("✕", softWrap = false) }
         }
     }
 }
@@ -740,7 +773,8 @@ private fun WaypointCard(
         Text("${w.iconText}  ${w.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         if (w.description.isNotEmpty()) Text(w.description, style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.padding(3.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             val by = nodes[w.from]?.let { it.shortName.ifEmpty { it.id } } ?: if (w.from != 0) "!%08x".format(w.from) else "—"
             HudStat("De", by)
             HudStat("Vence", if (w.expire == 0L) "nunca" else "en " + agoText(w.expire, now).removePrefix("hace "))
@@ -751,13 +785,13 @@ private fun WaypointCard(
         }
         Spacer(Modifier.padding(2.dp))
         HudLabel("%.5f, %.5f".format(w.lat, w.lon))
-        Row {
+        @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+        androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = { confirm = true }) {
-                Text(if (vm.canDeleteForAll(w)) "BORRAR" else "OCULTAR", color = MaterialTheme.colorScheme.error)
+                Text(if (vm.canDeleteForAll(w)) "BORRAR" else "OCULTAR", color = MaterialTheme.colorScheme.error, softWrap = false)
             }
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = { onGo(w) }) { Text("IR", color = RouteColor) }
-            TextButton(onClick = onClose) { Text("CERRAR") }
+            TextButton(onClick = { onGo(w) }) { Text("IR", color = RouteColor, softWrap = false) }
+            TextButton(onClick = onClose) { Text("CERRAR", softWrap = false) }
         }
     }
     if (confirm) {
@@ -922,12 +956,13 @@ private fun NewWaypointDialog(vm: MeshViewModel, at: GeoPoint, onDone: () -> Uni
                     for (cp in ICONS.drop(4)) IconChip(cp, icon == cp) { icon = cp }
                 }
                 HudLabel("Vence")
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     EXPIRES.forEachIndexed { i, (label, _) ->
-                        FilterChip(selected = expire == i, onClick = { expire = i }, label = { Text(label) })
+                        FilterChip(selected = expire == i, onClick = { expire = i }, label = { Text(label, softWrap = false) })
                     }
                 }
-                HudLabel("Sale por el canal del grupo · solo vos lo borrás")
+                HudLabel("Sale por el canal del grupo · solo vos lo borrás", maxLines = 2)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -1000,6 +1035,7 @@ private fun LayersDialog(map: MapView, dark: Boolean, onDark: (Boolean) -> Unit,
 
                 HudLabel("Archivos .mbtiles", color = HudCyan)
                 Text("Armalos en la PC (QGIS, MOBAC, mbutil…) y pasalos al teléfono.", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.padding(2.dp))
                 if (files.isEmpty()) HudLabel("Ninguno todavía")
                 for (f in files) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1032,7 +1068,8 @@ private fun LayersDialog(map: MapView, dark: Boolean, onDark: (Boolean) -> Unit,
                 HudLabel("Bajar zonas para usar sin señal", color = HudCyan)
                 Text(
                     "Está en Ajustes → Mapas sin conexión: elegís los cuadrantes en una cuadrícula y se baja " +
-                        "el mapa (si la fuente lo permite) y el relieve, todo junto.",
+                        "el mapa (si la fuente lo permite) y el relieve, todo junto. Los datos para \"Ir a\" " +
+                        "están en Ajustes → Rutas sin conexión.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -1089,8 +1126,16 @@ private fun fitAll(mv: MapView, nodes: List<MeshNode>, fix: Location?) {
         mv.controller.animateTo(pts[0], max(mv.zoomLevelDouble, 15.0), 600L)
         return
     }
-    // Margen amplio: abajo están la leyenda/ficha y a la derecha las herramientas.
-    mv.zoomToBoundingBox(BoundingBox.fromGeoPointsSafe(pts).increaseByScale(1.7f), true, 96)
+    // Abajo están la leyenda/ficha y a la derecha las herramientas: el encuadre se agranda hacia
+    // esos lados para que ningún nodo quede tapado (antes se centraba y los de abajo quedaban detrás).
+    val b = BoundingBox.fromGeoPointsSafe(pts)
+    val lat = maxOf(b.latitudeSpan, 0.002)
+    val lon = maxOf(b.longitudeSpanWithDateLine, 0.002)
+    val box = BoundingBox(
+        (b.latNorth + lat * 0.30).coerceAtMost(85.0), b.lonEast + lon * 0.30,
+        (b.latSouth - lat * 0.75).coerceAtLeast(-85.0), b.lonWest - lon * 0.08,
+    )
+    mv.zoomToBoundingBox(box, true, 48)
 }
 
 // ---------- Íconos ----------

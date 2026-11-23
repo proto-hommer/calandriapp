@@ -47,6 +47,24 @@ object OfflineCells {
         return Cell(x, y)
     }
 
+    /** Los cuadrantes por donde pasa una línea (la ruta), en orden y sin repetir. */
+    fun along(points: List<Pair<Double, Double>>): List<Cell> {
+        val out = linkedSetOf<Cell>()
+        for (i in points.indices) {
+            out += at(points[i].first, points[i].second)
+            // Entre puntos lejanos (tramos rectos largos) se miran puntos intermedios.
+            if (i + 1 < points.size) {
+                val (a, b) = points[i] to points[i + 1]
+                val steps = (maxOf(kotlin.math.abs(a.first - b.first), kotlin.math.abs(a.second - b.second)) / 0.05).toInt()
+                for (k in 1 until steps) {
+                    val t = k.toDouble() / steps
+                    out += at(a.first + (b.first - a.first) * t, a.second + (b.second - a.second) * t)
+                }
+            }
+        }
+        return out.toList()
+    }
+
     /** Los 4 tiles de relieve (zoom 12) de un cuadrante. */
     fun demTiles(c: Cell): List<Pair<Int, Int>> {
         val f = 1 shl (Dem.ZOOM - Z)

@@ -205,7 +205,10 @@ private fun QrCard(url: String) {
     val bmp = remember(url) { qrBitmap(url, 720) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
-            Image(bmp.asImageBitmap(), contentDescription = "QR del grupo", Modifier.size(300.dp))
+            Image(
+                bmp.asImageBitmap(), contentDescription = "QR del grupo",
+                Modifier.size(300.dp).align(androidx.compose.ui.Alignment.CenterHorizontally),
+            )
             Spacer(Modifier.height(8.dp))
             HudOutlinedButton(onClick = {
                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url)
