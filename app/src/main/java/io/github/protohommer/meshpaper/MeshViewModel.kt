@@ -5,7 +5,6 @@ import android.app.Application
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
@@ -58,6 +57,12 @@ import org.meshtastic.proto.MeshProtos.Waypoint
 import org.meshtastic.proto.Portnums.PortNum
 
 data class FoundDevice(val device: BluetoothDevice, val name: String, val rssi: Int, val bonded: Boolean)
+
+/** rssi de un emparejado que no vimos anunciarse. */
+const val NO_RSSI = Int.MIN_VALUE
+private const val SCAN_MS = 30_000L
+/** Nombre BLE por defecto del firmware: "<nombre corto o Meshtastic>_<4 hex del nodo>". */
+private val MESH_NAME = Regex(".*_[0-9a-fA-F]{4}")
 
 data class MeshNode(
     val num: Int,
@@ -131,6 +136,10 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _scanning = MutableStateFlow(false)
     val scanning: StateFlow<Boolean> = _scanning
+
+    /** Por qué la búsqueda no puede andar (ubicación apagada, Bluetooth apagado, error). null = bien. */
+    private val _scanHint = MutableStateFlow<String?>(null)
+    val scanHint: StateFlow<String?> = _scanHint
 
     private val _myNodeNum = MutableStateFlow<Int?>(null)
     val myNodeNum: StateFlow<Int?> = _myNodeNum
@@ -267,7 +276,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         val bonded = adapter?.bondedDevices.orEmpty()
         val addr = prefs.getString("lastDevice", null)
         if (addr != null) bonded.firstOrNull { it.address == addr }
-        else bonded.firstOrNull { d -> d.uuids?.any { it.uuid == MeshUuids.SERVICE } == true }
+        else bonded.firstOrNull { d -> looksMeshtastic(d, null, runCatching { d.name }.getOrNull()) }
     }.getOrNull()
 
     private var autoTried = false
@@ -344,34 +353,74 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     private var lastLoaded: String? = null
     private var applyJob: Job? = null
 
+    /**
+     * ¿Es un nodo Meshtastic? Por el servicio anunciado o, si el anuncio no lo trae (pasa con
+     * algunas placas y celulares), por el nombre por defecto del firmware: "<nombre>_abcd".
+     */
+    private fun looksMeshtastic(d: BluetoothDevice, uuids: List<ParcelUuid>?, name: String?): Boolean =
+        uuids?.any { it.uuid == MeshUuids.SERVICE } == true ||
+            runCatching { d.uuids?.any { it.uuid == MeshUuids.SERVICE } == true }.getOrDefault(false) ||
+            (name != null && MESH_NAME.matches(name))
+
+    private fun addFound(f: FoundDevice) = _found.update { list ->
+        (list.filterNot { it.device.address == f.device.address } + f)
+            .sortedWith(compareByDescending<FoundDevice> { it.rssi != NO_RSSI }.thenByDescending { it.rssi })
+    }
+
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val d = result.device
-            val name = result.scanRecord?.deviceName ?: d.name ?: d.address
-            _found.update { list ->
-                (list.filterNot { it.device.address == d.address } +
-                    FoundDevice(d, name, result.rssi, d.bondState == BluetoothDevice.BOND_BONDED))
-                    .sortedByDescending { it.rssi }
-            }
+            val adName = result.scanRecord?.deviceName ?: runCatching { d.name }.getOrNull()
+            if (!looksMeshtastic(d, result.scanRecord?.serviceUuids, adName)) return
+            addFound(FoundDevice(d, adName ?: d.address, result.rssi, d.bondState == BluetoothDevice.BOND_BONDED))
         }
+
+        override fun onBatchScanResults(results: MutableList<ScanResult>) = results.forEach { onScanResult(0, it) }
 
         override fun onScanFailed(errorCode: Int) {
             _scanning.value = false
+            _scanHint.value = "No se pudo buscar (error $errorCode). Apagá y prendé el Bluetooth y probá de nuevo."
         }
     }
 
+    private var scanTimeout: Job? = null
+
     fun startScan() {
-        val scanner = adapter?.bluetoothLeScanner ?: return
+        val a = adapter
+        if (a == null || !a.isEnabled) {
+            _scanHint.value = "El Bluetooth del teléfono está apagado."
+            return
+        }
+        val scanner = a.bluetoothLeScanner ?: return
+        // Android 8–11 no devuelve ningún resultado si la ubicación del teléfono está apagada.
+        val lm = getApplication<Application>().getSystemService(android.location.LocationManager::class.java)
+        _scanHint.value = if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S && lm != null &&
+            !androidx.core.location.LocationManagerCompat.isLocationEnabled(lm)
+        ) "Prendé la ubicación del teléfono: en este Android hace falta para buscar por Bluetooth." else null
+        // Los nodos ya emparejados van primero aunque no estén anunciándose
+        // (un nodo conectado a otra app deja de anunciarse).
         _found.value = emptyList()
-        val filter = ScanFilter.Builder().setServiceUuid(ParcelUuid(MeshUuids.SERVICE)).build()
+        runCatching { a.bondedDevices }.getOrNull().orEmpty()
+            .filter { looksMeshtastic(it, null, runCatching { it.name }.getOrNull()) }
+            .forEach { addFound(FoundDevice(it, runCatching { it.name }.getOrNull() ?: it.address, NO_RSSI, true)) }
+        // Sin filtro por hardware: en varios celulares el filtro por UUID de 128 bits no anda.
+        // Filtramos en onScanResult.
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
-        scanner.startScan(listOf(filter), settings, scanCallback)
+        try {
+            scanner.startScan(null, settings, scanCallback)
+        } catch (e: Exception) {
+            _scanHint.value = "No se pudo buscar: ${e.message}"
+            return
+        }
         _scanning.value = true
+        scanTimeout?.cancel()
+        scanTimeout = viewModelScope.launch { kotlinx.coroutines.delay(SCAN_MS); stopScan() }
     }
 
     fun stopScan() {
+        scanTimeout?.cancel()
         if (!_scanning.value) return
-        adapter?.bluetoothLeScanner?.stopScan(scanCallback)
+        runCatching { adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
         _scanning.value = false
     }
 

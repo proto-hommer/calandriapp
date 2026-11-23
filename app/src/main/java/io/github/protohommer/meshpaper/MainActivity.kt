@@ -349,6 +349,8 @@ private fun NavBar(tab: Tab, unread: Int, onSelect: (Tab) -> Unit) {
 private fun LinkPanel(vm: MeshViewModel, link: LinkState, modifier: Modifier = Modifier) {
     val found by vm.found.collectAsState()
     val scanning by vm.scanning.collectAsState()
+    val scanHint by vm.scanHint.collectAsState()
+    var searched by remember { mutableStateOf(false) }
     val last = remember(link) { vm.lastDeviceName() }
     HudPanel(modifier.fillMaxWidth(), title = "Enlace con el nodo", accent = if (link is LinkState.Failed) SigWeak else HudCyan) {
         when (link) {
@@ -365,9 +367,20 @@ private fun LinkPanel(vm: MeshViewModel, link: LinkState, modifier: Modifier = M
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (last != null) HudButton(onClick = { vm.reconnectLast() }) { Text("CONECTAR ${last.take(14).uppercase()}") }
-                    HudOutlinedButton(onClick = { if (scanning) vm.stopScan() else vm.startScan() }) {
+                    HudOutlinedButton(onClick = { if (scanning) vm.stopScan() else { searched = true; vm.startScan() } }) {
                         Text(if (scanning) "DETENER" else "BUSCAR")
                     }
+                }
+                scanHint?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(it, color = SigWeak, style = MaterialTheme.typography.bodySmall)
+                }
+                if (searched && !scanning && found.isEmpty() && scanHint == null) {
+                    Spacer(Modifier.height(6.dp))
+                    HudLabel(
+                        "No apareció ningún nodo. Fijate que esté prendido y cerca, y que no esté conectado " +
+                            "a otra app (la oficial de Meshtastic, por ejemplo): mientras tiene una conexión, el nodo no se anuncia."
+                    )
                 }
                 if (scanning || found.isNotEmpty()) {
                     Spacer(Modifier.height(6.dp))
@@ -379,7 +392,10 @@ private fun LinkPanel(vm: MeshViewModel, link: LinkState, modifier: Modifier = M
                             ) {
                                 Column(Modifier.weight(1f)) {
                                     Text(d.name, fontWeight = FontWeight.SemiBold)
-                                    HudLabel("${d.rssi} dBm · " + if (d.bonded) "emparejado" else "sin emparejar")
+                                    HudLabel(
+                                        if (d.rssi == NO_RSSI) "emparejado · no se lo oye ahora"
+                                        else "${d.rssi} dBm · " + if (d.bonded) "emparejado" else "sin emparejar"
+                                    )
                                 }
                                 if (d.bonded) HudButton(onClick = { vm.connect(d) }) { Text("CONECTAR") }
                                 else HudOutlinedButton(onClick = { vm.pairAndConnect(d) }) { Text("EMPAREJAR") }
