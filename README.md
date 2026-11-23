@@ -218,6 +218,7 @@ Créditos, marcas y licencias
 - Usa los [protobufs de Meshtastic](https://github.com/meshtastic/protobufs) (GPL-3.0),
   [osmdroid](https://github.com/osmdroid/osmdroid), [ZXing](https://github.com/zxing/zxing) y
   [zxing-android-embedded](https://github.com/journeyapps/zxing-android-embedded) (Apache-2.0),
+  [Haze](https://github.com/chrisbanes/haze) (Apache-2.0),
   Protocol Buffers (BSD-3-Clause), AndroidX / Jetpack Compose y Kotlin (Apache-2.0). El logo usa
   la tipografía Space Grotesk (OFL-1.1).
 

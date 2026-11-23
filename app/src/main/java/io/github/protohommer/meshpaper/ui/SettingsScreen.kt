@@ -525,6 +525,7 @@ private val LICENSES = listOf(
     "Protobufs de Meshtastic" to "GPL-3.0",
     "osmdroid" to "Apache-2.0",
     "ZXing / zxing-android-embedded" to "Apache-2.0",
+    "Haze (vidrio esmerilado)" to "Apache-2.0",
     "Protocol Buffers (lite)" to "BSD-3-Clause",
     "AndroidX y Jetpack Compose" to "Apache-2.0",
     "Kotlin y kotlinx.coroutines" to "Apache-2.0",

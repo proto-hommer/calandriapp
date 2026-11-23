@@ -28,14 +28,35 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.PaintingStyle
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import android.graphics.BlurMaskFilter
+import android.os.Build
+import androidx.compose.runtime.staticCompositionLocalOf
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.HazeInputScale
+import dev.chrisbanes.haze.ExperimentalHazeApi
 import io.github.protohommer.meshpaper.mesh.Tone
+import io.github.protohommer.meshpaper.ui.theme.HudBg
 import io.github.protohommer.meshpaper.ui.theme.HudCyan
 import io.github.protohommer.meshpaper.ui.theme.HudLine
 import io.github.protohommer.meshpaper.ui.theme.HudSurface
@@ -63,6 +84,78 @@ fun Tone.color(): Color = when (this) {
     Tone.FIXED -> SigFixed
 }
 
+// ---------- Neón y vidrio ----------
+
+/**
+ * Lo que se ve detrás de los paneles (el mapa) para desenfocarlo. null = no hay nada que
+ * desenfocar (pantallas con fondo liso): el vidrio queda como un tinte translúcido.
+ */
+val LocalHaze = staticCompositionLocalOf<HazeState?> { null }
+
+/** Vidrio esmerilado oscuro: desenfoque fuerte, tinte del fondo a media opacidad y algo de grano. */
+internal val GlassStyle = HazeStyle(
+    backgroundColor = HudBg,
+    tint = HazeTint(HudBg.copy(alpha = 0.42f)),
+    blurRadius = 18.dp,
+    noiseFactor = 0.07f,
+    // Sin desenfoque (Android 11 o anterior, o el mapa moviéndose): un velo oscuro que se lea igual.
+    fallbackTint = HazeTint(HudBg.copy(alpha = 0.74f)),
+)
+
+/**
+ * Halo de luz alrededor de [shape], como un tubo de neón. Se dibuja por fuera (no recorta).
+ * Android 9 o más (antes la GPU no desenfoca trazos): en los viejos no hace nada.
+ */
+fun Modifier.neonGlow(color: Color, shape: Shape, radius: Dp = 8.dp, width: Dp = 2.dp): Modifier =
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) this else drawBehind {
+        val outline = shape.createOutline(size, layoutDirection, this)
+        val paint = Paint().apply {
+            style = PaintingStyle.Stroke
+            strokeWidth = width.toPx()
+            this.color = color
+            asFrameworkPaint().maskFilter = BlurMaskFilter(radius.toPx(), BlurMaskFilter.Blur.NORMAL)
+        }
+        drawIntoCanvas { it.drawOutline(outline, paint) }
+    }
+
+/**
+ * Panel de vidrio: desenfoca lo que hay detrás (Android 12+), lo tiñe de oscuro, le pone un
+ * reflejo suave arriba y un borde de neón en [accent] con su halo.
+ * [blur] = false para cosas chicas y numerosas (botones): solo tinte, que es más liviano.
+ */
+@OptIn(ExperimentalHazeApi::class)
+@Composable
+fun Modifier.glass(shape: Shape, accent: Color = HudCyan, blur: Boolean = true, glow: Boolean = true): Modifier {
+    val haze = LocalHaze.current.takeIf { blur }
+    return this
+        .then(if (glow) Modifier.neonGlow(accent.copy(alpha = 0.55f), shape, 7.dp) else Modifier)
+        .clip(shape)
+        .then(
+            if (haze != null) Modifier.hazeEffect(haze, GlassStyle) { inputScale = HazeInputScale.Fixed(0.33f) }.background(HudSurface.copy(alpha = 0.18f))
+            else Modifier.background(HudSurface.copy(alpha = if (blur) 0.62f else 0.55f))
+        )
+        .background(
+            Brush.verticalGradient(
+                0f to Color.White.copy(alpha = 0.07f),
+                0.35f to Color.Transparent,
+                1f to accent.copy(alpha = 0.06f),
+            )
+        )
+        .border(
+            1.dp,
+            Brush.linearGradient(listOf(accent.copy(alpha = 0.95f), accent.copy(alpha = 0.25f), accent.copy(alpha = 0.75f))),
+            shape,
+        )
+}
+
+/** Texto con brillo de neón (sombra difusa del mismo color). */
+fun TextStyle.neon(color: Color, radius: Float = 14f): TextStyle =
+    copy(shadow = Shadow(color.copy(alpha = 0.85f), Offset.Zero, radius))
+
+/** Los textos de color (acentos y señales) brillan; los grises y el blanco del texto, no. */
+private fun glows(color: Color) = color.alpha > 0.5f && color != HudTextDim &&
+    color.red + color.green + color.blue < 2.6f && maxOf(color.red, color.green, color.blue) - minOf(color.red, color.green, color.blue) > 0.35f
+
 /** Esquinas tipo visor sobre cualquier cosa. */
 fun Modifier.hudCorners(color: Color = HudCyan.copy(alpha = 0.7f), len: Dp = 14.dp, stroke: Dp = 1.5.dp): Modifier =
     drawWithContent {
@@ -89,13 +182,12 @@ fun HudPanel(
 ) {
     Column(
         modifier
-            .background(HudSurface.copy(alpha = 0.92f), HudPanelShape)
-            .border(1.dp, HudLine, HudPanelShape)
+            .glass(HudPanelShape, accent)
             .padding(padding),
     ) {
         if (title != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(width = 3.dp, height = 12.dp).background(accent))
+                Box(Modifier.size(width = 3.dp, height = 12.dp).neonGlow(accent, HudButtonShape, 4.dp, 3.dp).background(accent))
                 Spacer(Modifier.width(8.dp))
                 HudLabel(title, color = accent)
             }
@@ -108,8 +200,9 @@ fun HudPanel(
 /** Rótulo chico, monoespaciado y en mayúsculas. */
 @Composable
 fun HudLabel(text: String, modifier: Modifier = Modifier, color: Color = HudTextDim, maxLines: Int = 1) {
+    val style = MaterialTheme.typography.labelSmall
     Text(
-        text.uppercase(), modifier, style = MaterialTheme.typography.labelSmall, color = color,
+        text.uppercase(), modifier, style = if (glows(color)) style.neon(color, 10f) else style, color = color,
         maxLines = maxLines, overflow = TextOverflow.Ellipsis,
     )
 }
@@ -117,7 +210,8 @@ fun HudLabel(text: String, modifier: Modifier = Modifier, color: Color = HudText
 /** Dato destacado monoespaciado. */
 @Composable
 fun HudValue(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurface) {
-    Text(text, modifier, style = MaterialTheme.typography.labelLarge, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val style = MaterialTheme.typography.labelLarge
+    Text(text, modifier, style = if (glows(color)) style.neon(color) else style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 /** Par rótulo / valor en columna. */
@@ -131,7 +225,7 @@ fun HudStat(label: String, value: String, modifier: Modifier = Modifier, color: 
 
 @Composable
 fun StatusDot(color: Color, size: Dp = 8.dp) {
-    Box(Modifier.size(size).background(color, CircleShape))
+    Box(Modifier.size(size).neonGlow(color, CircleShape, 4.dp, size / 2).background(color, CircleShape))
 }
 
 /** Encabezado de pantalla: volver + título. */
@@ -158,7 +252,8 @@ fun HudButton(
     content: @Composable RowScope.() -> Unit,
 ) {
     Button(
-        onClick = onClick, modifier = modifier, enabled = enabled, shape = HudButtonShape,
+        onClick = onClick, enabled = enabled, shape = HudButtonShape,
+        modifier = if (enabled) modifier.neonGlow(HudCyan.copy(alpha = 0.6f), HudButtonShape, 6.dp) else modifier,
         colors = ButtonDefaults.buttonColors(
             containerColor = HudCyan.copy(alpha = 0.16f),
             contentColor = HudCyan,
@@ -194,12 +289,12 @@ fun HudIconButton(label: String, onClick: () -> Unit, active: Boolean = false, e
     }
     Box(
         Modifier.size(46.dp)
-            .background(HudSurface.copy(alpha = 0.9f), HudButtonShape)
-            .border(1.dp, if (active) HudCyan else HudLine, HudButtonShape)
+            .glass(HudButtonShape, accent = if (active) HudCyan else HudLine.copy(alpha = 1f), blur = false, glow = active)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = c)
+        val style = MaterialTheme.typography.labelMedium
+        Text(label, style = if (active) style.neon(c) else style, color = c)
     }
 }
 

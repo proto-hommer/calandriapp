@@ -6,14 +6,15 @@ junitVersion = "1.1.5"
 espressoCore = "3.5.1"
 lifecycleRuntimeKtx = "2.6.1"
 activityCompose = "1.8.0"
-kotlin = "2.2.10"
-composeBom = "2026.02.01"
+kotlin = "2.3.20"
+composeBom = "2026.08.00"
 protobuf = "4.36.2"
 protobufPlugin = "0.10.1"
 zxingCore = "3.5.4"
 zxingEmbedded = "4.3.0"
 osmdroid = "6.1.20"
 coreSplashscreen = "1.0.1"
+haze = "1.7.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -38,6 +39,7 @@ zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCo
 zxing-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxingEmbedded" }
 osmdroid-android = { group = "org.osmdroid", name = "osmdroid-android", version.ref = "osmdroid" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
+haze = { group = "dev.chrisbanes.haze", name = "haze", version.ref = "haze" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

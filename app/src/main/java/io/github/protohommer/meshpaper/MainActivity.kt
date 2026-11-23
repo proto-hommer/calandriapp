@@ -63,6 +63,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.rememberHazeState
+import io.github.protohommer.meshpaper.ui.GlassStyle
+import io.github.protohommer.meshpaper.ui.LocalHaze
+import io.github.protohommer.meshpaper.ui.neonGlow
+import io.github.protohommer.meshpaper.ui.neon
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.protohommer.meshpaper.ble.LinkState
@@ -169,8 +179,16 @@ fun App(vm: MeshViewModel = viewModel()) {
     // La barra de arriba flota sobre el contenido (sobre el mapa se ve el mapa debajo); el resto
     // de las pantallas arrancan debajo de ella.
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + TopBarHeight
-    Column(Modifier.fillMaxSize().background(HudBg)) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+    // La barra de abajo también flota: en el mapa se ve el mapa desenfocado debajo (vidrio).
+    val showNav = !(tab == Tab.CHATS && chat != null)
+    val density = LocalDensity.current
+    var navH by remember { mutableStateOf(0.dp) }
+    val bottomPad: Dp = if (showNav) navH else 0.dp
+    // Lo que desenfocan los paneles: solo el mapa (las otras pantallas tienen fondo liso).
+    val haze = rememberHazeState()
+    CompositionLocalProvider(LocalHaze provides haze.takeIf { tab == Tab.MAP && granted && vm.bluetoothOn }) {
+    Box(Modifier.fillMaxSize().background(HudBg)) {
+        Box(Modifier.fillMaxSize().padding(bottom = if (tab == Tab.MAP) 0.dp else bottomPad)) {
             when {
                 !granted -> Box(Modifier.fillMaxSize().padding(top = topPad)) {
                     CenterPanel("Permisos") {
@@ -186,7 +204,7 @@ fun App(vm: MeshViewModel = viewModel()) {
                 }
                 else -> {
                     when (tab) {
-                        Tab.MAP -> MapScreen(vm, onMessage = { openChat(Conv.Direct(it).key) }, topInset = topPad)
+                        Tab.MAP -> MapScreen(vm, onMessage = { openChat(Conv.Direct(it).key) }, topInset = topPad, bottomInset = bottomPad)
                         else -> Column(Modifier.fillMaxSize().padding(top = topPad)) {
                             if (!connected) LinkPanel(vm, link, Modifier.padding(12.dp))
                             when (tab) {
@@ -208,9 +226,13 @@ fun App(vm: MeshViewModel = viewModel()) {
             TopStatus(vm, Modifier.align(Alignment.TopCenter))
             if (apply is ApplyState.Working) WorkingOverlay((apply as ApplyState.Working).step)
         }
-        if (!(tab == Tab.CHATS && chat != null)) {
-            NavBar(tab, unread, onSelect = { tabName = it.name; if (it != Tab.CHATS) chat = null })
+        if (showNav) {
+            NavBar(
+                tab, unread, onSelect = { tabName = it.name; if (it != Tab.CHATS) chat = null },
+                Modifier.align(Alignment.BottomCenter).onSizeChanged { navH = with(density) { it.height.toDp() } },
+            )
         }
+    }
     }
     if (link is LinkState.NeedPin) PinDialog(vm)
 }
@@ -243,14 +265,24 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
         LinkState.Disconnected -> HudTextDim to "sin enlace"
     }
     val nodeName = if (connected) myNode?.shortName?.ifEmpty { null } ?: myNode?.id ?: "—" else "—"
+    val haze = LocalHaze.current
     Box(
-        modifier.fillMaxWidth().background(
-            Brush.verticalGradient(
-                0f to HudBg.copy(alpha = 0.97f),
-                0.7f to HudBg.copy(alpha = 0.82f),
-                1f to Color.Transparent,
+        modifier.fillMaxWidth()
+            // Vidrio que se desvanece hacia abajo: arriba desenfoca el mapa, abajo ya no.
+            .then(
+                if (haze != null) Modifier.hazeEffect(haze, GlassStyle) {
+                    @OptIn(dev.chrisbanes.haze.ExperimentalHazeApi::class)
+                    inputScale = dev.chrisbanes.haze.HazeInputScale.Fixed(0.33f)
+                    mask = Brush.verticalGradient(0f to Color.Black, 0.6f to Color.Black, 1f to Color.Transparent)
+                } else Modifier
             )
-        )
+            .background(
+                Brush.verticalGradient(
+                    0f to HudBg.copy(alpha = if (haze != null) 0.55f else 0.97f),
+                    0.7f to HudBg.copy(alpha = if (haze != null) 0.35f else 0.82f),
+                    1f to Color.Transparent,
+                )
+            )
     ) {
         Row(
             Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)
@@ -258,7 +290,7 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // El nodo y el estado del enlace.
-            Box(Modifier.width(3.dp).height(30.dp).background(linkColor))
+            Box(Modifier.width(3.dp).height(30.dp).neonGlow(linkColor, androidx.compose.ui.graphics.RectangleShape, 5.dp, 3.dp).background(linkColor))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 HudValue(nodeName.uppercase(), color = if (connected) MaterialTheme.colorScheme.onSurface else HudTextDim)
@@ -306,9 +338,24 @@ private fun TopDivider() {
 // ---------- Navegación inferior ----------
 
 @Composable
-private fun NavBar(tab: Tab, unread: Int, onSelect: (Tab) -> Unit) {
-    Column(Modifier.fillMaxWidth().background(HudSurface).windowInsetsPadding(WindowInsets.navigationBars)) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(HudLine))
+private fun NavBar(tab: Tab, unread: Int, onSelect: (Tab) -> Unit, modifier: Modifier = Modifier) {
+    val haze = LocalHaze.current
+    Column(
+        modifier.fillMaxWidth()
+            .then(
+                if (haze != null) Modifier.hazeEffect(haze, GlassStyle) {
+                    @OptIn(dev.chrisbanes.haze.ExperimentalHazeApi::class)
+                    inputScale = dev.chrisbanes.haze.HazeInputScale.Fixed(0.33f)
+                } else Modifier
+            )
+            .background(HudSurface.copy(alpha = if (haze != null) 0.35f else 0.96f))
+            .windowInsetsPadding(WindowInsets.navigationBars),
+    ) {
+        // Filo de neón arriba.
+        Box(
+            Modifier.fillMaxWidth().height(1.dp)
+                .background(Brush.horizontalGradient(listOf(Color.Transparent, HudCyan.copy(alpha = 0.8f), Color.Transparent)))
+        )
         Row(Modifier.fillMaxWidth().height(50.dp)) {
             for (t in Tab.entries) {
                 val active = t == tab
@@ -317,16 +364,22 @@ private fun NavBar(tab: Tab, unread: Int, onSelect: (Tab) -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Box(Modifier.width(28.dp).height(2.dp).background(if (active) HudCyan else Color.Transparent))
+                    Box(
+                        Modifier.width(28.dp).height(2.dp)
+                            .then(if (active) Modifier.neonGlow(HudCyan, androidx.compose.ui.graphics.RectangleShape, 5.dp, 2.dp) else Modifier)
+                            .background(if (active) HudCyan else Color.Transparent)
+                    )
                     Spacer(Modifier.height(8.dp))
+                    val color = when {
+                        active -> HudCyan
+                        t == Tab.CHATS && unread > 0 -> SigFair
+                        else -> HudTextDim
+                    }
+                    val style = MaterialTheme.typography.labelMedium
                     Text(
                         t.label.uppercase() + if (t == Tab.CHATS && unread > 0) " ·$unread" else "",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = when {
-                            active -> HudCyan
-                            t == Tab.CHATS && unread > 0 -> SigFair
-                            else -> HudTextDim
-                        },
+                        style = if (color != HudTextDim) style.neon(color, 12f) else style,
+                        color = color,
                     )
                 }
             }

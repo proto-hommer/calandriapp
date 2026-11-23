@@ -38,6 +38,12 @@ import io.github.protohommer.meshpaper.ui.theme.BrandCopper
 import io.github.protohommer.meshpaper.ui.theme.BrandGreen
 import io.github.protohommer.meshpaper.ui.theme.BrandNavy
 import io.github.protohommer.meshpaper.ui.theme.BrandText
+import io.github.protohommer.meshpaper.ui.theme.NeonCopper
+import io.github.protohommer.meshpaper.ui.theme.NeonGreen
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -65,6 +71,7 @@ fun BrandIntro(onDone: () -> Unit) {
 
     Box(
         Modifier.fillMaxSize().graphicsLayer { alpha = out }.background(BrandNavy)
+            .background(Brush.radialGradient(listOf(NeonCopper.copy(alpha = 0.10f * phase(t, 0.3f, 0.7f)), Color.Transparent)))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDone),
     ) {
         Column(
@@ -76,13 +83,20 @@ fun BrandIntro(onDone: () -> Unit) {
             Canvas(Modifier.fillMaxWidth(0.85f).aspectRatio(box[2] / box[3])) { drawMark(t, size.width / box[2]) }
             Spacer(Modifier.height(36.dp))
             val name = ease(phase(t, 0.55f, 0.75f))
-            Image(
-                painterResource(R.drawable.brand_nombre), contentDescription = "CalandriApp",
-                modifier = Modifier.fillMaxWidth(0.9f).graphicsLayer {
+            Box(
+                Modifier.fillMaxWidth(0.9f).graphicsLayer {
                     alpha = name
                     translationY = (1f - name) * 24.dp.toPx()
                 },
-            )
+            ) {
+                // Brillo de neón: la misma palabra en cobre, desenfocada, detrás.
+                Image(
+                    painterResource(R.drawable.brand_nombre), contentDescription = null,
+                    modifier = Modifier.matchParentSize().blur(10.dp).graphicsLayer { alpha = 0.8f },
+                    colorFilter = ColorFilter.tint(NeonCopper),
+                )
+                Image(painterResource(R.drawable.brand_nombre), contentDescription = "CalandriApp", modifier = Modifier.fillMaxWidth())
+            }
         }
         Text(
             "powered by Meshtastic®",
@@ -121,31 +135,45 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMark(t: Float, 
             g.outline.forEachIndexed { k, i -> if (k == 0) moveTo(pos[i].x, pos[i].y) else lineTo(pos[i].x, pos[i].y) }
             close()
         }
-        drawPath(p, BrandCopper.copy(alpha = g.FILL_ALPHA * fill))
+        drawPath(p, NeonCopper.copy(alpha = g.FILL_ALPHA * fill))
     }
     if (lines > 0f) {
         val stroke = Stroke(g.STROKE * s, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        val color = BrandCopper.copy(alpha = lines)
-        // Las conexiones crecen desde un extremo hasta unirse con el otro.
-        fun seg(a: Int, b: Int) {
-            val end = Offset(pos[a].x + (pos[b].x - pos[a].x) * lines, pos[a].y + (pos[b].y - pos[a].y) * lines)
-            drawLine(color, pos[a], end, stroke.width, StrokeCap.Round)
-        }
+        // Las conexiones crecen desde un extremo hasta unirse con el otro. Tres pasadas: dos de
+        // halo (anchas y tenues) y el trazo, con el centro casi blanco como un tubo de neón.
+        val passes = listOf(
+            5.5f to NeonCopper.copy(alpha = 0.10f * lines),
+            2.6f to NeonCopper.copy(alpha = 0.28f * lines),
+            1f to NeonCopper.copy(alpha = lines),
+            0.4f to Color(0xFFFFE2C4).copy(alpha = 0.9f * lines),
+        )
         val o = g.outline
-        for (k in o.indices) seg(o[k], o[(k + 1) % o.size])
-        for (k in g.edges.indices step 2) seg(g.edges[k], g.edges[k + 1])
+        for ((w, color) in passes) {
+            fun seg(a: Int, b: Int) {
+                val end = Offset(pos[a].x + (pos[b].x - pos[a].x) * lines, pos[a].y + (pos[b].y - pos[a].y) * lines)
+                drawLine(color, pos[a], end, stroke.width * w, StrokeCap.Round)
+            }
+            for (k in o.indices) seg(o[k], o[(k + 1) % o.size])
+            for (k in g.edges.indices step 2) seg(g.edges[k], g.edges[k + 1])
+        }
     }
     for (i in 0 until n) {
         if (i == g.EYE) continue
-        drawCircle(BrandCopper.copy(alpha = nodesIn), g.NODE_R * s, pos[i])
+        drawCircle(NeonCopper.copy(alpha = 0.18f * nodesIn), g.NODE_R * 2.6f * s, pos[i])
+        drawCircle(NeonCopper.copy(alpha = nodesIn), g.NODE_R * s, pos[i])
+        drawCircle(Color(0xFFFFE2C4).copy(alpha = nodesIn), g.NODE_R * 0.45f * s, pos[i])
     }
     // El ojo: llega como los demás y al final "se enciende" en verde.
     val eye = pos[g.EYE]
     val glow = ease(phase(t, 0.45f, 0.6f))
     val pop = 1f + 0.35f * sin(PI.toFloat() * glow)
-    drawCircle(BrandCopper.copy(alpha = nodesIn * (1f - glow)), g.NODE_R * s, eye)
+    drawCircle(NeonCopper.copy(alpha = nodesIn * (1f - glow)), g.NODE_R * s, eye)
     if (glow > 0f) {
+        // El ojo se enciende: halo verde grande y tenue, el anillo oscuro y el ojo con centro claro.
+        drawCircle(NeonGreen.copy(alpha = 0.16f * glow), g.EYE_R * 3.2f * s * pop, eye)
+        drawCircle(NeonGreen.copy(alpha = 0.30f * glow), g.EYE_R * 1.8f * s * pop, eye)
         drawCircle(BrandNavy.copy(alpha = glow), (g.EYE_R + g.EYE_RING / 2) * s * pop, eye)
-        drawCircle(BrandGreen.copy(alpha = glow), (g.EYE_R - g.EYE_RING / 2) * s * pop, eye)
+        drawCircle(NeonGreen.copy(alpha = glow), (g.EYE_R - g.EYE_RING / 2) * s * pop, eye)
+        drawCircle(Color(0xFFD8FFE8).copy(alpha = glow), (g.EYE_R - g.EYE_RING / 2) * 0.45f * s * pop, eye)
     }
 }

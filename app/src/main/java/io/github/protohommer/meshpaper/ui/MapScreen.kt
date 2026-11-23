@@ -1,6 +1,7 @@
 package io.github.protohommer.meshpaper.ui
 
 import io.github.protohommer.meshpaper.ui.theme.HudBg
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.ui.unit.Dp
@@ -110,7 +111,7 @@ import kotlin.math.min
  * Anda sin señal con la caché de tiles y los `.mbtiles` importados.
  */
 @Composable
-fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = Modifier, topInset: Dp = 0.dp) {
+fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = Modifier, topInset: Dp = 0.dp, bottomInset: Dp = 0.dp) {
     val context = LocalContext.current
     val nodes by vm.nodes.collectAsState()
     val me by vm.myNodeNum.collectAsState()
@@ -207,6 +208,29 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         if (antennas[num] != null) rangeNode = num else antennaFor = num
     }
 
+    // Vidrio esmerilado solo con el mapa quieto: desenfocar cuadro a cuadro mientras se arrastra
+    // es caro en celulares modestos (en un moto e22 bajaba de ~40 a ~13 cuadros por segundo).
+    // Mientras se mueve, los paneles quedan con un tinte oscuro; al soltar, se esmerilan.
+    val haze = LocalHaze.current
+    val blurScope = rememberCoroutineScope()
+    DisposableEffect(map, haze) {
+        if (haze == null) return@DisposableEffect onDispose {}
+        val idleBlur = dev.chrisbanes.haze.HazeDefaults.blurEnabled() // false en Android 11 o anterior
+        var settle: kotlinx.coroutines.Job? = null
+        fun moved() {
+            if (!idleBlur) return
+            haze.blurEnabled = false
+            settle?.cancel()
+            settle = blurScope.launch { delay(350); haze.blurEnabled = true }
+        }
+        val l = object : org.osmdroid.events.MapListener {
+            override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean { moved(); return false }
+            override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean { moved(); return false }
+        }
+        map.addMapListener(l)
+        onDispose { map.removeMapListener(l); settle?.cancel(); haze.blurEnabled = idleBlur }
+    }
+
     // Reloj para que los colores "perdido" se actualicen solos.
     var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() / 1000 } }
@@ -215,7 +239,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         ScaleBarOverlay(map).apply {
             setAlignBottom(true)
             setAlignRight(true)
-            setScaleBarOffset(dpPx(context, 12f).toInt(), dpPx(context, 12f).toInt())
+            setScaleBarOffset(dpPx(context, 12f).toInt(), dpPx(context, 12f + bottomInset.value).toInt())
             textPaint.color = HudCyan.toArgb()
             textPaint.typeface = Typeface.MONOSPACE
             barPaint.color = HudCyan.toArgb()
@@ -252,8 +276,11 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     Box(modifier.fillMaxSize().clipToBounds()) {
         AndroidView(
             factory = { map },
-            modifier = Modifier.fillMaxSize().clipToBounds(),
+            // Fuente del vidrio esmerilado: los paneles de arriba desenfocan lo que hay acá.
+            modifier = Modifier.fillMaxSize().clipToBounds()
+                .then(LocalHaze.current?.let { Modifier.hazeSource(it) } ?: Modifier),
             update = { mv ->
+                scaleBar.setScaleBarOffset(dpPx(mv.context, 12f).toInt(), dpPx(mv.context, 12f + bottomInset.value).toInt())
                 mv.overlayManager.tilesOverlay.setColorFilter(if (dark) darkFilter else null)
                 mv.overlays.clear()
                 mv.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
@@ -364,8 +391,8 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         val uri = androidx.compose.ui.platform.LocalUriHandler.current
         Text(
             "© OpenStreetMap\ncontributors",
-            Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 38.dp)
-                .background(HudBg.copy(alpha = 0.6f))
+            Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 38.dp + bottomInset)
+                .background(HudBg.copy(alpha = 0.45f))
                 .clickable { uri.openUri("https://www.openstreetmap.org/copyright") }
                 .padding(horizontal = 4.dp, vertical = 1.dp),
             style = MaterialTheme.typography.labelSmall,
@@ -374,11 +401,11 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         )
 
         // Marco tipo visor.
-        Box(Modifier.fillMaxSize().padding(start = 6.dp, end = 6.dp, bottom = 6.dp, top = topInset + 2.dp).hudCorners(len = 22.dp))
+        Box(Modifier.fillMaxSize().padding(start = 6.dp, end = 6.dp, bottom = 6.dp + bottomInset, top = topInset + 2.dp).hudCorners(len = 22.dp))
 
         // Herramientas.
         Column(
-            Modifier.align(Alignment.CenterEnd).padding(end = 12.dp),
+            Modifier.align(Alignment.CenterEnd).padding(end = 12.dp, top = topInset, bottom = bottomInset),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             HudIconButton("+", onClick = { map.controller.zoomIn() })
@@ -392,7 +419,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
             HudIconButton("CAPA", onClick = { showLayers = true })
         }
 
-        val bottom = Modifier.align(Alignment.BottomStart).padding(12.dp)
+        val bottom = Modifier.align(Alignment.BottomStart).padding(bottom = bottomInset).padding(12.dp)
         when {
             selectedNode != null && nodes[selectedNode] != null -> {
                 val n = nodes.getValue(selectedNode!!)
@@ -972,21 +999,35 @@ private fun nodeIcon(
     iconCache.getOrPut("n:$label:$color:$filled:$lost:$ring:$labelColor:$compact:$diamond") {
         // El rombo es un poco más grande: a la altura del texto es más angosto que el círculo.
         val base = if (ring != null) 46f else if (compact) 32f else 40f
-        val size = dpPx(ctx, if (diamond) base + 6f else base).toInt()
+        val inner = dpPx(ctx, if (diamond) base + 6f else base)
+        val glowPad = dpPx(ctx, 5f) // margen para el halo de neón
+        val size = (inner + 2 * glowPad).toInt()
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
-        val r = size / 2f
+        val m = size / 2f       // centro
+        val r = inner / 2f      // radio de la figura, sin el halo
         val ringR = r - dpPx(ctx, if (ring != null) 8f else if (compact) 2f else 5f)
         val alpha = if (lost) 130 else 255
         fun shape(radius: Float, paint: Paint) {
-            if (!diamond) { c.drawCircle(r, r, radius, paint); return }
+            if (!diamond) { c.drawCircle(m, m, radius, paint); return }
             val path = android.graphics.Path().apply {
-                moveTo(r, r - radius); lineTo(r + radius, r); lineTo(r, r + radius); lineTo(r - radius, r); close()
+                moveTo(m, m - radius); lineTo(m + radius, m); lineTo(m, m + radius); lineTo(m - radius, m); close()
             }
             c.drawPath(path, paint)
         }
+        /** Halo de neón: el mismo borde, más ancho y desenfocado (bitmap en software: anda en todos). */
+        fun glow(radius: Float, col: Int) {
+            if (lost) return
+            shape(radius, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.color = col; this.alpha = 210
+                style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 4f)
+                strokeJoin = Paint.Join.ROUND
+                maskFilter = android.graphics.BlurMaskFilter(dpPx(ctx, 4f), android.graphics.BlurMaskFilter.Blur.NORMAL)
+            })
+        }
         if (ring != null) {
             // borde de señal por fuera, con un borde oscuro para que se separe del principal
+            glow(r - dpPx(ctx, 2.5f), ring)
             shape(r - dpPx(ctx, 2.5f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 this.color = android.graphics.Color.argb(200, 5, 9, 13)
                 style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 4.5f)
@@ -997,15 +1038,12 @@ private fun nodeIcon(
                 style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 2.5f)
                 strokeJoin = Paint.Join.ROUND
             })
-        } else if (!compact) {
-            // halo
-            shape(r - dpPx(ctx, 1f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                this.color = color; this.alpha = if (lost) 20 else 45
-            })
+        } else {
+            glow(ringR, color)
         }
-        // fondo oscuro
-        shape(ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = android.graphics.Color.argb(225, 5, 9, 13) })
-        if (filled) shape(ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; this.alpha = if (lost) 25 else 55 })
+        // fondo oscuro, apenas translúcido
+        shape(ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = android.graphics.Color.argb(200, 5, 9, 13) })
+        if (filled) shape(ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; this.alpha = if (lost) 25 else 60 })
         // borde
         shape(ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply {
             this.color = color; this.alpha = alpha
@@ -1018,8 +1056,9 @@ private fun nodeIcon(
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             textAlign = Paint.Align.CENTER
             textSize = dpPx(ctx, if (label.length <= 2) 12f else if (compact) 8.5f else 9.5f)
+            if (!lost) setShadowLayer(dpPx(ctx, 3f), 0f, 0f, labelColor)
         }
-        c.drawText(label.take(4), r, r - (text.descent() + text.ascent()) / 2, text)
+        c.drawText(label.take(4), m, m - (text.descent() + text.ascent()) / 2, text)
         BitmapDrawable(ctx.resources, bmp)
     }
 
@@ -1031,7 +1070,7 @@ private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.get
     val size = dpPx(ctx, 34f).toInt()
     val tag = if (label != null) dpPx(ctx, 16f).toInt() else 0
     val w = max(size, dpPx(ctx, 64f).toInt())
-    val h = size + 2 * tag
+    val h = size + 2 * tag + dpPx(ctx, 8f).toInt() // margen para el halo
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
     val cx = w / 2f
@@ -1039,11 +1078,11 @@ private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.get
     val r = size / 2f
     val cyan = HudCyan.toArgb()
     c.drawCircle(cx, cy, r - dpPx(ctx, 1f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; alpha = 40 })
-    val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; strokeWidth = dpPx(ctx, 1.5f) }
+    val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; strokeWidth = dpPx(ctx, 1.5f); setShadowLayer(dpPx(ctx, 3f), 0f, 0f, cyan) }
     val g = dpPx(ctx, 7f)
     c.drawLine(cx, cy - r, cx, cy - r + g, line); c.drawLine(cx, cy + r - g, cx, cy + r, line)
     c.drawLine(cx - r, cy, cx - r + g, cy, line); c.drawLine(cx + r - g, cy, cx + r, cy, line)
-    c.drawCircle(cx, cy, dpPx(ctx, 6f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
+    c.drawCircle(cx, cy, dpPx(ctx, 6f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE; setShadowLayer(dpPx(ctx, 5f), 0f, 0f, cyan) })
     c.drawCircle(cx, cy, dpPx(ctx, 4.5f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan })
     if (label != null) {
         val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1051,6 +1090,7 @@ private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.get
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             textAlign = Paint.Align.CENTER
             textSize = dpPx(ctx, 10f)
+            setShadowLayer(dpPx(ctx, 3f), 0f, 0f, cyan)
         }
         val t = label.take(6).uppercase()
         val tw = text.measureText(t) + dpPx(ctx, 8f)
@@ -1070,7 +1110,7 @@ private fun waypointIcon(ctx: Context, emoji: String): BitmapDrawable = iconCach
     val c = Canvas(bmp)
     val cyan = HudCyan.toArgb()
     val cx = w / 2f
-    c.drawLine(cx, h - dpPx(ctx, 10f), cx, h.toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; strokeWidth = dpPx(ctx, 2f) })
+    c.drawLine(cx, h - dpPx(ctx, 10f), cx, h.toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; strokeWidth = dpPx(ctx, 2f); setShadowLayer(dpPx(ctx, 3f), 0f, 0f, cyan) })
     c.drawCircle(cx, h - dpPx(ctx, 1.5f), dpPx(ctx, 2f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan })
     val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = dpPx(ctx, 24f); textAlign = Paint.Align.CENTER }
     c.drawText(emoji, cx, h - dpPx(ctx, 12f) - p.descent(), p)
