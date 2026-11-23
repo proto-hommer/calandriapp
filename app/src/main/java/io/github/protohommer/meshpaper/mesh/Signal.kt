@@ -1,14 +1,17 @@
 package io.github.protohommer.meshpaper.mesh
 
 import io.github.protohommer.meshpaper.MeshNode
+import org.meshtastic.proto.ConfigProtos.Config.DeviceConfig.Role
 
 /**
  * Cómo se pinta un nodo:
  *  - el propio: ME
  *  - del grupo: GOOD / FAIR / WEAK según la calidad del enlace
+ *  - del grupo con rol de instalación fija (router, base): FIXED
  *  - ajeno: RELAY si repite (aporta cobertura), MUTE si es CLIENT_MUTE (no repite)
+ * FIXED, RELAY y MUTE no dicen nada de la señal: llevan aparte un anillo ([ring]).
  */
-enum class Tone { ME, GOOD, FAIR, WEAK, RELAY, MUTE }
+enum class Tone { ME, GOOD, FAIR, WEAK, RELAY, MUTE, FIXED }
 
 object Signal {
     /** Más de esto sin oírlo = perdido (se pinta apagado; si es del grupo, rojo). */
@@ -52,12 +55,24 @@ object Signal {
         }
     }
 
+    /** Roles pensados para un nodo que queda quieto en un lugar (techo, cerro, torre). */
+    private val FIXED_ROLES = setOf(
+        Role.ROUTER, Role.ROUTER_LATE, Role.CLIENT_BASE, Role.REPEATER, Role.ROUTER_CLIENT,
+    )
+
+    fun isFixedRole(n: MeshNode): Boolean = n.role in FIXED_ROLES
+
     fun tone(n: MeshNode, me: Int?, member: Boolean, now: Long): Tone = when {
         n.num == me -> Tone.ME
+        member && isFixedRole(n) -> Tone.FIXED
         member -> quality(n, now)
         n.mute -> Tone.MUTE
         else -> Tone.RELAY
     }
+
+    /** Anillo de señal para los que no se pintan por calidad (fijos del grupo y ajenos). */
+    fun ring(tone: Tone, n: MeshNode, now: Long): Tone? =
+        if (tone == Tone.FIXED || tone == Tone.RELAY || tone == Tone.MUTE) quality(n, now) else null
 
     /** Texto corto de la señal para fichas y listas. */
     fun describe(n: MeshNode): String? = when (n.hopsAway) {

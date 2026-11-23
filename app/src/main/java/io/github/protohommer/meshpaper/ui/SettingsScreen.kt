@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import io.github.protohommer.meshpaper.MeshViewModel
 import io.github.protohommer.meshpaper.NodeEdits
 import io.github.protohommer.meshpaper.mesh.Group
+import io.github.protohommer.meshpaper.mesh.Range
 import io.github.protohommer.meshpaper.ui.theme.HudCyan
 import io.github.protohommer.meshpaper.ui.theme.HudLine
 import io.github.protohommer.meshpaper.ui.theme.HudSurface
@@ -573,14 +574,7 @@ private fun presetsFor(region: RegionCode): List<ModemPreset> =
 private fun presetName(p: ModemPreset): String =
     p.name.split('_').joinToString("") { it.lowercase().replaceFirstChar(Char::uppercase) }
 
-/** Ancho de banda (kHz) de cada preset sin "wide LoRa" (MeshRadio.h). */
-private fun bandwidthKHz(p: ModemPreset): Double? = when (p) {
-    ModemPreset.SHORT_TURBO, ModemPreset.MEDIUM_TURBO, ModemPreset.LONG_TURBO -> 500.0
-    ModemPreset.SHORT_FAST, ModemPreset.SHORT_SLOW, ModemPreset.MEDIUM_FAST,
-    ModemPreset.MEDIUM_SLOW, ModemPreset.LONG_FAST -> 250.0
-    ModemPreset.LONG_MODERATE, ModemPreset.LONG_SLOW -> 125.0
-    else -> null
-}
+private fun bandwidthKHz(p: ModemPreset): Double? = Range.bandwidthKHz(p)
 
 /** Bandas de las regiones con perfil estándar (sin separación ni relleno entre slots). */
 private fun band(region: RegionCode): Pair<Double, Double>? = when (region) {

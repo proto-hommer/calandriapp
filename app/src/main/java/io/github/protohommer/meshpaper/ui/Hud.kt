@@ -43,6 +43,7 @@ import io.github.protohommer.meshpaper.ui.theme.HudTextDim
 import io.github.protohommer.meshpaper.ui.theme.SigFair
 import io.github.protohommer.meshpaper.ui.theme.SigGood
 import io.github.protohommer.meshpaper.ui.theme.SigMe
+import io.github.protohommer.meshpaper.ui.theme.SigFixed
 import io.github.protohommer.meshpaper.ui.theme.SigMute
 import io.github.protohommer.meshpaper.ui.theme.SigRelay
 import io.github.protohommer.meshpaper.ui.theme.SigWeak
@@ -57,6 +58,7 @@ fun Tone.color(): Color = when (this) {
     Tone.WEAK -> SigWeak
     Tone.RELAY -> SigRelay
     Tone.MUTE -> SigMute
+    Tone.FIXED -> SigFixed
 }
 
 /** Esquinas tipo visor sobre cualquier cosa. */

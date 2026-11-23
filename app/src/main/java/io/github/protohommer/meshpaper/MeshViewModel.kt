@@ -16,6 +16,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.protohommer.meshpaper.ble.LinkState
 import io.github.protohommer.meshpaper.ble.MeshBle
 import io.github.protohommer.meshpaper.ble.MeshUuids
+import io.github.protohommer.meshpaper.mesh.Antenna
 import io.github.protohommer.meshpaper.mesh.BROADCAST
 import io.github.protohommer.meshpaper.mesh.ChatMsg
 import io.github.protohommer.meshpaper.mesh.Conv
@@ -73,6 +74,7 @@ data class MeshNode(
     val rssi: Int? = null,    // del último paquete que llegó directo (0 saltos)
     val mute: Boolean = false, // rol CLIENT_MUTE: no repite, no aporta cobertura
     val group: Boolean = false, // alguna vez lo oímos (con prueba) por el canal privado: tiene la clave
+    val role: DeviceConfig.Role? = null, // del NodeInfo; null = todavía no sabemos
 )
 
 /**
@@ -199,6 +201,23 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _metadata = MutableStateFlow<MeshProtos.DeviceMetadata?>(null)
     val metadata: StateFlow<MeshProtos.DeviceMetadata?> = _metadata
+
+    // ---------- Antenas (cargadas a mano, por nodo, para estimar alcance) ----------
+
+    private val antennaPrefs = app.getSharedPreferences("antennas", Context.MODE_PRIVATE)
+    private val _antennas = MutableStateFlow(
+        antennaPrefs.all.mapNotNull { (k, v) ->
+            val num = k.toLongOrNull(16)?.toInt() ?: return@mapNotNull null
+            (v as? String)?.let(Antenna::decode)?.let { num to it }
+        }.toMap()
+    )
+    val antennas: StateFlow<Map<Int, Antenna>> = _antennas
+
+    fun setAntenna(num: Int, a: Antenna?) {
+        val key = "%08x".format(num)
+        antennaPrefs.edit().apply { if (a == null) remove(key) else putString(key, a.encode()) }.apply()
+        _antennas.update { if (a == null) it - num else it + (num to a) }
+    }
 
     /** Compartir la posición del celular con el grupo (a través del nodo). */
     private val _sharePosition = MutableStateFlow(prefs.getBoolean("sharePosition", true))
@@ -898,6 +917,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 shortName = user?.shortName?.ifEmpty { null } ?: old.shortName,
                 id = user?.id?.ifEmpty { null } ?: old.id,
                 mute = user?.let { it.role == Config.DeviceConfig.Role.CLIENT_MUTE } ?: old.mute,
+                role = user?.role ?: old.role,
                 group = from in groupNums,
             ))
         }
@@ -941,6 +961,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             // por defecto, aunque lo hayamos oído por el público. Ese 0 no prueba nada.
             channel = if (n.hasUser()) n.channel else _nodes.value[n.num]?.channel,
             mute = n.user.role == Config.DeviceConfig.Role.CLIENT_MUTE,
+            role = if (n.hasUser()) n.user.role else _nodes.value[n.num]?.role,
             group = n.num in groupNums,
         )
         _nodes.update { it + (n.num to node) }

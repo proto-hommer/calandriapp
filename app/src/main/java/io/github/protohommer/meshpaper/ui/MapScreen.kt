@@ -1,5 +1,15 @@
 package io.github.protohommer.meshpaper.ui
 
+import java.util.Locale
+import org.meshtastic.proto.ConfigProtos.Config.LoRaConfig.ModemPreset
+import org.osmdroid.views.overlay.Polygon
+import io.github.protohommer.meshpaper.ui.theme.HudTextDim
+import io.github.protohommer.meshpaper.ui.theme.SigFixed
+import io.github.protohommer.meshpaper.mesh.Range
+import io.github.protohommer.meshpaper.mesh.Antenna
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
+import android.view.MotionEvent
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -111,6 +121,25 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     var newWptAt by remember { mutableStateOf<GeoPoint?>(null) }
     var showLayers by remember { mutableStateOf(false) }
     var dark by remember { mutableStateOf(MapTiles.darkMap(context)) }
+    val antennas by vm.antennas.collectAsState()
+    val lora by vm.lora.collectAsState()
+    val preset = lora?.modemPreset ?: ModemPreset.LONG_FAST
+    var rangeNode by remember { mutableStateOf<Int?>(null) }   // nodo con el alcance dibujado
+    var antennaFor by remember { mutableStateOf<Int?>(null) }  // nodo al que se le cargan los datos de antena
+
+    /** Dónde está un nodo en el mapa (el propio, donde está el teléfono). */
+    fun nodeCenter(num: Int): GeoPoint? {
+        val f = fix
+        if (num == me && f != null) return GeoPoint(f.latitude, f.longitude)
+        val n = nodes[num] ?: return null
+        return if (n.lat != null && n.lon != null) GeoPoint(n.lat, n.lon) else null
+    }
+
+    /** Toque largo sobre un nodo: si tiene antena cargada, muestra el alcance; si no, pide los datos. */
+    fun longPressNode(num: Int) {
+        selectedNode = num; selectedWpt = null
+        if (antennas[num] != null) rangeNode = num else antennaFor = num
+    }
 
     // Reloj para que los colores "perdido" se actualicen solos.
     var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
@@ -176,7 +205,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                 mv.overlays.clear()
                 mv.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
                     override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
-                        selectedNode = null; selectedWpt = null
+                        selectedNode = null; selectedWpt = null; rangeNode = null
                         return false
                     }
                     override fun longPressHelper(p: GeoPoint?): Boolean {
@@ -200,6 +229,29 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                         setOnClickListener { _, _, _ -> selectedNode = n.num; selectedWpt = null; true }
                     })
                 }
+                // Alcance estimado del nodo elegido con toque largo: ciudad (lleno) y campo abierto (punteado).
+                rangeNode?.let { num ->
+                    val at = nodeCenter(num) ?: return@let
+                    val est = antennas[num]?.let { Range.estimate(it, preset) } ?: return@let
+                    val blue = SigFixed.toArgb()
+                    mv.overlays.add(Polygon(mv).apply {
+                        points = Polygon.pointsAsCircle(at, est.openM)
+                        fillPaint.color = android.graphics.Color.argb(22, 47, 125, 246)
+                        outlinePaint.color = blue
+                        outlinePaint.strokeWidth = dpPx(mv.context, 1.5f)
+                        outlinePaint.pathEffect = DashPathEffect(floatArrayOf(dpPx(mv.context, 8f), dpPx(mv.context, 5f)), 0f)
+                        infoWindow = null
+                        setOnClickListener { _, _, _ -> false }
+                    })
+                    mv.overlays.add(Polygon(mv).apply {
+                        points = Polygon.pointsAsCircle(at, est.urbanM)
+                        fillPaint.color = android.graphics.Color.argb(45, 47, 125, 246)
+                        outlinePaint.color = blue
+                        outlinePaint.strokeWidth = dpPx(mv.context, 2f)
+                        infoWindow = null
+                        setOnClickListener { _, _, _ -> false }
+                    })
+                }
                 for (w in activeWpts) {
                     mv.overlays.add(Marker(mv).apply {
                         position = GeoPoint(w.lat, w.lon)
@@ -214,11 +266,12 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                 for (n in ordered) {
                     if (n.num == me && fix != null) continue // el propio se dibuja con el GPS del teléfono
                     val tone = Signal.tone(n, me, isMember(n), now)
-                    mv.overlays.add(Marker(mv).apply {
+                    mv.overlays.add(NodeMarker(mv, onLong = { longPressNode(n.num) }).apply {
                         position = GeoPoint(n.lat!!, n.lon!!)
                         icon = nodeIcon(
                             mv.context, n.shortName.ifEmpty { n.id.takeLast(4) }, tone.color().toArgb(),
                             filled = tone != Tone.RELAY && tone != Tone.MUTE, lost = Signal.isLost(n, now),
+                            ring = Signal.ring(tone, n, now)?.color()?.toArgb(),
                         )
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         infoWindow = null
@@ -229,7 +282,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                     // El teléfono y el nodo conectado están en el mismo lugar: un solo marcador
                     // con el nombre del nodo, para no confundirlo con otro nodo parecido.
                     val myLabel = me?.let { nodes[it] }?.let { it.shortName.ifEmpty { it.id.takeLast(4) } }
-                    mv.overlays.add(Marker(mv).apply {
+                    mv.overlays.add(NodeMarker(mv, onLong = { me?.let { longPressNode(it) } }).apply {
                         position = GeoPoint(f.latitude, f.longitude)
                         icon = meIcon(mv.context, myLabel)
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
@@ -264,7 +317,13 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         when {
             selectedNode != null && nodes[selectedNode] != null -> {
                 val n = nodes.getValue(selectedNode!!)
-                NodeCard(vm, n, me, isMember(n), fix, now, bottom, onMessage, onClose = { selectedNode = null })
+                NodeCard(
+                    vm, n, me, isMember(n), fix, now, bottom, onMessage,
+                    antenna = antennas[n.num], preset = preset, showingRange = rangeNode == n.num,
+                    onAntenna = { antennaFor = n.num },
+                    onRange = { rangeNode = if (rangeNode == n.num) null else n.num },
+                    onClose = { selectedNode = null; rangeNode = null },
+                )
             }
             selectedWpt != null && waypoints[selectedWpt] != null ->
                 WaypointCard(vm, waypoints.getValue(selectedWpt!!), nodes, fix, now, bottom, onClose = { selectedWpt = null })
@@ -278,6 +337,17 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     }
 
     newWptAt?.let { at -> NewWaypointDialog(vm, at, onDone = { newWptAt = null }) }
+    antennaFor?.let { num ->
+        val n = nodes[num]
+        // Para el nodo conectado sabemos la potencia real; 0 = la máxima, que en estas radios son 22 dBm.
+        val tx = if (num == me) lora?.txPower?.takeIf { it in 1..22 } ?: 22 else 22
+        AntennaDialog(
+            name = n?.let { it.shortName.ifEmpty { it.id } } ?: "!%08x".format(num),
+            current = antennas[num], defaultTx = tx,
+            onSave = { a -> vm.setAntenna(num, a); rangeNode = if (a != null) num else null; antennaFor = null },
+            onDismiss = { antennaFor = null },
+        )
+    }
     if (showLayers) {
         LayersDialog(map, dark, onDark = { dark = it; MapTiles.setDarkMap(context, it) }, onClose = { showLayers = false })
     }
@@ -303,10 +373,13 @@ private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, 
                 LegendItem(SigGood, "Buena señal")
                 LegendItem(SigFair, "Media / 1 salto")
                 LegendItem(SigWeak, "Mala / perdido")
+                LegendItem(SigFixed, "Fijo del grupo")
                 LegendItem(SigRelay, "Repetidor ajeno")
             }
             Spacer(Modifier.padding(2.dp))
-            HudLabel("Apretá largo = waypoint")
+            HudLabel("Anillo de afuera = señal")
+            HudLabel("Largo en el mapa = waypoint")
+            HudLabel("Largo en un nodo = alcance")
         }
     }
 }
@@ -314,7 +387,9 @@ private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, 
 @Composable
 private fun NodeCard(
     vm: MeshViewModel, n: MeshNode, me: Int?, member: Boolean, fix: Location?, now: Long, modifier: Modifier,
-    onMessage: (Int) -> Unit, onClose: () -> Unit,
+    onMessage: (Int) -> Unit,
+    antenna: Antenna?, preset: ModemPreset, showingRange: Boolean,
+    onAntenna: () -> Unit, onRange: () -> Unit, onClose: () -> Unit,
 ) {
     val tracks by vm.tracks.collectAsState()
     val tone = Signal.tone(n, me, member, now)
@@ -322,6 +397,7 @@ private fun NodeCard(
         Tone.ME -> "Este nodo"
         Tone.RELAY -> "Repetidor ajeno"
         Tone.MUTE -> "Ajeno · no repite"
+        Tone.FIXED -> if (Signal.isLost(n, now)) "Grupo · fijo · sin noticias" else "Grupo · fijo"
         else -> if (Signal.isLost(n, now)) "Grupo · sin noticias" else "Grupo"
     }
     HudPanel(modifier.width(280.dp), title = kind, accent = tone.color()) {
@@ -347,8 +423,29 @@ private fun NodeCard(
             Spacer(Modifier.padding(2.dp))
             HudLabel(extra.joinToString("  ·  "), color = MaterialTheme.colorScheme.onSurface)
         }
+        val est = antenna?.let { Range.estimate(it, preset) }
+        if (antenna != null && est != null) {
+            Spacer(Modifier.padding(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                HudLabel(
+                    "Antena %s dBi a %s m".format(fmtNum(antenna.gainDbi), fmtNum(antenna.heightM)),
+                    Modifier.weight(1f), color = SigFixed,
+                )
+                TextButton(onClick = onRange) { Text(if (showingRange) "OCULTAR" else "VER ALCANCE") }
+            }
+            Text(
+                "Alcance ≈ ${PhoneLocation.formatDistance(est.urbanM.toFloat())} en ciudad · " +
+                    "${PhoneLocation.formatDistance(est.openM.toFloat())} a campo abierto",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "Hacia un nodo de mano (1,5 m). Sin relieve: un cerro en el medio lo corta.",
+                style = MaterialTheme.typography.bodySmall, color = HudTextDim,
+            )
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (n.num != me) TextButton(onClick = { onMessage(n.num) }) { Text("MENSAJE") }
+            TextButton(onClick = onAntenna) { Text("ANTENA") }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = onClose) { Text("CERRAR") }
         }
@@ -399,6 +496,82 @@ private fun WaypointCard(
             dismissButton = { TextButton(onClick = { confirm = false }) { Text("NO") } },
         )
     }
+}
+
+/** Marcador de nodo que además avisa del toque largo (osmdroid solo lo usa para arrastrar). */
+private class NodeMarker(mv: MapView, private val onLong: () -> Unit) : Marker(mv) {
+    override fun onLongPress(event: MotionEvent, mapView: MapView): Boolean {
+        if (hitTest(event, mapView)) { onLong(); return true }
+        return super.onLongPress(event, mapView)
+    }
+}
+
+@Composable
+private fun Hint(text: String) {
+    Text(text, style = MaterialTheme.typography.bodySmall, color = HudTextDim)
+}
+
+private fun fmtNum(v: Double): String =
+    if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(Locale.forLanguageTag("es-AR"), v)
+
+/** Datos de la antena de un nodo, para estimar su alcance. Se guardan solo en este teléfono. */
+@Composable
+private fun AntennaDialog(name: String, current: Antenna?, defaultTx: Int, onSave: (Antenna?) -> Unit, onDismiss: () -> Unit) {
+    fun t(v: Double?) = v?.let(::fmtNum) ?: ""
+    var gain by remember { mutableStateOf(t(current?.gainDbi ?: 2.0)) }
+    var height by remember { mutableStateOf(t(current?.heightM)) }
+    var cable by remember { mutableStateOf(t(current?.cableDb ?: 0.0)) }
+    var tx by remember { mutableStateOf((current?.txDbm ?: defaultTx).toString()) }
+    fun num(s: String) = s.replace(',', '.').toDoubleOrNull()
+    val g = num(gain)?.takeIf { it in -5.0..20.0 }
+    val h = num(height)?.takeIf { it in 0.0..500.0 }
+    val c = num(cable)?.takeIf { it in 0.0..20.0 }
+    val p = tx.toIntOrNull()?.takeIf { it in 0..30 }
+    val ok = g != null && h != null && c != null && p != null
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("ANTENA DE ${name.uppercase()}") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Meshtastic no manda estos datos: cargalos vos para estimar el alcance.",
+                    style = MaterialTheme.typography.bodySmall, color = HudTextDim,
+                )
+                OutlinedTextField(
+                    value = gain, onValueChange = { gain = it }, label = { Text("Ganancia (dBi)") },
+                    singleLine = true, isError = g == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                Hint("De fábrica ≈ 2 · látigo 3–5 · colineal 6–8")
+                OutlinedTextField(
+                    value = height, onValueChange = { height = it }, label = { Text("Altura sobre el suelo (m)") },
+                    singleLine = true, isError = h == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                Hint("En la mano ≈ 1,5 · techo de casa ≈ 6–8")
+                OutlinedTextField(
+                    value = cable, onValueChange = { cable = it }, label = { Text("Pérdida del cable (dB)") },
+                    singleLine = true, isError = c == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                Hint("Directa a la placa = 0 · RG58 ≈ 0,5 por metro")
+                OutlinedTextField(
+                    value = tx, onValueChange = { tx = it.filter(Char::isDigit).take(2) }, label = { Text("Potencia (dBm)") },
+                    singleLine = true, isError = p == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(Antenna(g!!, h!!, c!!, p!!)) }, enabled = ok) { Text("GUARDAR") }
+        },
+        dismissButton = {
+            Row {
+                if (current != null) TextButton(onClick = { onSave(null) }) { Text("BORRAR") }
+                TextButton(onClick = onDismiss) { Text("CANCELAR") }
+            }
+        },
+    )
 }
 
 private val ICONS = listOf(0x1F4CD, 0x26FA, 0x1F697, 0x1F6B0, 0x26A0, 0x1F3C1, 0x1F6A9, 0x2B50)
@@ -672,18 +845,34 @@ private fun dpPx(ctx: Context, v: Float) = v * ctx.resources.displayMetrics.dens
  * Los del grupo llevan un relleno tenue del color; los ajenos, anillo solo.
  * Perdido = anillo punteado y apagado.
  */
-private fun nodeIcon(ctx: Context, label: String, color: Int, filled: Boolean, lost: Boolean): BitmapDrawable =
-    iconCache.getOrPut("n:$label:$color:$filled:$lost") {
-        val size = dpPx(ctx, 40f).toInt()
+/**
+ * Nodo: anillo del color del tipo con el nombre corto adentro. [ring] = anillo exterior con la
+ * calidad de la señal, para los que no se pintan por calidad (ajenos y fijos del grupo).
+ */
+private fun nodeIcon(ctx: Context, label: String, color: Int, filled: Boolean, lost: Boolean, ring: Int? = null): BitmapDrawable =
+    iconCache.getOrPut("n:$label:$color:$filled:$lost:$ring") {
+        val size = dpPx(ctx, if (ring != null) 46f else 40f).toInt()
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         val r = size / 2f
-        val ringR = r - dpPx(ctx, 5f)
+        val ringR = r - dpPx(ctx, if (ring != null) 8f else 5f)
         val alpha = if (lost) 130 else 255
-        // halo
-        c.drawCircle(r, r, r - dpPx(ctx, 1f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = color; this.alpha = if (lost) 20 else 45
-        })
+        if (ring != null) {
+            // anillo de señal por fuera, con un borde oscuro para que se separe del principal
+            c.drawCircle(r, r, r - dpPx(ctx, 2.5f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.color = android.graphics.Color.argb(200, 5, 9, 13)
+                style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 4.5f)
+            })
+            c.drawCircle(r, r, r - dpPx(ctx, 2.5f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.color = ring; this.alpha = alpha
+                style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 2.5f)
+            })
+        } else {
+            // halo
+            c.drawCircle(r, r, r - dpPx(ctx, 1f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.color = color; this.alpha = if (lost) 20 else 45
+            })
+        }
         // fondo oscuro
         c.drawCircle(r, r, ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = android.graphics.Color.argb(225, 5, 9, 13) })
         if (filled) c.drawCircle(r, r, ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; this.alpha = if (lost) 25 else 55 })

@@ -18,4 +18,5 @@ val SigFair = Color(0xFFFFC83D)   // grupo, recepción media
 val SigWeak = Color(0xFFFF4D5E)   // grupo, recepción mala o perdido
 val SigRelay = Color(0xFFB26BFF)  // ajeno que repite (aporta cobertura)
 val SigMute = Color(0xFF6B7785)   // ajeno que no repite
+val SigFixed = Color(0xFF2F7DF6)  // del grupo, instalación fija (router, base): azul Francia, aclarado para fondo oscuro
 val SigMe = HudCyan               // este teléfono / nodo propio
