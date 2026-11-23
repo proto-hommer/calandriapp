@@ -445,7 +445,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
             else -> Legend(
                 bottom, expanded = showLegend,
                 onToggle = { showLegend = !showLegend; mapPrefs.edit().putBoolean("legend", showLegend).apply() },
-                members = nodes.values.count { isMember(it) && it.num != me },
+                members = nodes.values.count { isMember(it) && it.num != me } + if (hasGroup && me != null) 1 else 0,
                 relays = nodes.values.count { !isMember(it) && !it.mute },
             )
         }

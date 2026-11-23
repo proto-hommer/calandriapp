@@ -317,7 +317,9 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
     val fix by vm.myFix.collectAsState()
     val hasGroup = remember(channels) { vm.hasPrivateGroup() }
     val myNode = me?.let { nodes[it] }
-    val members = nodes.values.count { it.num != me && isGroupMember(it, me, hasGroup, since) }
+    // Con el propio: "3" si son tres nodos en el grupo contando este.
+    val members = nodes.values.count { it.num != me && isGroupMember(it, me, hasGroup, since) } +
+        if (hasGroup && myNode != null) 1 else 0
     val connected = link == LinkState.Connected
     val (linkColor, state) = when (link) {
         LinkState.Connected -> SigGood to "enlazado"

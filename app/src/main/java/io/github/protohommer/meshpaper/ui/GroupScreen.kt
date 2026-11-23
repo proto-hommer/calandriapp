@@ -42,7 +42,7 @@ import io.github.protohommer.meshpaper.MeshViewModel
 import io.github.protohommer.meshpaper.mesh.Group
 import org.meshtastic.proto.AppOnlyProtos.ChannelSet
 
-private enum class Mode { Menu, Create, Join, Review }
+private enum class Mode { Menu, Create, Join, Review, Rename }
 
 /** Pantalla del grupo: ver/compartir el actual, crear uno nuevo o unirse con QR/link. */
 @Composable
@@ -70,6 +70,7 @@ fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
                 val current = remember(channels) { vm.currentChannelSet() }
                 if (vm.hasPrivateGroup() && current != null) {
                     Text("Grupo: ${current.getSettings(0).name}", style = MaterialTheme.typography.titleLarge)
+                    HudOutlinedButton(onClick = { mode = Mode.Rename }, Modifier.fillMaxWidth()) { Text("Cambiar el nombre") }
                     Text("Mostrale este QR a los demás para que se unan (sirve con esta app o la oficial).")
                     QrCard(Group.toUrl(current))
                     if (vm.trackingConfigured() == false) {
@@ -125,6 +126,31 @@ fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
                     if (set == null) error = "Ese link no es un grupo de Meshtastic."
                     else { pending = set; mode = Mode.Review; error = null }
                 }, Modifier.fillMaxWidth()) { Text("Siguiente") }
+            }
+
+            Mode.Rename -> {
+                val old = remember(channels) { channels[0]?.settings?.name.orEmpty() }
+                var name by remember { mutableStateOf(old) }
+                Text("Cambiar el nombre del grupo", style = MaterialTheme.typography.titleLarge)
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.filter { c -> c.isLetterOrDigit() || c == '-' || c == '_' }.take(Group.MAX_NAME) },
+                    label = { Text("Nombre nuevo (hasta ${Group.MAX_NAME})") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Ojo: el nombre es parte de la llave del canal. Después de cambiarlo, los demás " +
+                        "tienen que escanear el QR nuevo; hasta entonces no se leen entre ustedes. " +
+                        "La clave y la frecuencia no cambian.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = io.github.protohommer.meshpaper.ui.theme.SigFair,
+                )
+                HudButton(
+                    onClick = { vm.renameGroup(name); mode = Mode.Menu },
+                    enabled = name.isNotBlank() && name != old,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Cambiar y reiniciar el nodo") }
             }
 
             Mode.Review -> pending?.let { set ->

@@ -20,6 +20,7 @@ import io.github.protohommer.meshpaper.mesh.BROADCAST
 import io.github.protohommer.meshpaper.mesh.ChatMsg
 import io.github.protohommer.meshpaper.mesh.Conv
 import io.github.protohommer.meshpaper.mesh.Group
+import io.github.protohommer.meshpaper.mesh.Regions
 import io.github.protohommer.meshpaper.mesh.MAX_TEXT_BYTES
 import io.github.protohommer.meshpaper.mesh.MessageStore
 import io.github.protohommer.meshpaper.mesh.MsgStatus
@@ -316,7 +317,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                     reconnectJob?.cancel(); reconnectJob = null
                 }
                 // Se cortó estando conectados (nodo fuera de alcance, se apagó…): reintentar solo.
-                if (prev == LinkState.Connected && it is LinkState.Failed && _keepAlive.value) startReconnect()
+                if (prev == LinkState.Connected && it is LinkState.Failed && _keepAlive.value && applyJob?.isActive != true) startReconnect()
                 prev = it
             }
         }
@@ -330,7 +331,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             var wait = 5_000L
             while (_keepAlive.value && link.value != LinkState.Connected) {
                 delay(wait)
-                if (!_keepAlive.value) break
+                if (!_keepAlive.value || applyJob?.isActive == true) break
                 val st = link.value
                 if (st is LinkState.Failed || st == LinkState.Disconnected) connectDevice(d)
                 // Esperar a que ese intento termine (conecta o falla) antes del siguiente.
@@ -580,6 +581,28 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         _channels.value[0]?.let { it.role == Channel.Role.PRIMARY && Group.isPrivate(it.settings) } == true
 
     fun newGroup(name: String): ChannelSet = Group.create(name, _lora.value)
+
+    /**
+     * Le cambia el nombre al grupo (el canal principal), con la misma clave. El nombre entra en el
+     * "hash" del canal que viaja en cada paquete: hasta que los demás escaneen el QR nuevo no se
+     * leen entre ustedes. Si el slot de frecuencia no está fijo, sale del nombre: lo fijamos en el
+     * actual para no cambiar de frecuencia.
+     */
+    fun renameGroup(name: String) = runEdit("Cambiando el nombre del grupo…", "Grupo renombrado: compartí el QR nuevo.") { me ->
+        val ch0 = _channels.value[0] ?: error("el nodo no tiene canal principal")
+        val lora = _lora.value
+        if (lora != null && lora.channelNum == 0) {
+            val slots = Regions.slotCount(lora.region, lora.modemPreset)
+            if (slots != null) {
+                val old = ch0.settings.name
+                sendAdmin(me, AdminMessage.newBuilder().setSetConfig(
+                    Config.newBuilder().setLora(lora.toBuilder().setChannelNum(Group.slotFor(old, slots)))
+                ).build())
+            }
+        }
+        val renamed = ch0.toBuilder().setSettings(ch0.settings.toBuilder().setName(name.take(Group.MAX_NAME)))
+        sendAdmin(me, AdminMessage.newBuilder().setSetChannel(renamed).build())
+    }
 
     fun dismissApply() {
         _apply.value = ApplyState.Idle
