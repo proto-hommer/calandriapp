@@ -12,6 +12,12 @@ val HudCyanDim = Color(0xFF0E3A44)
 val HudText = Color(0xFFD8E6EE)
 val HudTextDim = Color(0xFF8EA4B3)
 
+// Marca CalandriApp (assets/brand): azul marino de fondo, cobre de la red, verde del ojo, texto.
+val BrandNavy = Color(0xFF14223A)
+val BrandCopper = Color(0xFFC98245)
+val BrandGreen = Color(0xFF268647)
+val BrandText = Color(0xFFF3F5F6)
+
 // Estado de los nodos en el mapa y en la lista.
 val SigGood = Color(0xFF34E37A)   // directo o 1 salto
 val SigFair = Color(0xFFFFC83D)   // 2 a 3 saltos

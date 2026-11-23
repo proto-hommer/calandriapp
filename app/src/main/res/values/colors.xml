@@ -8,4 +8,10 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
     <color name="hud_bg">#FF05090D</color>
+
+    <!-- Marca CalandriApp (assets/brand) -->
+    <color name="brand_navy">#FF14223A</color>
+    <color name="brand_copper">#FFC98245</color>
+    <color name="brand_green">#FF268647</color>
+    <color name="brand_text">#FFF3F5F6</color>
 </resources>

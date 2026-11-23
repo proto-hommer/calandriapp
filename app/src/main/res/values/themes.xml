@@ -6,4 +6,12 @@
         <item name="android:windowBackground">@color/hud_bg</item>
         <item name="android:colorBackground">@color/hud_bg</item>
     </style>
+
+    <!-- Pantalla de inicio (androidx core-splashscreen: igual en Android 8 a 16).
+         Fondo azul marino de la marca y la calandria completa centrada. -->
+    <style name="Theme.CalandriApp.Arranque" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/brand_navy</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
+        <item name="postSplashScreenTheme">@style/Theme.MeshPaper</item>
+    </style>
 </resources>

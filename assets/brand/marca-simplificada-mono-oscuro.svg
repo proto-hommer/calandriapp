@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="20.3 39.3 155.4 136.4" width="155.4" height="136.4">
+  <title>CalandriApp — marca simplificada monocromo #14223A</title>
+  <mask id="ojo4" maskUnits="userSpaceOnUse" x="-1000" y="-1000" width="3000" height="3000"><rect x="-1000" y="-1000" width="3000" height="3000" fill="#fff"/><circle cx="136" cy="66" r="11.6" fill="#000"/></mask>
+  <g mask="url(#ojo4)"><g stroke="#14223A" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M168,62 L138,47 L124,53 L98,74 L72,106 L28,156 L36,168 L84,124 L120,120 L146,98 L152,70 Z"/><line x1="98" y1="74" x2="136" y2="66"/><line x1="98" y1="74" x2="108" y2="96"/><line x1="108" y1="96" x2="72" y2="106"/><line x1="108" y1="96" x2="128" y2="92"/><line x1="136" y1="66" x2="128" y2="92"/><line x1="128" y1="92" x2="120" y2="120"/><line x1="108" y1="96" x2="84" y2="124"/></g></g>
+  <circle cx="136" cy="66" r="10" fill="#14223A"/>
+</svg>
