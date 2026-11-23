@@ -344,6 +344,21 @@ private fun SettingsContent(
                 }
                 Note("Olvidar nodos borra la lista de nodos conocidos (deja los favoritos). Sirve para limpiar nodos fantasma.")
             }
+
+            // ---------- Acerca de ----------
+            Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("CalandriApp", style = MaterialTheme.typography.titleMedium, color = HudCyan)
+                HudLabel("versión ${appVersion()}")
+                Spacer(Modifier.height(6.dp))
+                Text("powered by Meshtastic", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "Meshtastic® es una marca registrada de Meshtastic LLC. CalandriApp es una app independiente: " +
+                        "no es la app oficial ni está respaldada por el proyecto Meshtastic.",
+                    style = MaterialTheme.typography.bodySmall, color = HudTextDim,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.padding(top = 4.dp, start = 8.dp, end = 8.dp),
+                )
+            }
             Spacer(Modifier.height(8.dp))
         }
 
@@ -460,6 +475,14 @@ private fun Warn(text: String, color: Color = SigFair) {
         Text("▲", color = color, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.width(6.dp))
         Text(text, style = MaterialTheme.typography.bodySmall, color = color)
+    }
+}
+
+@Composable
+private fun appVersion(): String {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    return remember {
+        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "—"
     }
 }
 

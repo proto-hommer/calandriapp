@@ -252,7 +252,7 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StatusDot(linkColor, 6.dp)
                     Spacer(Modifier.width(5.dp))
-                    HudLabel("Mesh Paper · $state", color = linkColor.copy(alpha = 0.85f))
+                    HudLabel("CalandriApp · $state", color = linkColor.copy(alpha = 0.85f))
                 }
             }
             TopReadout(
@@ -296,7 +296,7 @@ private fun TopDivider() {
 private fun NavBar(tab: Tab, unread: Int, onSelect: (Tab) -> Unit) {
     Column(Modifier.fillMaxWidth().background(HudSurface).windowInsetsPadding(WindowInsets.navigationBars)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(HudLine))
-        Row(Modifier.fillMaxWidth().height(56.dp)) {
+        Row(Modifier.fillMaxWidth().height(50.dp)) {
             for (t in Tab.entries) {
                 val active = t == tab
                 Column(
@@ -318,6 +318,14 @@ private fun NavBar(tab: Tab, unread: Int, onSelect: (Tab) -> Unit) {
                 }
             }
         }
+        // Crédito al proyecto en el que se apoya la app (y a su marca).
+        Text(
+            "powered by Meshtastic",
+            Modifier.fillMaxWidth().padding(bottom = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = HudTextDim.copy(alpha = 0.7f),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
     }
 }
 

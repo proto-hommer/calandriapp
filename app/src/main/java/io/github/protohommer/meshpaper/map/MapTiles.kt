@@ -40,7 +40,7 @@ object MapTiles {
         conf.osmdroidBasePath = base
         conf.osmdroidTileCache = File(base, "tiles").apply { mkdirs() }
         // OSM pide un User-Agent que identifique la app; uno genérico, sin datos del usuario.
-        conf.userAgentValue = "MeshPaper-Android/1.0"
+        conf.userAgentValue = "CalandriApp-Android/1.0"
         conf.tileFileSystemCacheMaxBytes = 1024L * 1024 * 1024        // 1 GB de caché
         conf.tileFileSystemCacheTrimBytes = 900L * 1024 * 1024
         conf.expirationOverrideDuration = 365L * 24 * 3600 * 1000     // en el campo, mejor viejo que nada
