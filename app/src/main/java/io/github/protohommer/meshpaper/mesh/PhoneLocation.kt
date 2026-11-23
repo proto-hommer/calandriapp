@@ -65,7 +65,14 @@ class PhoneLocation(context: Context, private val onFix: (Location) -> Unit) {
                 .setTime((System.currentTimeMillis() / 1000).toInt())
                 .setTimestamp((loc.time / 1000).toInt())
                 .setLocationSource(Position.LocSource.LOC_EXTERNAL)
-                .apply { if (loc.hasAltitude()) setAltitude(loc.altitude.roundToInt()) }
+                .apply {
+                    // `altitude` es sobre el nivel del mar; Android da la elipsoidal (HAE), que según
+                    // la zona difiere hasta en decenas de metros. MSL solo si Android la sabe (14+).
+                    if (android.os.Build.VERSION.SDK_INT >= 34 && loc.hasMslAltitude()) {
+                        setAltitude(loc.mslAltitudeMeters.roundToInt())
+                    }
+                    if (loc.hasAltitude()) setAltitudeHae(loc.altitude.roundToInt())
+                }
                 .build()
             return MeshProtos.MeshPacket.newBuilder()
                 .setTo(myNodeNum)

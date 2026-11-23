@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.meshtastic.proto.AdminProtos.AdminMessage
 import org.meshtastic.proto.AppOnlyProtos.ChannelSet
@@ -81,7 +82,29 @@ data class MeshNode(
     val group: Boolean = false, // alguna vez lo oímos (con prueba) por el canal privado: tiene la clave
     val role: DeviceConfig.Role? = null, // del NodeInfo; null = todavía no sabemos
     val hw: MeshProtos.HardwareModel? = null, // modelo de placa, del NodeInfo
-)
+    val alt: Int? = null,     // altitud sobre el nivel del mar (m), si la manda
+    val precisionBits: Int? = null, // bits de precisión de la posición (32 = exacta)
+) {
+    /**
+     * Error de la posición si viene redondeada a propósito (canal con precisión reducida):
+     * el firmware deja los [precisionBits] bits altos de latitude_i (1e-7°) y centra el resto.
+     */
+    val positionErrorM: Double?
+        get() = precisionBits?.takeIf { it in 1..31 }?.let { (1L shl (32 - it)) * 1e-7 * 111_320 / 2 }
+}
+
+/**
+ * Altitud sobre el nivel del mar de una posición. El firmware difunde `altitude` (MSL) por
+ * defecto y manda 0 cuando no la tiene; si viene la elipsoidal (HAE) con la separación del
+ * geoide, MSL = HAE − separación. La HAE sola no sirve: según la zona difiere del nivel del mar
+ * hasta en decenas de metros.
+ */
+fun mslOf(p: MeshProtos.Position): Int? = when {
+    p.hasAltitude() && p.altitude != 0 -> p.altitude
+    p.hasAltitudeHae() && p.hasAltitudeGeoidalSeparation() && p.altitudeHae != 0 ->
+        p.altitudeHae - p.altitudeGeoidalSeparation
+    else -> null
+}
 
 /**
  * ¿Es del grupo? Alguna vez lo oímos por el canal privado (índice 0) después de armar el grupo.
@@ -326,6 +349,10 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         lastSentFix = loc
         viewModelScope.launch {
             try {
+                // Android da la altitud elipsoidal; desde Android 14 se puede pasar al nivel del mar.
+                if (android.os.Build.VERSION.SDK_INT >= 34 && loc.hasAltitude()) withContext(Dispatchers.IO) {
+                    runCatching { android.location.altitude.AltitudeConverter().addMslAltitudeToLocation(getApplication(), loc) }
+                }
                 ble.send(ToRadio.newBuilder().setPacket(PhoneLocation.toPacket(loc, me, newPacketId())).build())
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -983,7 +1010,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             val old = map[from] ?: MeshNode(
                 from, "!%08x".format(from), "", "", 0, 0f, null, null, null, null, channelProof(p),
             )
-            map + (from to old.copy(lat = pos.latitudeI / 1e7, lon = pos.longitudeI / 1e7, group = from in groupNums))
+            map + (from to old.copy(lat = pos.latitudeI / 1e7, lon = pos.longitudeI / 1e7, alt = mslOf(pos), precisionBits = pos.precisionBits, group = from in groupNums))
         }
         val t = when {
             pos.time != 0 -> pos.time.toLong() and 0xffffffffL
@@ -1014,6 +1041,8 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             mute = n.user.role == Config.DeviceConfig.Role.CLIENT_MUTE,
             role = if (n.hasUser()) n.user.role else _nodes.value[n.num]?.role,
             hw = if (n.hasUser()) n.user.hwModel else _nodes.value[n.num]?.hw,
+            alt = if (n.position.hasLatitudeI()) mslOf(n.position) else _nodes.value[n.num]?.alt,
+            precisionBits = if (n.position.hasLatitudeI()) n.position.precisionBits else _nodes.value[n.num]?.precisionBits,
             group = n.num in groupNums,
         )
         _nodes.update { it + (n.num to node) }

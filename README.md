@@ -50,9 +50,13 @@ trabajo de campo con un grupo cerrado:
   - los fijos del grupo (router, base), en azul;
   - los ajenos, con el nombre en violeta y un anillo con la señal.
 - **Alcance estimado**: con un toque largo sobre un nodo, si le cargaste los datos de la antena.
+  La altura puede salir sola del GPS del nodo (su altitud menos el terreno), si la manda.
 - **Perfil de terreno** entre vos y cualquier nodo: el corte del relieve, la línea de vista, la zona
   de Fresnel y si el enlace **pasa, está al límite o no pasa**, con el margen en dB. Usa el relieve
   del SRTM (≈30 m), que se baja por zonas y queda guardado para usarlo sin señal.
+- **Mapas sin conexión por cuadrantes** (en Ajustes): una cuadrícula sobre el mapa (1-A, 2-B…)
+  con lo bajado en verde, lo que se está bajando en amarillo y lo que falta en rojo. Se elige qué
+  cuadrantes bajar y se baja todo junto: el relieve y, si la fuente lo permite, el mapa.
 - **Grupo cerrado en dos toques**: crea un canal privado con clave AES-256 y lo comparte por QR
   (el formato estándar de Meshtastic, así que sirve también con la app oficial).
 - **Posición del celular** al grupo a través del nodo, para nodos sin GPS.

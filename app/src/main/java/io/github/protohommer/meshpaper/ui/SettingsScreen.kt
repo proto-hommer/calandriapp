@@ -66,17 +66,25 @@ import kotlin.math.roundToInt
 
 /** Ajustes del nodo conectado: nombre, rol, posición, radio y canales. */
 @Composable
-fun SettingsScreen(vm: MeshViewModel) {
+fun SettingsScreen(vm: MeshViewModel, connected: Boolean = true) {
     val owner by vm.owner.collectAsState()
     val device by vm.deviceConfig.collectAsState()
     val pos by vm.positionConfig.collectAsState()
     val lora by vm.lora.collectAsState()
     val channels by vm.channels.collectAsState()
     val o = owner; val d = device; val p = pos; val l = lora
-    if (o == null || d == null || p == null || l == null || channels.isEmpty()) {
-        Column(Modifier.fillMaxSize().padding(16.dp)) {
-            HudHeader("Ajustes del nodo")
-            Text("Leyendo la configuración del nodo…", color = HudTextDim)
+    if (!connected || o == null || d == null || p == null || l == null || channels.isEmpty()) {
+        // Sin nodo (o mientras llega su config) igual se pueden bajar los mapas.
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            HudHeader("Ajustes")
+            OfflineMapsPanel()
+            Text(
+                if (connected) "Leyendo la configuración del nodo…" else "Conectá un nodo para ver y cambiar sus ajustes.",
+                color = HudTextDim,
+            )
         }
         return
     }
@@ -343,6 +351,9 @@ private fun SettingsContent(
                 }
                 Note("El nombre y la clave de los canales se cambian en la pestaña Grupo.")
             }
+
+            // ---------- Mapas sin conexión ----------
+            OfflineMapsPanel()
 
             // ---------- Mantenimiento ----------
             HudPanel(Modifier.fillMaxWidth(), title = "Mantenimiento") {

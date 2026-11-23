@@ -61,6 +61,7 @@ fun ProfileDialog(
     aName: String, a: Profile.End, aGuess: Boolean,
     bName: String, b: Profile.End, bGuess: Boolean,
     freqMHz: Double, preset: ModemPreset,
+    approxM: Double? = null,
     onDismiss: () -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -89,7 +90,14 @@ fun ProfileDialog(
                             "solo, o bajalo antes de salir desde CAPA → Relieve.",
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    is ProfileState.Ready -> ProfileBody(s.r, aName, bName, a, b, aGuess, bGuess, freqMHz)
+                    is ProfileState.Ready -> {
+                        ProfileBody(s.r, aName, bName, a, b, aGuess, bGuess, freqMHz)
+                        if (approxM != null && approxM > 100) Text(
+                            "Ojo: una de las posiciones llega redondeada (±${PhoneLocation.formatDistance(approxM.toFloat())}), " +
+                                "así que el perfil puede no ser el del lugar exacto.",
+                            style = MaterialTheme.typography.bodySmall, color = SigFair,
+                        )
+                    }
                 }
             }
         },

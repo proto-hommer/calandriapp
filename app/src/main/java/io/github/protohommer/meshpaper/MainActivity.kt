@@ -196,7 +196,7 @@ fun App(vm: MeshViewModel = viewModel()) {
                                 } else ChatsScreen(vm, onOpen = { chat = it })
                                 Tab.GROUP -> if (connected) GroupScreen(vm, onBack = { tabName = Tab.MAP.name })
                                 else Unit
-                                Tab.SETTINGS -> if (connected) SettingsScreen(vm) else Unit
+                                Tab.SETTINGS -> SettingsScreen(vm, connected)
                                 Tab.MAP -> Unit
                             }
                         }

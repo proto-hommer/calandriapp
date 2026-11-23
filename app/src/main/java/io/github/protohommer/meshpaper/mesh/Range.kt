@@ -9,9 +9,14 @@ import kotlin.math.sqrt
 /**
  * Antena de un nodo, cargada a mano: Meshtastic no transmite la ganancia ni la altura.
  * [txDbm] es la potencia de salida de la radio (el SX1262 llega a 22 dBm).
+ * [gpsHeight]: tomar la altura sobre el suelo de la altitud que manda el nodo (GPS − relieve)
+ * cuando la haya; [heightM] queda para cuando no.
  */
-data class Antenna(val gainDbi: Double, val heightM: Double, val cableDb: Double = 0.0, val txDbm: Int = 22) {
-    fun encode(): String = "$gainDbi;$heightM;$cableDb;$txDbm"
+data class Antenna(
+    val gainDbi: Double, val heightM: Double, val cableDb: Double = 0.0, val txDbm: Int = 22,
+    val gpsHeight: Boolean = false,
+) {
+    fun encode(): String = "$gainDbi;$heightM;$cableDb;$txDbm;${if (gpsHeight) 1 else 0}"
 
     companion object {
         fun decode(s: String): Antenna? {
@@ -20,6 +25,7 @@ data class Antenna(val gainDbi: Double, val heightM: Double, val cableDb: Double
             return Antenna(
                 p[0].toDoubleOrNull() ?: return null, p[1].toDoubleOrNull() ?: return null,
                 p[2].toDoubleOrNull() ?: 0.0, p[3].toIntOrNull() ?: 22,
+                gpsHeight = p.getOrNull(4) == "1",
             )
         }
     }

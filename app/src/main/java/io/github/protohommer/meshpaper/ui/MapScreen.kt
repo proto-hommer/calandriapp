@@ -89,7 +89,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.tileprovider.cachemanager.CacheManager
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.CustomZoomButtonsController
@@ -138,6 +137,25 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     var rangeNode by remember { mutableStateOf<Int?>(null) }   // nodo con el alcance dibujado
     var antennaFor by remember { mutableStateOf<Int?>(null) }  // nodo al que se le cargan los datos de antena
     var profileFor by remember { mutableStateOf<Int?>(null) }  // nodo con el perfil de terreno abierto
+
+    // Antenas con "altura del GPS": altitud que manda el nodo − terreno del relieve.
+    val gpsKeys = antennas.filterValues { it.gpsHeight }.keys
+        .map { k -> nodes[k].let { Triple(k, it?.alt, it?.lat to it?.lon) } }
+    var gpsHeights by remember { mutableStateOf<Map<Int, GpsHeight>>(emptyMap()) }
+    LaunchedEffect(gpsKeys) {
+        gpsHeights = withContext(Dispatchers.IO) {
+            gpsKeys.associate { (k, alt, ll) ->
+                val (la, lo) = ll
+                k to gpsHeightOf(context, alt, la, lo)
+            }
+        }
+    }
+
+    /** La antena del nodo con la altura resuelta (la del GPS si está pedida y se puede). */
+    fun effAntenna(num: Int): Antenna? = antennas[num]?.let { a ->
+        val h = gpsHeights[num]?.aboveGround
+        if (a.gpsHeight && h != null) a.copy(heightM = h) else a
+    }
 
     val map = remember {
         MapTiles.init(context)
@@ -267,7 +285,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                 // Alcance estimado del nodo elegido con toque largo: ciudad (lleno) y campo abierto (punteado).
                 rangeNode?.let { num ->
                     val at = nodeCenter(num) ?: return@let
-                    val est = antennas[num]?.let { Range.estimate(it, preset) } ?: return@let
+                    val est = effAntenna(num)?.let { Range.estimate(it, preset) } ?: return@let
                     val blue = SigFixed.toArgb()
                     mv.overlays.add(Polygon(mv).apply {
                         points = Polygon.pointsAsCircle(at, est.openM)
@@ -375,7 +393,8 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                 val n = nodes.getValue(selectedNode!!)
                 NodeCard(
                     vm, n, me, isMember(n), fix, now, bottom, onMessage,
-                    antenna = antennas[n.num], preset = preset, showingRange = rangeNode == n.num,
+                    antenna = effAntenna(n.num), preset = preset, showingRange = rangeNode == n.num,
+                    fromGps = antennas[n.num]?.gpsHeight == true && gpsHeights[n.num]?.aboveGround != null,
                     onAntenna = { antennaFor = n.num },
                     onRange = { rangeNode = if (rangeNode == n.num) null else n.num },
                     onClose = { selectedNode = null; rangeNode = null; stack = emptyList() },
@@ -405,6 +424,8 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         AntennaDialog(
             name = n?.let { it.shortName.ifEmpty { it.id } } ?: "!%08x".format(num),
             current = antennas[num], defaultTx = tx,
+            gps = remember(num, n?.alt, n?.lat, n?.lon) { n?.let { gpsHeightOf(context, it.alt, it.lat, it.lon, network = false) } },
+            approxM = n?.positionErrorM,
             onSave = { a -> vm.setAntenna(num, a); rangeNode = if (a != null) num else null; antennaFor = null },
             onDismiss = { antennaFor = null },
         )
@@ -418,10 +439,11 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         val handheld = Antenna(Range.RX_GAIN_DBI, Range.RX_HEIGHT_M)
         fun label(k: Int) = nodes[k]?.let { it.shortName.ifEmpty { it.id.takeLast(4) } } ?: "!%08x".format(k)
         ProfileDialog(
-            aName = label(myNum), a = Profile.End(from.latitude, from.longitude, antennas[myNum] ?: handheld.copy(txDbm = myTx)),
+            aName = label(myNum), a = Profile.End(from.latitude, from.longitude, effAntenna(myNum) ?: handheld.copy(txDbm = myTx)),
             aGuess = antennas[myNum] == null,
-            bName = label(num), b = Profile.End(to.latitude, to.longitude, antennas[num] ?: handheld),
+            bName = label(num), b = Profile.End(to.latitude, to.longitude, effAntenna(num) ?: handheld),
             bGuess = antennas[num] == null,
+            approxM = listOfNotNull(nodes[myNum]?.positionErrorM.takeIf { fix == null }, nodes[num]?.positionErrorM).maxOrNull(),
             freqMHz = Profile.frequencyMHz(lora), preset = preset,
             onDismiss = { profileFor = null },
         )
@@ -432,7 +454,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
 }
 
 /** Mapa oscuro: invierte el brillo y lo lleva a azules (las rutas quedan marcadas por sus bordes). */
-private val darkFilter = ColorMatrixColorFilter(ColorMatrix().apply {
+internal val darkFilter = ColorMatrixColorFilter(ColorMatrix().apply {
     fun row(a: Float, c: Float) = floatArrayOf(-0.299f * a, -0.587f * a, -0.114f * a, 0f, 255f * a + c)
     set(row(0.33f, 6f) + row(0.55f, 12f) + row(0.78f, 20f) + floatArrayOf(0f, 0f, 0f, 1f, 0f))
 })
@@ -470,6 +492,7 @@ private fun NodeCard(
     onAntenna: () -> Unit, onRange: () -> Unit, onClose: () -> Unit,
     stack: List<MeshNode> = emptyList(), onPick: (Int) -> Unit = {},
     onProfile: (() -> Unit)? = null,
+    fromGps: Boolean = false,
 ) {
     // Altura del terreno donde está el nodo, si ya está el relieve de la zona (sin bajar nada).
     val ctx = LocalContext.current
@@ -535,8 +558,9 @@ private fun NodeCard(
             Spacer(Modifier.padding(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 HudLabel(
-                    "Antena %s dBi a %s m".format(fmtNum(antenna.gainDbi), fmtNum(antenna.heightM)),
-                    Modifier.weight(1f), color = SigFixed,
+                    "Antena %s dBi a %s m".format(fmtNum(antenna.gainDbi), fmtNum(antenna.heightM)) +
+                        if (fromGps) " (GPS)" else "",
+                    Modifier.weight(1f), color = SigFixed, maxLines = 2,
                 )
                 TextButton(onClick = onRange) { Text(if (showingRange) "OCULTAR" else "VER ALCANCE") }
             }
@@ -607,6 +631,27 @@ private fun WaypointCard(
     }
 }
 
+/**
+ * Altura de la antena sobre el suelo según el GPS: altitud que manda el nodo (sobre el nivel del
+ * mar) menos el terreno del relieve en ese punto. [aboveGround] null si falta alguno de los dos.
+ */
+data class GpsHeight(val altM: Int?, val groundM: Double?) {
+    val aboveGround: Double?
+        get() = if (altM == null || groundM == null) null else (altM - groundM).coerceIn(0.5, 500.0)
+}
+
+/** Bloquea (lee el relieve): fuera del hilo principal, salvo con [network] = false y poco uso. */
+fun gpsHeightOf(ctx: Context, alt: Int?, lat: Double?, lon: Double?, network: Boolean = MapTiles.useInternet(ctx)): GpsHeight =
+    GpsHeight(alt, if (lat != null && lon != null) Dem.elevation(ctx, lat, lon, network) else null)
+
+private fun gpsHint(g: GpsHeight?): String = when {
+    g == null || g.altM == null -> "Este nodo no está mandando su altitud ahora. Con el GPS de la placa o del " +
+        "celular (iPhone, o Android 14 o más nuevo) la manda."
+    g.groundM == null -> "Manda su altitud (${g.altM} m), pero falta el relieve de la zona: bajalo en Ajustes → Mapas sin conexión."
+    else -> "Ahora: ${g.altM} m (GPS) − ${g.groundM.roundToInt()} m (terreno) = ${fmtNum(g.aboveGround!!)} m sobre el suelo. " +
+        "El GPS erra ±10 m en altura: sirve para torres, cerros y edificios, no para medir un mástil corto."
+}
+
 /** Marcador de nodo que además avisa del toque largo (osmdroid solo lo usa para arrastrar). */
 private class NodeMarker(mv: MapView, private val onLong: () -> Unit) : Marker(mv) {
     override fun onLongPress(event: MotionEvent, mapView: MapView): Boolean {
@@ -625,7 +670,11 @@ private fun fmtNum(v: Double): String =
 
 /** Datos de la antena de un nodo, para estimar su alcance. Se guardan solo en este teléfono. */
 @Composable
-private fun AntennaDialog(name: String, current: Antenna?, defaultTx: Int, onSave: (Antenna?) -> Unit, onDismiss: () -> Unit) {
+private fun AntennaDialog(
+    name: String, current: Antenna?, defaultTx: Int, gps: GpsHeight?, approxM: Double? = null,
+    onSave: (Antenna?) -> Unit, onDismiss: () -> Unit,
+) {
+    var useGps by remember { mutableStateOf(current?.gpsHeight ?: false) }
     fun t(v: Double?) = v?.let(::fmtNum) ?: ""
     var gain by remember { mutableStateOf(t(current?.gainDbi ?: 2.0)) }
     var height by remember { mutableStateOf(t(current?.heightM)) }
@@ -657,7 +706,19 @@ private fun AntennaDialog(name: String, current: Antenna?, defaultTx: Int, onSav
                     singleLine = true, isError = h == null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 )
-                Hint("En la mano ≈ 1,5 · techo de casa ≈ 6–8")
+                Hint(if (useGps) "Se usa cuando el nodo no manda su altitud" else "En la mano ≈ 1,5 · techo de casa ≈ 6–8")
+                Row(
+                    Modifier.fillMaxWidth().clickable { useGps = !useGps },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.Checkbox(checked = useGps, onCheckedChange = { useGps = it })
+                    Text("Tomar la altura del GPS del nodo", style = MaterialTheme.typography.bodyMedium)
+                }
+                Hint(gpsHint(gps))
+                if (approxM != null && approxM > 100) Hint(
+                    "Ojo: su posición llega redondeada (±${PhoneLocation.formatDistance(approxM.toFloat())}). " +
+                        "En las sierras el terreno de ese punto puede no ser el de donde está."
+                )
                 OutlinedTextField(
                     value = cable, onValueChange = { cable = it }, label = { Text("Pérdida del cable (dB)") },
                     singleLine = true, isError = c == null,
@@ -672,7 +733,7 @@ private fun AntennaDialog(name: String, current: Antenna?, defaultTx: Int, onSav
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(Antenna(g!!, h!!, c!!, p!!)) }, enabled = ok) { Text("GUARDAR") }
+            TextButton(onClick = { onSave(Antenna(g!!, h!!, c!!, p!!, gpsHeight = useGps)) }, enabled = ok) { Text("GUARDAR") }
         },
         dismissButton = {
             Row {
@@ -743,12 +804,6 @@ private fun IconChip(cp: Int, selected: Boolean, onClick: () -> Unit) {
 
 // ---------- Capas / mapas offline ----------
 
-private sealed interface DlState {
-    data object Idle : DlState
-    data class Running(val done: Int, val total: Int) : DlState
-    data class Finished(val text: String) : DlState
-}
-
 @Composable
 private fun LayersDialog(map: MapView, dark: Boolean, onDark: (Boolean) -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
@@ -758,7 +813,6 @@ private fun LayersDialog(map: MapView, dark: Boolean, onDark: (Boolean) -> Unit,
     var url by remember { mutableStateOf(MapTiles.customUrl(context)) }
     var busy by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<String?>(null) }
-    var dl by remember { mutableStateOf<DlState>(DlState.Idle) }
     var cacheBytes by remember { mutableLongStateOf(cacheSize(context)) }
 
     fun reload() {
@@ -779,16 +833,9 @@ private fun LayersDialog(map: MapView, dark: Boolean, onDark: (Boolean) -> Unit,
         }
     }
 
-    val zoom = map.zoomLevelDouble.toInt().coerceIn(2, 19)
-    var maxZoom by remember { mutableIntStateOf(min(zoom + 3, 17)) }
-    val canBulk = MapTiles.canBulkDownload(map.tileProvider.tileSource)
-    val box: BoundingBox = map.boundingBox
-    val tileCount = remember(zoom, maxZoom) {
-        runCatching { CacheManager(map).possibleTilesInArea(box, zoom, max(zoom, maxZoom)) }.getOrDefault(0)
-    }
 
     AlertDialog(
-        onDismissRequest = { if (dl !is DlState.Running) onClose() },
+        onDismissRequest = onClose,
         title = { Text("CAPAS Y MAPAS OFFLINE") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -836,61 +883,15 @@ private fun LayersDialog(map: MapView, dark: Boolean, onDark: (Boolean) -> Unit,
                 ) { Text("USAR ESTE SERVIDOR") }
                 HorizontalDivider(Modifier.padding(vertical = 10.dp))
 
-                DemSection(box, online)
-                HorizontalDivider(Modifier.padding(vertical = 10.dp))
-
-                HudLabel("Descargar la zona visible", color = HudCyan)
-                if (!canBulk) {
-                    Text(
-                        "OpenStreetMap no permite bajar zonas ni usar sus mapas sin conexión. Para el " +
-                            "campo, importá un .mbtiles (de una zona descargada con otra herramienta) " +
-                            "o poné un servidor propio, que sí permite descargar zonas.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                } else {
-                    HudLabel("Zoom $zoom a $maxZoom")
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for (z in (zoom..min(zoom + 5, 19))) {
-                            FilterChip(selected = maxZoom == z, onClick = { maxZoom = z }, label = { Text("$z") })
-                        }
-                    }
-                    val tooMany = tileCount > MapTiles.MAX_DOWNLOAD_TILES
-                    Text(
-                        "$tileCount tiles" + if (tooMany) " — demasiados (máx. ${MapTiles.MAX_DOWNLOAD_TILES}), achicá la zona o el zoom" else "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (tooMany) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                    )
-                    when (val d = dl) {
-                        is DlState.Running -> {
-                            LinearProgressIndicator(
-                                progress = { if (d.total > 0) d.done / d.total.toFloat() else 0f },
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            )
-                            HudLabel("${d.done} / ${d.total}")
-                        }
-                        is DlState.Finished -> Text(d.text, style = MaterialTheme.typography.bodySmall)
-                        DlState.Idle -> Unit
-                    }
-                    HudButton(
-                        onClick = {
-                            dl = DlState.Running(0, tileCount)
-                            CacheManager(map).downloadAreaAsyncNoUI(context, box, zoom, maxZoom, object : CacheManager.CacheManagerCallback {
-                                override fun onTaskComplete() { dl = DlState.Finished("Zona guardada."); cacheBytes = cacheSize(context) }
-                                override fun onTaskFailed(errors: Int) { dl = DlState.Finished("Terminó con $errors tiles fallidos."); cacheBytes = cacheSize(context) }
-                                override fun updateProgress(progress: Int, currentZoomLevel: Int, zoomMin: Int, zoomMax: Int) {
-                                    dl = DlState.Running(progress, (dl as? DlState.Running)?.total ?: tileCount)
-                                }
-                                override fun downloadStarted() = Unit
-                                override fun setPossibleTilesInArea(total: Int) { dl = DlState.Running(0, total) }
-                            })
-                        },
-                        enabled = online && !tooMany && tileCount > 0 && dl !is DlState.Running,
-                    ) { Text("DESCARGAR") }
-                    if (!online) Text("Prendé \"Usar internet\" para descargar.", style = MaterialTheme.typography.bodySmall)
-                }
+                HudLabel("Bajar zonas para usar sin señal", color = HudCyan)
+                Text(
+                    "Está en Ajustes → Mapas sin conexión: elegís los cuadrantes en una cuadrícula y se baja " +
+                        "el mapa (si la fuente lo permite) y el relieve, todo junto.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         },
-        confirmButton = { TextButton(onClick = onClose, enabled = dl !is DlState.Running) { Text("LISTO") } },
+        confirmButton = { TextButton(onClick = onClose) { Text("LISTO") } },
     )
 }
 
@@ -903,69 +904,6 @@ private fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChang
         }
         Switch(checked = checked, onCheckedChange = onChange)
     }
-}
-
-/** Relieve (DEM) para los perfiles: bajar el de la zona visible para usarlo sin señal. */
-@Composable
-private fun DemSection(box: BoundingBox, online: Boolean) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var stored by remember { mutableStateOf(Dem.stored(context)) }
-    val tiles = remember(box) { Dem.tilesFor(box.latNorth, box.latSouth, box.lonWest, box.lonEast) }
-    val missing = remember(tiles, stored) { tiles.count { !Dem.has(context, it.first, it.second) } }
-    var dl by remember { mutableStateOf<DlState>(DlState.Idle) }
-    HudLabel("Relieve (para el perfil entre nodos)", color = HudCyan)
-    Text(
-        "Alturas del terreno del SRTM, ≈30 m. Con internet se bajan solas al pedir un perfil; " +
-            "para el campo, bajá la zona antes de salir.",
-        style = MaterialTheme.typography.bodySmall,
-    )
-    HudLabel("Guardado: ${stored.tiles} tiles · ${MapTiles.formatSize(stored.bytes)}")
-    val tooMany = tiles.size > Dem.MAX_DOWNLOAD_TILES
-    Text(
-        when {
-            tooMany -> "La zona visible es muy grande (${tiles.size} tiles, máx. ${Dem.MAX_DOWNLOAD_TILES}): acercate."
-            missing == 0 -> "La zona visible ya está guardada."
-            else -> "Zona visible: faltan $missing de ${tiles.size} tiles (≈${MapTiles.formatSize(missing * 40_000L)})."
-        },
-        style = MaterialTheme.typography.bodySmall,
-        color = if (tooMany) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-    )
-    when (val d = dl) {
-        is DlState.Running -> {
-            LinearProgressIndicator(
-                progress = { if (d.total > 0) d.done / d.total.toFloat() else 0f },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            )
-            HudLabel("${d.done} / ${d.total}")
-        }
-        is DlState.Finished -> Text(d.text, style = MaterialTheme.typography.bodySmall)
-        DlState.Idle -> Unit
-    }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        HudButton(
-            onClick = {
-                val todo = tiles.filter { !Dem.has(context, it.first, it.second) }
-                dl = DlState.Running(0, todo.size)
-                scope.launch {
-                    var fails = 0
-                    todo.forEachIndexed { i, (x, y) ->
-                        if (!withContext(Dispatchers.IO) { Dem.download(context, x, y) }) fails++
-                        dl = DlState.Running(i + 1, todo.size)
-                    }
-                    stored = withContext(Dispatchers.IO) { Dem.stored(context) }
-                    dl = DlState.Finished(if (fails == 0) "Relieve guardado." else "Terminó con $fails tiles fallidos.")
-                }
-            },
-            enabled = online && !tooMany && missing > 0 && dl !is DlState.Running,
-        ) { Text("BAJAR RELIEVE") }
-        if (stored.tiles > 0) TextButton(
-            onClick = { Dem.clear(context); stored = Dem.stored(context) },
-            enabled = dl !is DlState.Running,
-        ) { Text("BORRAR", color = MaterialTheme.colorScheme.error) }
-    }
-    if (!online) Text("Prendé \"Usar internet\" para bajarlo.", style = MaterialTheme.typography.bodySmall)
-    Text(Dem.ATTRIBUTION, style = MaterialTheme.typography.labelSmall, color = HudTextDim)
 }
 
 private fun cacheSize(ctx: Context): Long =
