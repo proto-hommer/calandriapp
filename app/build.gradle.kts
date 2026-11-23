@@ -17,8 +17,8 @@ android {
         applicationId = "io.github.protohommer.calandriapp"
         minSdk = 26
         targetSdk = 37
-        versionCode = 9
-        versionName = "1.3.4"
+        versionCode = 10
+        versionName = "1.3.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
