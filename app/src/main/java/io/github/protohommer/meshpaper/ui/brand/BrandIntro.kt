@@ -25,6 +25,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -50,6 +52,11 @@ import kotlin.math.sin
 
 private const val DURATION_MS = 2800
 
+/** Escala de animación fija en 1: ignora "duración de animaciones" del sistema. */
+private object RealTime : MotionDurationScale {
+    override val scaleFactor: Float get() = 1f
+}
+
 /** Progreso local de una fase [from, to] dentro de la línea de tiempo 0..1. */
 private fun phase(t: Float, from: Float, to: Float): Float = ((t - from) / (to - from)).coerceIn(0f, 1f)
 private fun ease(x: Float) = FastOutSlowInEasing.transform(x)
@@ -63,7 +70,9 @@ private fun ease(x: Float) = FastOutSlowInEasing.transform(x)
 fun BrandIntro(onDone: () -> Unit) {
     val time = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        time.animateTo(1f, tween(DURATION_MS, easing = LinearEasing))
+        // A velocidad normal aunque el celular tenga las animaciones apagadas (si no, Compose
+        // la saltea entera). Igual se puede saltear con un toque.
+        withContext(RealTime) { time.animateTo(1f, tween(DURATION_MS, easing = LinearEasing)) }
         onDone()
     }
     val t = time.value
