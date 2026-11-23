@@ -46,6 +46,9 @@ import org.meshtastic.proto.ConfigProtos.Config.LoRaConfig.ModemPreset
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+/** Cuánto tiene que moverse una punta para recalcular el perfil (una celda del SRTM). */
+private const val MOVE_M = 30.0
+
 private sealed interface ProfileState {
     data object Loading : ProfileState
     data object NoData : ProfileState
@@ -66,8 +69,19 @@ fun ProfileDialog(
 ) {
     val ctx = LocalContext.current
     var state by remember { mutableStateOf<ProfileState>(ProfileState.Loading) }
-    LaunchedEffect(a, b, freqMHz, preset) {
-        state = ProfileState.Loading
+    // El GPS del celular mueve la punta A un poquito cada segundo: recalcular con cada lectura
+    // hacía parpadear el diálogo. Solo se recalcula si una punta se movió más que una celda del
+    // relieve (~30 m) o cambió su antena, y el perfil anterior queda a la vista mientras tanto.
+    var aK by remember { mutableStateOf(a) }
+    var bK by remember { mutableStateOf(b) }
+    fun moved(old: Profile.End, new: Profile.End) =
+        old.antenna != new.antenna || Profile.distanceM(old.lat, old.lon, new.lat, new.lon) > MOVE_M
+    if (moved(aK, a)) aK = a
+    if (moved(bK, b)) bK = b
+    LaunchedEffect(aK, bK, freqMHz, preset) {
+        val a = aK
+        val b = bK
+        if (state !is ProfileState.Ready) state = ProfileState.Loading
         val pts = Profile.samplePoints(a, b)
         val ground = Dem.elevations(ctx, pts, network = MapTiles.useInternet(ctx))
         state = if (ground == null) ProfileState.NoData
@@ -91,7 +105,7 @@ fun ProfileDialog(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     is ProfileState.Ready -> {
-                        ProfileBody(s.r, aName, bName, a, b, aGuess, bGuess, freqMHz)
+                        ProfileBody(s.r, aName, bName, aK, bK, aGuess, bGuess, freqMHz)
                         if (approxM != null && approxM > 100) Text(
                             "Ojo: una de las posiciones llega redondeada (±${PhoneLocation.formatDistance(approxM.toFloat())}), " +
                                 "así que el perfil puede no ser el del lugar exacto.",
