@@ -1116,7 +1116,11 @@ private fun waypointIcon(ctx: Context, emoji: String): BitmapDrawable = iconCach
     val cx = w / 2f
     c.drawLine(cx, h - dpPx(ctx, 10f), cx, h.toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; strokeWidth = dpPx(ctx, 2f); setShadowLayer(dpPx(ctx, 3f), 0f, 0f, cyan) })
     c.drawCircle(cx, h - dpPx(ctx, 1.5f), dpPx(ctx, 2f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan })
-    val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = dpPx(ctx, 24f); textAlign = Paint.Align.CENTER }
+    // Blanco: si el ícono no tiene versión emoji en este celular, al menos se ve sobre el mapa oscuro.
+    val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = dpPx(ctx, 24f); textAlign = Paint.Align.CENTER; color = android.graphics.Color.WHITE
+        setShadowLayer(dpPx(ctx, 2f), 0f, 0f, android.graphics.Color.BLACK)
+    }
     c.drawText(emoji, cx, h - dpPx(ctx, 12f) - p.descent(), p)
     BitmapDrawable(ctx.resources, bmp)
 }

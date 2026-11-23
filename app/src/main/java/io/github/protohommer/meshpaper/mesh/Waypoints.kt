@@ -23,7 +23,16 @@ data class Wpt(
     val from: Int,        // quién lo mandó (0 = desconocido)
     val time: Long,       // cuándo lo recibimos/creamos, epoch s
 ) {
-    val iconText: String get() = if (icon > 0 && Character.isValidCodePoint(icon)) String(Character.toChars(icon)) else DEFAULT_ICON_TEXT
+    /**
+     * El ícono como texto. El protobuf trae un solo code point, sin el selector de variante: los
+     * símbolos viejos (⚠ U+26A0, ❗, ⛔, ✈…) sin U+FE0F se dibujan como letra (negra y chica), no
+     * como emoji. Se lo agregamos a los del rango de símbolos; a los que ya son emoji no les cambia nada.
+     */
+    val iconText: String get() {
+        if (icon <= 0 || !Character.isValidCodePoint(icon)) return DEFAULT_ICON_TEXT
+        val s = String(Character.toChars(icon))
+        return if (icon in 0x2000 until 0x1F000) s + "\uFE0F" else s
+    }
 
     fun isActive(now: Long): Boolean = expire == 0L || (expire > 1 && expire > now)
 
