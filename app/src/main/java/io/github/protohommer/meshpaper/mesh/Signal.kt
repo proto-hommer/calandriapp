@@ -6,52 +6,35 @@ import org.meshtastic.proto.ConfigProtos.Config.DeviceConfig.Role
 /**
  * Cómo se pinta un nodo:
  *  - el propio: ME
- *  - del grupo: GOOD / FAIR / WEAK según la calidad del enlace
+ *  - del grupo: GOOD / FAIR / POOR / WEAK según los saltos
  *  - del grupo con rol de instalación fija (router, base): FIXED
  *  - ajeno: RELAY si repite (aporta cobertura), MUTE si es CLIENT_MUTE (no repite)
- * FIXED, RELAY y MUTE no dicen nada de la señal: llevan aparte un anillo ([ring]).
+ * FIXED, RELAY y MUTE no dicen nada de la señal: el anillo va aparte ([ring]).
  */
-enum class Tone { ME, GOOD, FAIR, WEAK, RELAY, MUTE, FIXED }
+enum class Tone { ME, GOOD, FAIR, POOR, WEAK, RELAY, MUTE, FIXED }
 
 object Signal {
-    /** Más de esto sin oírlo = perdido (se pinta apagado; si es del grupo, rojo). */
+    /** Más de esto sin oírlo = perdido (se pinta apagado y en rojo). */
     const val LOST_AFTER_S = 3600L
-
-    // LongFast (SF11) demodula hasta ~-17,5 dB de SNR. Márgenes: >= 10 dB bueno, >= 4 dB medio.
-    const val SNR_GOOD = -7f
-    const val SNR_FAIR = -13f
-    // SX1262 en LongFast llega a ~-137 dBm; arriba de -110 sobra, abajo de -120 está justo.
-    const val RSSI_GOOD = -110
-    const val RSSI_FAIR = -120
 
     fun isLost(n: MeshNode, now: Long): Boolean = n.lastHeard == 0L || now - n.lastHeard > LOST_AFTER_S
 
     /**
-     * Calidad del enlace con un miembro del grupo:
-     *  - directo (0 saltos): SNR y RSSI del último paquete que nos llegó directo
-     *  - por repetidores: 1 salto = medio, 2 o más = malo
-     *  - sin noticias hace más de una hora = malo
+     * Calidad del enlace, por saltos:
+     *  - directo o 1 salto: verde
+     *  - 2 a 3 saltos: amarillo
+     *  - 4 a 5 saltos: naranja
+     *  - 6 o más, o sin noticias hace más de una hora: rojo
+     *  - saltos desconocidos (firmware viejo): amarillo
      */
     fun quality(n: MeshNode, now: Long): Tone {
         if (isLost(n, now)) return Tone.WEAK
-        return when (val hops = n.hopsAway) {
-            null -> Tone.FAIR
-            0 -> {
-                val bySnr = when {
-                    n.snr >= SNR_GOOD -> Tone.GOOD
-                    n.snr >= SNR_FAIR -> Tone.FAIR
-                    else -> Tone.WEAK
-                }
-                val r = n.rssi
-                val byRssi = when {
-                    r == null || r >= RSSI_GOOD -> Tone.GOOD
-                    r >= RSSI_FAIR -> Tone.FAIR
-                    else -> Tone.WEAK
-                }
-                maxOf(bySnr, byRssi) // el peor de los dos (GOOD < FAIR < WEAK en el enum)
-            }
-            1 -> Tone.FAIR
-            else -> if (hops >= 2) Tone.WEAK else Tone.FAIR
+        val hops = n.hopsAway ?: return Tone.FAIR
+        return when {
+            hops <= 1 -> Tone.GOOD
+            hops <= 3 -> Tone.FAIR
+            hops <= 5 -> Tone.POOR
+            else -> Tone.WEAK
         }
     }
 
@@ -70,9 +53,10 @@ object Signal {
         else -> Tone.RELAY
     }
 
-    /** Anillo de señal para los que no se pintan por calidad (fijos del grupo y ajenos). */
-    fun ring(tone: Tone, n: MeshNode, now: Long): Tone? =
-        if (tone == Tone.FIXED || tone == Tone.RELAY || tone == Tone.MUTE) quality(n, now) else null
+    fun isForeign(tone: Tone): Boolean = tone == Tone.RELAY || tone == Tone.MUTE
+
+    /** Color de la señal para mostrar: el propio no tiene, los demás según los saltos. */
+    fun linkTone(tone: Tone, n: MeshNode, now: Long): Tone = if (tone == Tone.ME) Tone.ME else quality(n, now)
 
     /** Texto corto de la señal para fichas y listas. */
     fun describe(n: MeshNode): String? = when (n.hopsAway) {

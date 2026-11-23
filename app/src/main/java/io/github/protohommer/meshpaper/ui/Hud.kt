@@ -45,6 +45,7 @@ import io.github.protohommer.meshpaper.ui.theme.SigGood
 import io.github.protohommer.meshpaper.ui.theme.SigMe
 import io.github.protohommer.meshpaper.ui.theme.SigFixed
 import io.github.protohommer.meshpaper.ui.theme.SigMute
+import io.github.protohommer.meshpaper.ui.theme.SigPoor
 import io.github.protohommer.meshpaper.ui.theme.SigRelay
 import io.github.protohommer.meshpaper.ui.theme.SigWeak
 
@@ -55,6 +56,7 @@ fun Tone.color(): Color = when (this) {
     Tone.ME -> SigMe
     Tone.GOOD -> SigGood
     Tone.FAIR -> SigFair
+    Tone.POOR -> SigPoor
     Tone.WEAK -> SigWeak
     Tone.RELAY -> SigRelay
     Tone.MUTE -> SigMute

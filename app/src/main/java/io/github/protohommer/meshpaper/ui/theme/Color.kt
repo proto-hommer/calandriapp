@@ -13,10 +13,11 @@ val HudText = Color(0xFFD8E6EE)
 val HudTextDim = Color(0xFF8EA4B3)
 
 // Estado de los nodos en el mapa y en la lista.
-val SigGood = Color(0xFF34E37A)   // grupo, buena recepción
-val SigFair = Color(0xFFFFC83D)   // grupo, recepción media
-val SigWeak = Color(0xFFFF4D5E)   // grupo, recepción mala o perdido
-val SigRelay = Color(0xFFB26BFF)  // ajeno que repite (aporta cobertura)
+val SigGood = Color(0xFF34E37A)   // directo o 1 salto
+val SigFair = Color(0xFFFFC83D)   // 2 a 3 saltos
+val SigPoor = Color(0xFFFF8A3D)   // 4 a 5 saltos
+val SigWeak = Color(0xFFFF4D5E)   // 6 o más saltos, o perdido
+val SigRelay = Color(0xFFB26BFF)  // ajeno que repite (aporta cobertura): el nombre va en violeta
 val SigMute = Color(0xFF6B7785)   // ajeno que no repite
 val SigFixed = Color(0xFF2F7DF6)  // del grupo, instalación fija (router, base): azul Francia, aclarado para fondo oscuro
 val SigMe = HudCyan               // este teléfono / nodo propio

@@ -16,6 +16,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -150,22 +153,28 @@ fun App(vm: MeshViewModel = viewModel()) {
     }
     fun openChat(key: String) { chat = key; tabName = Tab.CHATS.name }
 
+    // La barra de arriba flota sobre el contenido (sobre el mapa se ve el mapa debajo); el resto
+    // de las pantallas arrancan debajo de ella.
+    val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + TopBarHeight
     Column(Modifier.fillMaxSize().background(HudBg)) {
-        TopStatus(vm)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
-                !granted -> CenterPanel("Permisos") {
-                    Text("La app necesita Bluetooth para hablar con el nodo y ubicación para compartir tu posición con el grupo.")
-                    Spacer(Modifier.height(12.dp))
-                    HudButton(onClick = { launcher.launch(blePermissions + locationPermissions) }) { Text("DAR PERMISO") }
+                !granted -> Box(Modifier.fillMaxSize().padding(top = topPad)) {
+                    CenterPanel("Permisos") {
+                        Text("La app necesita Bluetooth para hablar con el nodo y ubicación para compartir tu posición con el grupo.")
+                        Spacer(Modifier.height(12.dp))
+                        HudButton(onClick = { launcher.launch(blePermissions + locationPermissions) }) { Text("DAR PERMISO") }
+                    }
                 }
-                !vm.bluetoothOn -> CenterPanel("Bluetooth apagado") {
-                    Text("Prendé el Bluetooth y volvé a abrir la app.")
+                !vm.bluetoothOn -> Box(Modifier.fillMaxSize().padding(top = topPad)) {
+                    CenterPanel("Bluetooth apagado") {
+                        Text("Prendé el Bluetooth y volvé a abrir la app.")
+                    }
                 }
                 else -> {
                     when (tab) {
-                        Tab.MAP -> MapScreen(vm, onMessage = { openChat(Conv.Direct(it).key) })
-                        else -> Column(Modifier.fillMaxSize()) {
+                        Tab.MAP -> MapScreen(vm, onMessage = { openChat(Conv.Direct(it).key) }, topInset = topPad)
+                        else -> Column(Modifier.fillMaxSize().padding(top = topPad)) {
                             if (!connected) LinkPanel(vm, link, Modifier.padding(12.dp))
                             when (tab) {
                                 Tab.NODES -> NodesScreen(vm, onAskLocation = { launcher.launch(locationPermissions) }, onNode = { openChat(Conv.Direct(it).key) })
@@ -179,10 +188,11 @@ fun App(vm: MeshViewModel = viewModel()) {
                             }
                         }
                     }
-                    if (tab == Tab.MAP && !connected) LinkPanel(vm, link, Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 12.dp, end = 70.dp))
-                    ApplyBanner(vm, apply, Modifier.align(Alignment.TopCenter).padding(12.dp))
+                    if (tab == Tab.MAP && !connected) LinkPanel(vm, link, Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = topPad + 4.dp, end = 70.dp))
+                    ApplyBanner(vm, apply, Modifier.align(Alignment.TopCenter).padding(top = topPad).padding(12.dp))
                 }
             }
+            TopStatus(vm, Modifier.align(Alignment.TopCenter))
             if (apply is ApplyState.Working) WorkingOverlay((apply as ApplyState.Working).step)
         }
         if (!(tab == Tab.CHATS && chat != null)) {
@@ -194,8 +204,15 @@ fun App(vm: MeshViewModel = viewModel()) {
 
 // ---------- Barra de estado superior ----------
 
+/** Alto de la barra de arriba, sin contar la barra del sistema. */
+private val TopBarHeight = 54.dp
+
+/**
+ * Estado arriba: sin franja ni línea, flota con un degradado del fondo hacia transparente,
+ * así sobre el mapa se integra y en las otras pantallas se funde con el fondo.
+ */
 @Composable
-private fun TopStatus(vm: MeshViewModel) {
+private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
     val link by vm.link.collectAsState()
     val nodes by vm.nodes.collectAsState()
     val me by vm.myNodeNum.collectAsState()
@@ -205,46 +222,72 @@ private fun TopStatus(vm: MeshViewModel) {
     val hasGroup = remember(channels) { vm.hasPrivateGroup() }
     val myNode = me?.let { nodes[it] }
     val members = nodes.values.count { it.num != me && isGroupMember(it, me, hasGroup, since) }
-    val (linkColor, linkText) = when (val l = link) {
-        LinkState.Connected -> SigGood to (myNode?.shortName?.ifEmpty { null } ?: myNode?.id ?: "conectado")
+    val connected = link == LinkState.Connected
+    val (linkColor, state) = when (link) {
+        LinkState.Connected -> SigGood to "enlazado"
         is LinkState.Connecting, LinkState.NeedPin -> SigFair to "conectando"
         is LinkState.Failed -> SigWeak to "sin enlace"
         LinkState.Disconnected -> HudTextDim to "sin enlace"
     }
-    Column(
-        Modifier.fillMaxWidth().background(HudSurface).windowInsetsPadding(WindowInsets.statusBars)
+    val nodeName = if (connected) myNode?.shortName?.ifEmpty { null } ?: myNode?.id ?: "—" else "—"
+    Box(
+        modifier.fillMaxWidth().background(
+            Brush.verticalGradient(
+                0f to HudBg.copy(alpha = 0.97f),
+                0.7f to HudBg.copy(alpha = 0.82f),
+                1f to Color.Transparent,
+            )
+        )
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+            Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)
+                .height(TopBarHeight + 16.dp).padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            // El nodo y el estado del enlace.
+            Box(Modifier.width(3.dp).height(30.dp).background(linkColor))
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                HudLabel("Mesh Paper", color = HudCyan)
+                HudValue(nodeName.uppercase(), color = if (connected) MaterialTheme.colorScheme.onSurface else HudTextDim)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    StatusDot(linkColor)
-                    Spacer(Modifier.width(6.dp))
-                    HudValue(linkText.uppercase(), color = linkColor)
+                    StatusDot(linkColor, 6.dp)
+                    Spacer(Modifier.width(5.dp))
+                    HudLabel("Mesh Paper · $state", color = linkColor.copy(alpha = 0.85f))
                 }
             }
-            HudStat(
+            TopReadout(
                 "Grupo",
                 when {
                     channels.isEmpty() -> "—"
                     hasGroup -> channels[0]?.settings?.name.orEmpty().ifEmpty { "—" }
                     else -> "público"
                 },
-                color = when {
+                when {
                     channels.isEmpty() -> HudTextDim
-                    hasGroup -> MaterialTheme.colorScheme.onSurface
+                    hasGroup -> HudCyan
                     else -> SigWeak
                 },
+                Modifier.widthIn(max = 92.dp),
             )
-            HudStat("Miembros", "$members")
-            HudStat("GPS", fix?.let { "±${it.accuracy.toInt()}m" } ?: "—", color = if (fix != null) SigGood else HudTextDim)
+            TopDivider()
+            TopReadout("Miemb.", "$members", MaterialTheme.colorScheme.onSurface)
+            TopDivider()
+            TopReadout("GPS", fix?.let { "±${it.accuracy.toInt()}m" } ?: "—", if (fix != null) SigGood else HudTextDim)
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(HudLine))
     }
+}
+
+@Composable
+private fun TopReadout(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        HudLabel(label)
+        HudValue(value, color = color)
+    }
+}
+
+@Composable
+private fun TopDivider() {
+    Box(Modifier.padding(horizontal = 10.dp).width(1.dp).height(22.dp).background(HudLine))
 }
 
 // ---------- Navegación inferior ----------
@@ -484,7 +527,8 @@ private fun NodeRow(n: MeshNode, me: Int?, member: Boolean, fix: Location?, now:
         }
         if (n.num != me) {
             Spacer(Modifier.width(8.dp))
-            StatusDot(tone.color().copy(alpha = if (lost) 0.4f else 1f), 10.dp)
+            // El punto es la señal (saltos); el color del nombre corto dice qué es el nodo.
+            StatusDot(Signal.linkTone(tone, n, now).color().copy(alpha = if (lost) 0.4f else 1f), 10.dp)
         }
     }
     HorizontalDivider(color = HudLine)

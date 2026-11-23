@@ -1,5 +1,7 @@
 package io.github.protohommer.meshpaper.ui
 
+import androidx.compose.ui.unit.Dp
+import io.github.protohommer.meshpaper.ui.theme.SigPoor
 import java.util.Locale
 import org.meshtastic.proto.ConfigProtos.Config.LoRaConfig.ModemPreset
 import org.osmdroid.views.overlay.Polygon
@@ -101,7 +103,7 @@ import kotlin.math.min
  * Anda sin señal con la caché de tiles y los `.mbtiles` importados.
  */
 @Composable
-fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = Modifier) {
+fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = Modifier, topInset: Dp = 0.dp) {
     val context = LocalContext.current
     val nodes by vm.nodes.collectAsState()
     val me by vm.myNodeNum.collectAsState()
@@ -268,11 +270,19 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                     val tone = Signal.tone(n, me, isMember(n), now)
                     mv.overlays.add(NodeMarker(mv, onLong = { longPressNode(n.num) }).apply {
                         position = GeoPoint(n.lat!!, n.lon!!)
-                        icon = nodeIcon(
-                            mv.context, n.shortName.ifEmpty { n.id.takeLast(4) }, tone.color().toArgb(),
-                            filled = tone != Tone.RELAY && tone != Tone.MUTE, lost = Signal.isLost(n, now),
-                            ring = Signal.ring(tone, n, now)?.color()?.toArgb(),
-                        )
+                        val label = n.shortName.ifEmpty { n.id.takeLast(4) }
+                        val link = Signal.quality(n, now).color().toArgb()
+                        val lost = Signal.isLost(n, now)
+                        icon = when {
+                            // Ajeno: compacto, un solo anillo con la señal y el nombre en violeta.
+                            Signal.isForeign(tone) -> nodeIcon(
+                                mv.context, label, link, filled = false, lost = lost,
+                                labelColor = tone.color().toArgb(), compact = true,
+                            )
+                            // Fijo del grupo: azul, con la señal en un anillo de afuera.
+                            tone == Tone.FIXED -> nodeIcon(mv.context, label, tone.color().toArgb(), filled = true, lost = lost, ring = link)
+                            else -> nodeIcon(mv.context, label, tone.color().toArgb(), filled = true, lost = lost)
+                        }
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         infoWindow = null
                         setOnMarkerClickListener { _, _ -> selectedNode = n.num; selectedWpt = null; true }
@@ -295,7 +305,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         )
 
         // Marco tipo visor.
-        Box(Modifier.fillMaxSize().padding(6.dp).hudCorners(len = 22.dp))
+        Box(Modifier.fillMaxSize().padding(start = 6.dp, end = 6.dp, bottom = 6.dp, top = topInset + 2.dp).hudCorners(len = 22.dp))
 
         // Herramientas.
         Column(
@@ -370,14 +380,14 @@ private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, 
         }
         if (expanded) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                LegendItem(SigGood, "Buena señal")
-                LegendItem(SigFair, "Media / 1 salto")
-                LegendItem(SigWeak, "Mala / perdido")
+                LegendItem(SigGood, "Directo o 1 salto")
+                LegendItem(SigFair, "2 a 3 saltos")
+                LegendItem(SigPoor, "4 a 5 saltos")
+                LegendItem(SigWeak, "6 o más / perdido")
                 LegendItem(SigFixed, "Fijo del grupo")
-                LegendItem(SigRelay, "Repetidor ajeno")
+                LegendItem(SigRelay, "Nombre violeta = ajeno")
             }
             Spacer(Modifier.padding(2.dp))
-            HudLabel("Anillo de afuera = señal")
             HudLabel("Largo en el mapa = waypoint")
             HudLabel("Largo en un nodo = alcance")
         }
@@ -408,7 +418,7 @@ private fun NodeCard(
         Spacer(Modifier.padding(3.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             if (n.num != me) HudStat("Oído", agoText(now, n.lastHeard).removePrefix("hace "))
-            HudStat("Enlace", Signal.describe(n)?.substringBefore(" · ") ?: "—", color = tone.color())
+            HudStat("Enlace", Signal.describe(n)?.substringBefore(" · ") ?: "—", color = Signal.linkTone(tone, n, now).color())
             n.battery?.let { HudStat("Bat", if (it > 100) "USB" else "$it%") }
         }
         val extra = buildList {
@@ -846,16 +856,19 @@ private fun dpPx(ctx: Context, v: Float) = v * ctx.resources.displayMetrics.dens
  * Perdido = anillo punteado y apagado.
  */
 /**
- * Nodo: anillo del color del tipo con el nombre corto adentro. [ring] = anillo exterior con la
- * calidad de la señal, para los que no se pintan por calidad (ajenos y fijos del grupo).
+ * Nodo: anillo de [color] con el nombre corto adentro (en [labelColor]). [ring] = anillo exterior
+ * con la señal (fijos del grupo). [compact] = más chico y sin halo (ajenos).
  */
-private fun nodeIcon(ctx: Context, label: String, color: Int, filled: Boolean, lost: Boolean, ring: Int? = null): BitmapDrawable =
-    iconCache.getOrPut("n:$label:$color:$filled:$lost:$ring") {
-        val size = dpPx(ctx, if (ring != null) 46f else 40f).toInt()
+private fun nodeIcon(
+    ctx: Context, label: String, color: Int, filled: Boolean, lost: Boolean,
+    ring: Int? = null, labelColor: Int = color, compact: Boolean = false,
+): BitmapDrawable =
+    iconCache.getOrPut("n:$label:$color:$filled:$lost:$ring:$labelColor:$compact") {
+        val size = dpPx(ctx, if (ring != null) 46f else if (compact) 32f else 40f).toInt()
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         val r = size / 2f
-        val ringR = r - dpPx(ctx, if (ring != null) 8f else 5f)
+        val ringR = r - dpPx(ctx, if (ring != null) 8f else if (compact) 2f else 5f)
         val alpha = if (lost) 130 else 255
         if (ring != null) {
             // anillo de señal por fuera, con un borde oscuro para que se separe del principal
@@ -867,7 +880,7 @@ private fun nodeIcon(ctx: Context, label: String, color: Int, filled: Boolean, l
                 this.color = ring; this.alpha = alpha
                 style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 2.5f)
             })
-        } else {
+        } else if (!compact) {
             // halo
             c.drawCircle(r, r, r - dpPx(ctx, 1f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 this.color = color; this.alpha = if (lost) 20 else 45
@@ -883,10 +896,10 @@ private fun nodeIcon(ctx: Context, label: String, color: Int, filled: Boolean, l
             if (lost) pathEffect = DashPathEffect(floatArrayOf(dpPx(ctx, 4f), dpPx(ctx, 3f)), 0f)
         })
         val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = color; this.alpha = alpha
+            this.color = labelColor; this.alpha = alpha
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             textAlign = Paint.Align.CENTER
-            textSize = dpPx(ctx, if (label.length <= 2) 13f else 9.5f)
+            textSize = dpPx(ctx, if (label.length <= 2) 12f else if (compact) 8.5f else 9.5f)
         }
         c.drawText(label.take(4), r, r - (text.descent() + text.ascent()) / 2, text)
         BitmapDrawable(ctx.resources, bmp)
