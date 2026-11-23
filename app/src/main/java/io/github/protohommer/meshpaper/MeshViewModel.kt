@@ -75,6 +75,7 @@ data class MeshNode(
     val mute: Boolean = false, // rol CLIENT_MUTE: no repite, no aporta cobertura
     val group: Boolean = false, // alguna vez lo oímos (con prueba) por el canal privado: tiene la clave
     val role: DeviceConfig.Role? = null, // del NodeInfo; null = todavía no sabemos
+    val hw: MeshProtos.HardwareModel? = null, // modelo de placa, del NodeInfo
 )
 
 /**
@@ -918,6 +919,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 id = user?.id?.ifEmpty { null } ?: old.id,
                 mute = user?.let { it.role == Config.DeviceConfig.Role.CLIENT_MUTE } ?: old.mute,
                 role = user?.role ?: old.role,
+                hw = user?.hwModel ?: old.hw,
                 group = from in groupNums,
             ))
         }
@@ -962,6 +964,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             channel = if (n.hasUser()) n.channel else _nodes.value[n.num]?.channel,
             mute = n.user.role == Config.DeviceConfig.Role.CLIENT_MUTE,
             role = if (n.hasUser()) n.user.role else _nodes.value[n.num]?.role,
+            hw = if (n.hasUser()) n.user.hwModel else _nodes.value[n.num]?.hw,
             group = n.num in groupNums,
         )
         _nodes.update { it + (n.num to node) }

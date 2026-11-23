@@ -444,6 +444,7 @@ private fun NodeCard(
                 add("${PhoneLocation.formatDistance(d)} al ${PhoneLocation.cardinal(b)}")
             }
             tracks[n.num]?.size?.takeIf { it > 1 }?.let { add("rastro $it pts") }
+            n.hw?.takeIf { it != org.meshtastic.proto.MeshProtos.HardwareModel.UNSET }?.let { add(io.github.protohommer.meshpaper.mesh.Hardware.name(it)) }
         }
         if (extra.isNotEmpty()) {
             Spacer(Modifier.padding(2.dp))

@@ -50,17 +50,15 @@ object Range {
         ModemPreset.MEDIUM_SLOW -> 10
         ModemPreset.LONG_FAST, ModemPreset.LONG_TURBO, ModemPreset.LONG_MODERATE -> 11
         ModemPreset.LONG_SLOW -> 12
+        ModemPreset.LITE_FAST -> 9
+        ModemPreset.LITE_SLOW -> 10
+        ModemPreset.NARROW_FAST, ModemPreset.TINY_FAST -> 7
+        ModemPreset.NARROW_SLOW, ModemPreset.TINY_SLOW -> 8
         else -> null
     }
 
     /** Ancho de banda (kHz) de cada preset, sin "wide LoRa" (MeshRadio.h). */
-    fun bandwidthKHz(p: ModemPreset): Double? = when (p) {
-        ModemPreset.SHORT_TURBO, ModemPreset.MEDIUM_TURBO, ModemPreset.LONG_TURBO -> 500.0
-        ModemPreset.SHORT_FAST, ModemPreset.SHORT_SLOW, ModemPreset.MEDIUM_FAST,
-        ModemPreset.MEDIUM_SLOW, ModemPreset.LONG_FAST -> 250.0
-        ModemPreset.LONG_MODERATE, ModemPreset.LONG_SLOW -> 125.0
-        else -> null
-    }
+    fun bandwidthKHz(p: ModemPreset): Double? = Regions.bandwidthKHz(p)
 
     /** Sensibilidad (dBm): ruido térmico + figura de ruido + SNR mínima de LoRa (−2,5 dB por SF). */
     fun sensitivityDbm(p: ModemPreset): Double? {

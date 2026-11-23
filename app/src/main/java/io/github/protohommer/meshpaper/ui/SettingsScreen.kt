@@ -43,6 +43,8 @@ import io.github.protohommer.meshpaper.MeshViewModel
 import io.github.protohommer.meshpaper.NodeEdits
 import io.github.protohommer.meshpaper.mesh.Group
 import io.github.protohommer.meshpaper.mesh.Range
+import io.github.protohommer.meshpaper.mesh.Regions
+import io.github.protohommer.meshpaper.mesh.Hardware
 import io.github.protohommer.meshpaper.ui.theme.HudCyan
 import io.github.protohommer.meshpaper.ui.theme.HudLine
 import io.github.protohommer.meshpaper.ui.theme.HudSurface
@@ -174,9 +176,10 @@ private fun SettingsContent(
             HudPanel(Modifier.fillMaxWidth(), title = "Identidad") {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     HudStat("Id", owner.id.ifEmpty { me?.let { "!%08x".format(it) } ?: "—" })
-                    HudStat("Placa", owner.hwModel.name.lowercase().replace('_', ' '))
+                    HudStat("Placa", Hardware.name(owner.hwModel), Modifier.weight(1f, fill = false))
                     meta?.firmwareVersion?.takeIf { it.isNotEmpty() }?.let { HudStat("Firmware", it.substringBeforeLast('.')) }
                 }
+                firmwareWarning(meta?.firmwareVersion)?.let { Warn(it, SigWeak) }
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = longName,
@@ -212,7 +215,8 @@ private fun SettingsContent(
 
             // ---------- Posición ----------
             HudPanel(Modifier.fillMaxWidth(), title = "Posición") {
-                Choice("Del celular", !fixed) { fixed = false }
+                val hasGps = pos.gpsMode == PositionConfig.GpsMode.ENABLED
+                Choice(if (hasGps) "Del GPS del nodo" else "Del celular", !fixed) { fixed = false }
                 Choice("Fija (cargada a mano)", fixed) { fixed = true }
                 if (fixed) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -235,7 +239,10 @@ private fun SettingsContent(
                     }
                     Note("Con posición fija el nodo ignora la del celular. Sirve para nodos que quedan quietos (una base, un repetidor).")
                 } else {
-                    Note("El nodo no tiene GPS: usa la del celular conectado (interruptor \"Tu posición al grupo\" en Nodos).")
+                    Note(
+                        if (hasGps) "El nodo usa su propio GPS."
+                        else "Este nodo no tiene GPS (o está apagado): usa la del celular conectado (interruptor \"Tu posición al grupo\" en Nodos)."
+                    )
                 }
                 Spacer(Modifier.height(8.dp))
                 Select("Mandar la posición cada", posSecs, withCurrent(INTERVALS.map { it.first }, posSecs), { intervalName(it) }) { posSecs = it }
@@ -284,7 +291,7 @@ private fun SettingsContent(
                         Select("Saltos", hops, (1..7).toList(), { "$it" }) { hops = it }
                     }
                     Box(Modifier.weight(1f)) {
-                        Select("Potencia", txPower, withCurrent(TX_POWERS, txPower), { if (it == 0) "máxima" else "$it dBm" }) { txPower = it }
+                        Select("Potencia", txPower, withCurrent(txPowersFor(lora.region), txPower), { if (it == 0) "máxima" else "$it dBm" }) { txPower = it }
                     }
                 }
                 if (preset != lora.modemPreset || slot != lora.channelNum) {
@@ -586,7 +593,6 @@ private val INTERVALS: List<Pair<Int, String>> = listOf(
 )
 private val SMART_DISTANCES = listOf(10, 25, 50, 100, 250, 500)
 private val SMART_INTERVALS = listOf(15, 30, 60, 120, 300, 600)
-private val TX_POWERS = listOf(0, 22, 20, 17, 14, 10)
 
 private fun intervalName(s: Int): String = when {
     s == 0 -> "por defecto"
@@ -608,41 +614,38 @@ private fun precisionName(bits: Int): String = when {
     }
 }
 
-/** Presets que acepta el firmware según la región (PRESETS_STD / PRESETS_EU_868 en RadioInterface.cpp). */
-private fun presetsFor(region: RegionCode): List<ModemPreset> =
-    if (region == RegionCode.EU_868) listOf(
-        ModemPreset.LONG_FAST, ModemPreset.LONG_SLOW, ModemPreset.MEDIUM_SLOW, ModemPreset.MEDIUM_FAST,
-        ModemPreset.SHORT_SLOW, ModemPreset.SHORT_FAST, ModemPreset.LONG_MODERATE,
-    ) else listOf(
-        ModemPreset.LONG_FAST, ModemPreset.LONG_MODERATE, ModemPreset.LONG_SLOW, ModemPreset.LONG_TURBO,
-        ModemPreset.MEDIUM_FAST, ModemPreset.MEDIUM_SLOW, ModemPreset.MEDIUM_TURBO,
-        ModemPreset.SHORT_FAST, ModemPreset.SHORT_SLOW, ModemPreset.SHORT_TURBO,
-    )
+/** Presets que acepta el firmware en la región (perfiles de RadioInterface.cpp). */
+private fun presetsFor(region: RegionCode): List<ModemPreset> = Regions.presets(region)
 
 private fun presetName(p: ModemPreset): String =
     p.name.split('_').joinToString("") { it.lowercase().replaceFirstChar(Char::uppercase) }
 
-private fun bandwidthKHz(p: ModemPreset): Double? = Range.bandwidthKHz(p)
+private fun slotCount(region: RegionCode, p: ModemPreset): Int? = Regions.slotCount(region, p)
 
-/** Bandas de las regiones con perfil estándar (sin separación ni relleno entre slots). */
-private fun band(region: RegionCode): Pair<Double, Double>? = when (region) {
-    RegionCode.ANZ -> 915.0 to 928.0
-    RegionCode.US -> 902.0 to 928.0
-    else -> null
-}
-
-private fun slotCount(region: RegionCode, p: ModemPreset): Int? {
-    val (start, end) = band(region) ?: return null
-    val bw = bandwidthKHz(p) ?: return null
-    return ((end - start) / (bw / 1000)).roundToInt()
-}
-
-/** Frecuencia central de un slot (1..N), como RadioInterface: inicio + bw/2 + (slot-1)·bw. */
 private fun frequencyText(region: RegionCode, p: ModemPreset, slot: Int): String? {
     if (slot == 0) return "automática"
-    val (start, _) = band(region) ?: return null
-    val bw = (bandwidthKHz(p) ?: return null) / 1000
-    return "%.3f MHz".format(Locale.forLanguageTag("es-AR"), start + bw / 2 + (slot - 1) * bw)
+    val mhz = Regions.frequencyMHz(region, p, slot) ?: return null
+    return "%.3f MHz".format(Locale.forLanguageTag("es-AR"), mhz)
+}
+
+/** Potencias para elegir, hasta el máximo legal de la región (el firmware además lo limita al de la radio). */
+private fun txPowersFor(region: RegionCode): List<Int> {
+    val max = Regions.band(region)?.maxDbm ?: 30
+    return listOf(0) + listOf(30, 27, 24, 22, 20, 17, 14, 10, 7).filter { it <= max }
+}
+
+/** Avisos sobre el firmware del nodo: el formato es "2.7.26.54e0d8d". */
+private fun firmwareWarning(version: String?): String? {
+    val parts = version?.split('.')?.mapNotNull { it.toIntOrNull() } ?: return null
+    if (parts.size < 2) return null
+    val (major, minor) = parts
+    return when {
+        major < 2 || (major == 2 && minor < 3) ->
+            "Firmware muy viejo: no informa los saltos y varias funciones no andan. Actualizalo (flasher.meshtastic.org)."
+        major == 2 && minor < 5 ->
+            "Firmware viejo: sin mensajes directos cifrados (PKI). Conviene actualizarlo (flasher.meshtastic.org)."
+        else -> null
+    }
 }
 
 /** Si el valor actual no está en la lista (lo puso otra app), lo agrega para no perderlo. */
