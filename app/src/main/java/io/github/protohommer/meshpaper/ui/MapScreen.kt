@@ -267,8 +267,11 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     }
 
     fun isMember(n: MeshNode) = isGroupMember(n, me, hasGroup, since)
+    // Los que no se oyen hace más de 30 min no se dibujan (vuelven solos al oírlos de nuevo).
+    // El nodo propio siempre está.
     val visibleNodes = nodes.values.filter { n ->
-        n.lat != null && n.lon != null && (showOthers || isMember(n))
+        n.lat != null && n.lon != null && (showOthers || isMember(n)) &&
+            (n.num == me || !Signal.isStale(n, now))
     }
     val activeWpts = waypoints.values.filter { it.isActive(now) }
 
@@ -509,6 +512,7 @@ private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, 
                 LegendItem(SigFixed, "Azul = fijo del grupo")
                 LegendItem(SigRelay, "Nombre violeta = ajeno")
                 HudLabel("◇ Rombo = nodo fijo")
+                HudLabel("Sin oír 30 min = oculto")
             }
             Spacer(Modifier.padding(2.dp))
             HudLabel("Largo en el mapa = waypoint")

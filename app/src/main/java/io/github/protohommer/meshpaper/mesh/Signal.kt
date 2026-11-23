@@ -19,6 +19,11 @@ object Signal {
 
     fun isLost(n: MeshNode, now: Long): Boolean = n.lastHeard == 0L || now - n.lastHeard > LOST_AFTER_S
 
+    /** Más de esto sin oírlo = no se dibuja en el mapa hasta que se lo vuelva a oír. */
+    const val HIDE_AFTER_S = 1800L
+
+    fun isStale(n: MeshNode, now: Long): Boolean = n.lastHeard == 0L || now - n.lastHeard > HIDE_AFTER_S
+
     /**
      * Calidad del enlace, por saltos:
      *  - directo o 1 salto: verde
