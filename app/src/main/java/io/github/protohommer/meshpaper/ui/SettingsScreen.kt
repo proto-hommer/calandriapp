@@ -81,6 +81,7 @@ fun SettingsScreen(vm: MeshViewModel, connected: Boolean = true) {
         ) {
             HudHeader("Ajustes")
             OfflineMapsPanel()
+            UpdatesPanel()
             Text(
                 if (connected) "Leyendo la configuración del nodo…" else "Conectá un nodo para ver y cambiar sus ajustes.",
                 color = HudTextDim,
@@ -363,6 +364,9 @@ private fun SettingsContent(
                 }
                 Note("Olvidar nodos borra la lista de nodos conocidos (deja los favoritos). Sirve para limpiar nodos fantasma.")
             }
+
+            // ---------- Actualizaciones ----------
+            UpdatesPanel()
 
             // ---------- Acerca de ----------
             Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {

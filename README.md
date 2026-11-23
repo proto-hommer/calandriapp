@@ -181,7 +181,10 @@ Privacidad
 - Los mensajes, rastros, waypoints y datos de antenas quedan **solo en el teléfono**.
 - La ubicación del celular se usa para el mapa y, si lo dejás prendido, para pasársela al nodo, que
   la manda **cifrada por el canal privado del grupo**.
-- Lo único que sale a internet son los tiles del mapa y del relieve, si tenés "usar internet" prendido.
+- Lo único que sale a internet son los tiles del mapa y del relieve, si tenés "usar internet" prendido,
+  y, al abrir la app, una consulta a GitHub para ver si hay una versión nueva (se apaga en
+  Ajustes → Actualizaciones). Las actualizaciones se bajan de los releases de este repo y solo se
+  instalan si están firmadas con el mismo certificado y coinciden con su SHA-256.
 
 * * *
 

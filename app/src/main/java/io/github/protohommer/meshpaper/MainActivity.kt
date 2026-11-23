@@ -301,6 +301,10 @@ fun App(vm: MeshViewModel) {
     }
     }
     if (link is LinkState.NeedPin) PinDialog(vm)
+
+    // Actualizaciones: al abrir la app (una vez por arranque), si está activado y hay internet.
+    LaunchedEffect(Unit) { Updater.checkOnLaunch(context) }
+    io.github.protohommer.meshpaper.ui.UpdateDialog()
 }
 
 // ---------- Barra de estado superior ----------
