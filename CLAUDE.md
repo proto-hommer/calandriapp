@@ -11,14 +11,6 @@ Respondé siempre en **español rioplatense**, claro y directo.
 
 ---
 
-## Stack
-
-- Kotlin, Jetpack Compose, minSdk 26 (BLE moderno y permisos razonables).
-- El proyecto se crea con Android Studio ("Empty Activity", Compose), no a mano: así Gradle y el
-  wrapper quedan en las versiones instaladas.
-- Protobufs de Meshtastic: repo `meshtastic/protobufs`, como submódulo o copiados, con el plugin
-  `com.google.protobuf` en modo **lite** (Android).
-
 ## Cómo se habla con el nodo (BLE)
 
 Servicio y características de Meshtastic. **Confirmarlos contra la documentación oficial**
@@ -66,16 +58,6 @@ custom o comerciales) y cada uno usa la app que quiera, esta o la oficial.
 - Uplink y downlink MQTT apagados en el canal privado. Ojo: los encabezados (from, to, saltos) van sin cifrar.
 - El grupo se comparte con la **URL/QR estándar de Meshtastic** (`ChannelSet` en `apponly.proto`, que
   incluye `lora_config`). Así es compatible con la app oficial.
-
-### Etapas
-
-1. Conectar por BLE, emparejar, leer la config y listar los nodos.
-2. Grupo: crear el canal privado (con el slot fijado) y compartirlo o unirse por QR. La UI filtra a los
-   miembros y muestra el resto como repetidores.
-3. Mensajes de canal y DM, con ACK de entrega y reintento.
-4. Mandar la posición del celular al nodo, periódica, por el primario.
-5. Mapa **offline** con osmdroid: descargar una zona, ver los nodos del grupo con su rastro y los
-   waypoints (crearlos y recibirlos).
 
 ## Reglas de trabajo
 
