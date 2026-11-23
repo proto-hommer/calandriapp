@@ -1,4 +1,5 @@
 import com.google.protobuf.gradle.proto
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -13,19 +14,37 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.protohommer.meshpaper"
+        applicationId = "io.github.protohommer.calandriapp"
         minSdk = 26
         targetSdk = 37
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Firma de publicacion: la clave vive FUERA del repo (por defecto en ~/calandriapp-firma,
+    // o donde diga la variable CALANDRIAPP_FIRMA). Sin ese archivo, el release sale sin firmar.
+    val firma = Properties().apply {
+        val f = file(System.getenv("CALANDRIAPP_FIRMA") ?: "${System.getProperty("user.home")}/calandriapp-firma/keystore.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    signingConfigs {
+        if (firma.getProperty("storeFile") != null) create("release") {
+            storeFile = file(firma.getProperty("storeFile"))
+            storePassword = firma.getProperty("storePassword")
+            keyAlias = firma.getProperty("keyAlias")
+            keyPassword = firma.getProperty("keyPassword")
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             optimization {
-                enable = true
+                // Apagada: con la optimizacion de R8 el release se cerraba al abrir
+                // (IllegalAccessError en clases de Kotlin reempaquetadas). Probado en un moto e22.
+                enable = false
                 packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
             }
         }

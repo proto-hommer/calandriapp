@@ -215,8 +215,7 @@ private fun SettingsContent(
 
             // ---------- Posición ----------
             HudPanel(Modifier.fillMaxWidth(), title = "Posición") {
-                val hasGps = pos.gpsMode == PositionConfig.GpsMode.ENABLED
-                Choice(if (hasGps) "Del GPS del nodo" else "Del celular", !fixed) { fixed = false }
+                Choice("Del GPS del nodo o del celular", !fixed) { fixed = false }
                 Choice("Fija (cargada a mano)", fixed) { fixed = true }
                 if (fixed) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -239,9 +238,11 @@ private fun SettingsContent(
                     }
                     Note("Con posición fija el nodo ignora la del celular. Sirve para nodos que quedan quietos (una base, un repetidor).")
                 } else {
+                    // El firmware acepta la posición del celular mientras no sea fija; si la placa tiene GPS
+                    // con señal, también usa la suya. La config no dice si el GPS existe de verdad.
                     Note(
-                        if (hasGps) "El nodo usa su propio GPS."
-                        else "Este nodo no tiene GPS (o está apagado): usa la del celular conectado (interruptor \"Tu posición al grupo\" en Nodos)."
+                        "Si la placa tiene GPS, usa el suyo; además toma la del celular conectado " +
+                            "(interruptor \"Tu posición al grupo\" en Nodos). Sin GPS, depende del celular."
                     )
                 }
                 Spacer(Modifier.height(8.dp))
@@ -356,6 +357,13 @@ private fun SettingsContent(
             Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("CalandriApp", style = MaterialTheme.typography.titleMedium, color = HudCyan)
                 HudLabel("versión ${appVersion()}")
+                val uri = androidx.compose.ui.platform.LocalUriHandler.current
+                Text(
+                    "Software libre (GPL-3.0) · código en github.com/proto-hommer/calandriapp",
+                    Modifier.padding(top = 4.dp).clickable { uri.openUri(SOURCE_URL) },
+                    style = MaterialTheme.typography.bodySmall, color = HudCyan,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
                 Spacer(Modifier.height(6.dp))
                 Text("powered by Meshtastic®", style = MaterialTheme.typography.bodySmall)
                 Text(
@@ -497,6 +505,9 @@ private fun Warn(text: String, color: Color = SigFair) {
         Text(text, style = MaterialTheme.typography.bodySmall, color = color)
     }
 }
+
+/** Código fuente de la app (la GPL-3.0 pide que esté disponible para quien la reciba). */
+private const val SOURCE_URL = "https://github.com/proto-hommer/calandriapp"
 
 /** Lo que la app incluye o usa, con su licencia. */
 private val LICENSES = listOf(
