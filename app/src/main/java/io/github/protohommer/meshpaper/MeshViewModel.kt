@@ -188,7 +188,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     val apply: StateFlow<ApplyState> = _apply
 
     /** Desde cuándo (epoch s) este nodo está en el grupo actual. Para no contar nodos viejos. */
-    private val _groupSince = MutableStateFlow(prefs.getLong("groupSince", 0L))
+    private val _groupSince = MutableStateFlow(0L)
     val groupSince: StateFlow<Long> = _groupSince
 
     private val ble = MeshBle(app, viewModelScope, ::onFromRadio).apply {
@@ -636,14 +636,40 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         if (pos != _position.value) {
             sendAdmin(me, AdminMessage.newBuilder().setSetConfig(Config.newBuilder().setPosition(pos)).build())
         }
+        val primary = set.settingsList.firstOrNull()
+        resetGroup(me, primary?.takeIf { Group.isPrivate(it) }?.let { Group.fingerprint(it) })
+    }
+
+    /** Grupo nuevo (o distinto): nadie es miembro hasta que lo oigamos por el privado. */
+    private fun resetGroup(me: Int, id: String?) {
         val now = System.currentTimeMillis() / 1000
-        prefs.edit().putLong("groupSince", now).remove(groupKey(me)).apply()
+        prefs.edit().putLong(sinceKey(me), now).putString(idKey(me), id).remove(groupKey(me)).apply()
         _groupSince.value = now
         groupNums = emptySet()
         _nodes.update { m -> m.mapValues { it.value.copy(group = false) } }
     }
 
+    /** Huella del grupo que tiene ahora el nodo, o null si el primario no es privado. */
+    private fun currentGroupId(): String? =
+        _channels.value[0]?.takeIf { it.role == Channel.Role.PRIMARY && Group.isPrivate(it.settings) }
+            ?.let { Group.fingerprint(it.settings) }
+
+    /**
+     * Si el grupo del nodo no es el que anotamos (se cambió por fuera de esta app, o es la
+     * primera vez con esta versión), los miembros guardados no valen: se empieza de cero.
+     */
+    private fun syncGroup() {
+        val me = _myNodeNum.value ?: return
+        val id = currentGroupId() ?: return
+        if (prefs.getString(idKey(me), null) != id) {
+            Log.i(TAG, "grupo distinto del anotado: miembros a cero")
+            resetGroup(me, id)
+        }
+    }
+
     private fun groupKey(me: Int) = "group:%08x".format(me)
+    private fun idKey(me: Int) = "groupId:%08x".format(me)
+    private fun sinceKey(me: Int) = "groupSince:%08x".format(me)
 
     private fun loadGroup(me: Int): Set<Int> =
         prefs.getStringSet(groupKey(me), emptySet()).orEmpty().mapNotNull { it.toLongOrNull(16)?.toInt() }.toSet()
@@ -651,8 +677,11 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     /** Anota un miembro probado (y lo guarda, para que siga siéndolo al reconectar). */
     private fun markGroup(num: Int) {
         if (num in groupNums) return
-        groupNums = groupNums + num
         val me = _myNodeNum.value ?: return
+        // Un paquete por el canal 0 prueba algo solo si el 0 es el privado del grupo anotado.
+        val id = currentGroupId() ?: return
+        if (prefs.getString(idKey(me), null) != id) return
+        groupNums = groupNums + num
         prefs.edit().putStringSet(groupKey(me), groupNums.map { "%08x".format(it) }.toSet()).apply()
     }
 
@@ -1043,6 +1072,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             FromRadio.PayloadVariantCase.CHANNEL -> {
                 val c = msg.channel
                 _channels.update { if (c.role == Channel.Role.DISABLED) it - c.index else it + (c.index to c) }
+                if (c.index == 0) syncGroup()
             }
             FromRadio.PayloadVariantCase.CONFIG -> when (msg.config.payloadVariantCase) {
                 Config.PayloadVariantCase.LORA -> _lora.value = msg.config.lora
@@ -1061,12 +1091,14 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         _myNodeNum.value = num
         _messages.value = store.load(num)
         // Los mensajes guardados del canal privado también prueban que el emisor tiene la clave.
-        val since = _groupSince.value
+        val since = prefs.getLong(sinceKey(num), Long.MAX_VALUE)
+        _groupSince.value = since.takeIf { it != Long.MAX_VALUE } ?: 0L
         groupNums = loadGroup(num) + _messages.value
             .filter { !it.mine && it.conv == Conv.Channel(0).key && it.time >= since && it.from != num }
             .map { it.from }
         _tracks.value = trackStore.load(num)
         _waypoints.value = waypointStore.load(num)
+        syncGroup()
         _lastRead.value = _messages.value.map { it.conv }.distinct()
             .associateWith { prefs.getLong(readKey(num, it), 0L) }
     }

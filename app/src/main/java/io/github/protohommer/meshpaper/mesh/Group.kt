@@ -80,6 +80,19 @@ object Group {
     /** Un canal es "privado" si tiene una clave propia de 16 o 32 bytes. */
     fun isPrivate(s: ChannelSettings): Boolean = s.psk.size() == 16 || s.psk.size() == 32
 
+    /**
+     * Huella del grupo (nombre + clave del primario), para saber si el grupo cambió por
+     * cualquier vía: esta app, la oficial, el QR o la pantalla del nodo. Solo se guarda en
+     * el teléfono; no se puede sacar la clave a partir de ella.
+     */
+    fun fingerprint(s: ChannelSettings): String {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        md.update(s.name.toByteArray(Charsets.UTF_8))
+        md.update(0)
+        md.update(s.psk.toByteArray())
+        return md.digest().take(8).joinToString("") { "%02x".format(it) }
+    }
+
     /** Fusiona la LoRa del grupo con la del nodo: no tocamos potencia ni si transmite. */
     fun mergeLora(group: LoRaConfig, current: LoRaConfig?): LoRaConfig {
         val base = current?.toBuilder() ?: return group
