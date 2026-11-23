@@ -6,6 +6,7 @@ import android.graphics.Color as AColor
 import android.location.Location
 import android.os.Build
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
@@ -114,17 +115,42 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(AColor.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(AColor.TRANSPARENT),
         )
-        val firstLaunch = savedInstanceState == null
+        val vm = (application as CalandriApp).mesh
+        handleIntent(intent)
+        // Sin intro si se abre tocando una notificación: se va directo al chat.
+        val firstLaunch = savedInstanceState == null && intent?.getStringExtra(Notifier.EXTRA_CONV) == null
         setContent {
             MeshPaperTheme {
                 // La intro solo al abrir la app de cero (no al rotar ni al volver de segundo plano).
                 var intro by rememberSaveable { mutableStateOf(firstLaunch) }
                 Box(Modifier.fillMaxSize()) {
-                    App()
+                    App(vm)
                     if (intro) BrandIntro(onDone = { intro = false })
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** Tocar una notificación de mensaje abre esa conversación. */
+    private fun handleIntent(intent: Intent?) {
+        val conv = intent?.getStringExtra(Notifier.EXTRA_CONV) ?: return
+        (application as CalandriApp).mesh.openRequest.value = conv
+        intent.removeExtra(Notifier.EXTRA_CONV)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        (application as CalandriApp).mesh.uiVisible = true
+    }
+
+    override fun onStop() {
+        (application as CalandriApp).mesh.uiVisible = false
+        super.onStop()
     }
 }
 
@@ -144,7 +170,7 @@ private enum class Tab(val label: String) {
 }
 
 @Composable
-fun App(vm: MeshViewModel = viewModel()) {
+fun App(vm: MeshViewModel) {
     val context = LocalContext.current
     var granted by remember {
         mutableStateOf(blePermissions.all {
@@ -159,6 +185,18 @@ fun App(vm: MeshViewModel = viewModel()) {
     }
     LaunchedEffect(Unit) { vm.locationPermitted = hasLocation(context) }
     LaunchedEffect(granted) { if (granted && vm.bluetoothOn) vm.autoConnect() }
+
+    // Permiso de notificaciones (Android 13+), una sola vez: para avisar de mensajes con la app cerrada.
+    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(granted) {
+        if (granted && Build.VERSION.SDK_INT >= 33 && !Notifier.canPost(context)) {
+            val p = context.getSharedPreferences("mesh", android.content.Context.MODE_PRIVATE)
+            if (!p.getBoolean("askedNotif", false)) {
+                p.edit().putBoolean("askedNotif", true).apply()
+                notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     val link by vm.link.collectAsState()
     val apply by vm.apply.collectAsState()
@@ -175,6 +213,22 @@ fun App(vm: MeshViewModel = viewModel()) {
         if (tab == Tab.CHATS && chat != null) chat = null else tabName = Tab.MAP.name
     }
     fun openChat(key: String) { chat = key; tabName = Tab.CHATS.name }
+
+    // Conectada: el servicio mantiene la sesión con la pantalla apagada (se arranca con la app en pantalla).
+    val keepAlive by vm.keepAlive.collectAsState()
+    LaunchedEffect(link, keepAlive) { if (keepAlive && link == LinkState.Connected) MeshService.start(context) }
+
+    // Pedido de abrir un chat desde una notificación.
+    val openReq by vm.openRequest.collectAsState()
+    LaunchedEffect(openReq) { openReq?.let { openChat(it); vm.openRequest.value = null } }
+
+    // Qué chat está a la vista: de ese no se avisa.
+    androidx.compose.runtime.SideEffect { vm.viewingConv = if (tab == Tab.CHATS) chat else null }
+
+    // Cartel de mensaje nuevo dentro de la app (si estás en otra pantalla).
+    var banner by remember { mutableStateOf<io.github.protohommer.meshpaper.mesh.ChatMsg?>(null) }
+    LaunchedEffect(Unit) { vm.incoming.collect { banner = it } }
+    LaunchedEffect(banner) { if (banner != null) { kotlinx.coroutines.delay(5_000); banner = null } }
 
     // La barra de arriba flota sobre el contenido (sobre el mapa se ve el mapa debajo); el resto
     // de las pantallas arrancan debajo de ella.
@@ -221,6 +275,13 @@ fun App(vm: MeshViewModel = viewModel()) {
                     }
                     if (tab == Tab.MAP && !connected) LinkPanel(vm, link, Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = topPad + 4.dp, end = 70.dp))
                     ApplyBanner(vm, apply, Modifier.align(Alignment.TopCenter).padding(top = topPad).padding(12.dp))
+                    banner?.let { m ->
+                        MessageBanner(
+                            vm, m, Modifier.align(Alignment.TopCenter).padding(top = topPad).padding(horizontal = 12.dp, vertical = 6.dp),
+                            onOpen = { openChat(m.conv); banner = null },
+                            onClose = { banner = null },
+                        )
+                    }
                 }
             }
             TopStatus(vm, Modifier.align(Alignment.TopCenter))
@@ -651,6 +712,32 @@ private fun PositionPanel(vm: MeshViewModel, onAskLocation: () -> Unit) {
             Text(status, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
             if (share && !permitted) TextButton(onClick = onAskLocation) { Text("PERMITIR") }
             else Switch(checked = share, onCheckedChange = vm::setSharePosition)
+        }
+    }
+}
+
+
+// ---------- Cartel de mensaje nuevo ----------
+
+/** Aviso arriba cuando llega un mensaje y no estás en ese chat: quién, de dónde y qué dice. */
+@Composable
+private fun MessageBanner(
+    vm: MeshViewModel, m: io.github.protohommer.meshpaper.mesh.ChatMsg, modifier: Modifier,
+    onOpen: () -> Unit, onClose: () -> Unit,
+) {
+    val nodes by vm.nodes.collectAsState()
+    val sender = nodes[m.from]?.let { it.longName.ifEmpty { it.shortName } } ?: "!%08x".format(m.from)
+    val conv = io.github.protohommer.meshpaper.mesh.Conv.parse(m.conv)
+    val accent = if (conv is io.github.protohommer.meshpaper.mesh.Conv.Direct) SigFair else HudCyan
+    val where = if (conv is io.github.protohommer.meshpaper.mesh.Conv.Direct) "Mensaje directo"
+    else io.github.protohommer.meshpaper.ui.convTitle(vm, m.conv)
+    HudPanel(modifier.fillMaxWidth().clickable(onClick = onOpen), title = where, accent = accent) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(sender, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(m.text, style = MaterialTheme.typography.bodyMedium, maxLines = 3)
+            }
+            TextButton(onClick = onClose) { Text("✕") }
         }
     }
 }

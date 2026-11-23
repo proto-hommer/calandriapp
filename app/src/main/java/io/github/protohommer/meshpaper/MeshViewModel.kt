@@ -33,7 +33,9 @@ import io.github.protohommer.meshpaper.mesh.routingErrorText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -279,13 +281,83 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
 
     val bluetoothOn: Boolean get() = adapter?.isEnabled == true
 
+    // ---------- Sesión en segundo plano y avisos ----------
+
+    /**
+     * true desde que se conecta a un nodo hasta que se toca Desconectar: mientras tanto corre el
+     * [MeshService] (aviso fijo) y, si se pierde el enlace, se reintenta solo.
+     */
+    private val _keepAlive = MutableStateFlow(false)
+    val keepAlive: StateFlow<Boolean> = _keepAlive
+    private var reconnectJob: Job? = null
+
+    /** La app está en pantalla (lo marca MainActivity). Si no, los mensajes van como notificación. */
+    @Volatile var uiVisible = false
+    /** Conversación abierta en pantalla: de esa no se avisa. */
+    @Volatile var viewingConv: String? = null
+
+    /** Mensajes ajenos recién llegados, para el cartel dentro de la app. */
+    private val _incoming = MutableSharedFlow<ChatMsg>(extraBufferCapacity = 8)
+    val incoming: SharedFlow<ChatMsg> = _incoming
+
+    /** Conversación a abrir pedida desde una notificación. */
+    val openRequest = MutableStateFlow<String?>(null)
+
+    /** Mensajes sin leer por conversación desde la última notificación (para apilarlos). */
+    private val notified = mutableMapOf<String, MutableList<Pair<String, String>>>()
+
     init {
         viewModelScope.launch {
+            var prev: LinkState = LinkState.Disconnected
             link.collect {
                 updateLocationUpdates()
-                if (it == LinkState.Connected) lastDevice?.let { d -> prefs.edit().putString("lastDevice", d.address).apply() }
+                if (it == LinkState.Connected) {
+                    lastDevice?.let { d -> prefs.edit().putString("lastDevice", d.address).apply() }
+                    reconnectJob?.cancel(); reconnectJob = null
+                }
+                // Se cortó estando conectados (nodo fuera de alcance, se apagó…): reintentar solo.
+                if (prev == LinkState.Connected && it is LinkState.Failed && _keepAlive.value) startReconnect()
+                prev = it
             }
         }
+    }
+
+    /** Reintenta conectar al mismo nodo, cada vez más espaciado, hasta lograrlo o que se corte la sesión. */
+    private fun startReconnect() {
+        if (reconnectJob?.isActive == true) return
+        val d = lastDevice ?: return
+        reconnectJob = viewModelScope.launch {
+            var wait = 5_000L
+            while (_keepAlive.value && link.value != LinkState.Connected) {
+                delay(wait)
+                if (!_keepAlive.value) break
+                val st = link.value
+                if (st is LinkState.Failed || st == LinkState.Disconnected) connectDevice(d)
+                // Esperar a que ese intento termine (conecta o falla) antes del siguiente.
+                link.first { it == LinkState.Connected || it is LinkState.Failed || it == LinkState.Disconnected }
+                wait = (wait * 2).coerceAtMost(120_000L)
+            }
+        }
+    }
+
+    private fun notifyIncoming(m: ChatMsg) {
+        val ctx = getApplication<Application>()
+        if (uiVisible) {
+            if (viewingConv != m.conv) _incoming.tryEmit(m)
+            return
+        }
+        val sender = _nodes.value[m.from]?.let { it.longName.ifEmpty { it.shortName } } ?: "!%08x".format(m.from)
+        val c = Conv.parse(m.conv)
+        val channel = when {
+            c is Conv.Direct -> Notifier.CH_DM
+            c is Conv.Channel && c.index == 0 && hasPrivateGroup() -> Notifier.CH_GROUP
+            else -> Notifier.CH_PUBLIC
+        }
+        val title = if (c is Conv.Direct) "Mensaje de $sender"
+        else io.github.protohommer.meshpaper.ui.convTitle(this, m.conv)
+        val list = notified.getOrPut(m.conv) { mutableListOf() }
+        list += sender to m.text
+        Notifier.message(ctx, m.conv, channel, title, list)
     }
 
     /** Nombre del último nodo al que nos conectamos (para el botón "Reconectar"). */
@@ -460,6 +532,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun connectDevice(device: BluetoothDevice) {
+        _keepAlive.value = true
         lastDevice = device
         _nodes.value = emptyMap()
         _channels.value = emptyMap()
@@ -483,6 +556,8 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     fun submitPin(pin: String) = ble.submitPin(pin)
 
     fun disconnect() {
+        _keepAlive.value = false
+        reconnectJob?.cancel(); reconnectJob = null
         applyJob?.cancel()
         _apply.value = ApplyState.Idle
         ble.disconnect()
@@ -665,6 +740,8 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         val t = System.currentTimeMillis() / 1000
         prefs.edit().putLong(readKey(me, conv), t).apply()
         _lastRead.update { it + (conv to t) }
+        notified.remove(conv)
+        Notifier.cancel(getApplication(), conv)
     }
 
     /** Manda texto a una conversación. Devuelve null si salió, o el motivo si no se puede. */
@@ -784,6 +861,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 status = if (mine) MsgStatus.RELAYED else MsgStatus.RECEIVED,
             )
         )
+        if (!mine) _messages.value.lastOrNull { it.id == p.id && it.from == p.from }?.let(::notifyIncoming)
     }
 
     private fun addMessage(m: ChatMsg) {
