@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -98,6 +99,7 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 import java.io.File
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
@@ -122,6 +124,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     val mapPrefs = remember { context.getSharedPreferences("map", Context.MODE_PRIVATE) }
     var showLegend by remember { mutableStateOf(mapPrefs.getBoolean("legend", true)) }
     var selectedNode by remember { mutableStateOf<Int?>(null) }
+    var stack by remember { mutableStateOf<List<Int>>(emptyList()) } // nodos encimados con el elegido
     var selectedWpt by remember { mutableStateOf<Int?>(null) }
     var newWptAt by remember { mutableStateOf<GeoPoint?>(null) }
     var showLayers by remember { mutableStateOf(false) }
@@ -131,24 +134,6 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     val preset = lora?.modemPreset ?: ModemPreset.LONG_FAST
     var rangeNode by remember { mutableStateOf<Int?>(null) }   // nodo con el alcance dibujado
     var antennaFor by remember { mutableStateOf<Int?>(null) }  // nodo al que se le cargan los datos de antena
-
-    /** Dónde está un nodo en el mapa (el propio, donde está el teléfono). */
-    fun nodeCenter(num: Int): GeoPoint? {
-        val f = fix
-        if (num == me && f != null) return GeoPoint(f.latitude, f.longitude)
-        val n = nodes[num] ?: return null
-        return if (n.lat != null && n.lon != null) GeoPoint(n.lat, n.lon) else null
-    }
-
-    /** Toque largo sobre un nodo: si tiene antena cargada, muestra el alcance; si no, pide los datos. */
-    fun longPressNode(num: Int) {
-        selectedNode = num; selectedWpt = null
-        if (antennas[num] != null) rangeNode = num else antennaFor = num
-    }
-
-    // Reloj para que los colores "perdido" se actualicen solos.
-    var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
-    LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() / 1000 } }
 
     val map = remember {
         MapTiles.init(context)
@@ -163,6 +148,47 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
             restoreCamera(context, this, fix?.let { GeoPoint(it.latitude, it.longitude) })
         }
     }
+    /** Dónde está un nodo en el mapa (el propio, donde está el teléfono). */
+    fun nodeCenter(num: Int): GeoPoint? {
+        val f = fix
+        if (num == me && f != null) return GeoPoint(f.latitude, f.longitude)
+        val n = nodes[num] ?: return null
+        return if (n.lat != null && n.lon != null) GeoPoint(n.lat, n.lon) else null
+    }
+
+    /**
+     * Los nodos que en pantalla quedan encimados con [num] (misma posición o casi): el de arriba
+     * tapa a los demás, así que la ficha los ofrece a todos. [num] va primero.
+     */
+    fun overlapping(num: Int): List<Int> {
+        val at = nodeCenter(num) ?: return listOf(num)
+        val pj = map.projection
+        val p0 = pj.toPixels(at, null)
+        val r = dpPx(context, 26f)
+        val candidates = nodes.values
+            .filter { it.lat != null && it.lon != null && (showOthers || isGroupMember(it, me, hasGroup, since)) }
+            .map { it.num } + listOfNotNull(me.takeIf { fix != null })
+        val near = candidates.distinct().filter { it != num }.filter { c ->
+            val p = nodeCenter(c)?.let { pj.toPixels(it, null) } ?: return@filter false
+            hypot((p.x - p0.x).toDouble(), (p.y - p0.y).toDouble()) <= r
+        }.sortedByDescending { nodes[it]?.let { n -> isGroupMember(n, me, hasGroup, since) } == true }
+        return listOf(num) + near
+    }
+
+    fun selectNode(num: Int) {
+        selectedNode = num; selectedWpt = null; stack = overlapping(num)
+    }
+
+    /** Toque largo sobre un nodo: si tiene antena cargada, muestra el alcance; si no, pide los datos. */
+    fun longPressNode(num: Int) {
+        selectNode(num)
+        if (antennas[num] != null) rangeNode = num else antennaFor = num
+    }
+
+    // Reloj para que los colores "perdido" se actualicen solos.
+    var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() / 1000 } }
+
     val scaleBar = remember {
         ScaleBarOverlay(map).apply {
             setAlignBottom(true)
@@ -210,7 +236,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                 mv.overlays.clear()
                 mv.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
                     override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
-                        selectedNode = null; selectedWpt = null; rangeNode = null
+                        selectedNode = null; selectedWpt = null; rangeNode = null; stack = emptyList()
                         return false
                     }
                     override fun longPressHelper(p: GeoPoint?): Boolean {
@@ -231,7 +257,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                         outlinePaint.pathEffect = if (tone == Tone.RELAY || tone == Tone.MUTE)
                             DashPathEffect(floatArrayOf(dpPx(mv.context, 6f), dpPx(mv.context, 4f)), 0f) else null
                         infoWindow = null
-                        setOnClickListener { _, _, _ -> selectedNode = n.num; selectedWpt = null; true }
+                        setOnClickListener { _, _, _ -> selectNode(n.num); true }
                     })
                 }
                 // Alcance estimado del nodo elegido con toque largo: ciudad (lleno) y campo abierto (punteado).
@@ -288,7 +314,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                         }
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         infoWindow = null
-                        setOnMarkerClickListener { _, _ -> selectedNode = n.num; selectedWpt = null; true }
+                        setOnMarkerClickListener { _, _ -> selectNode(n.num); true }
                     })
                 }
                 fix?.let { f ->
@@ -300,7 +326,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                         icon = meIcon(mv.context, myLabel)
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         infoWindow = null
-                        setOnMarkerClickListener { _, _ -> me?.let { selectedNode = it; selectedWpt = null }; true }
+                        setOnMarkerClickListener { _, _ -> me?.let { selectNode(it) }; true }
                     })
                 }
                 mv.invalidate()
@@ -348,7 +374,9 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                     antenna = antennas[n.num], preset = preset, showingRange = rangeNode == n.num,
                     onAntenna = { antennaFor = n.num },
                     onRange = { rangeNode = if (rangeNode == n.num) null else n.num },
-                    onClose = { selectedNode = null; rangeNode = null },
+                    onClose = { selectedNode = null; rangeNode = null; stack = emptyList() },
+                    stack = stack.mapNotNull { nodes[it] }.takeIf { it.size > 1 }.orEmpty(),
+                    onPick = { selectedNode = it },
                 )
             }
             selectedWpt != null && waypoints[selectedWpt] != null ->
@@ -416,6 +444,7 @@ private fun NodeCard(
     onMessage: (Int) -> Unit,
     antenna: Antenna?, preset: ModemPreset, showingRange: Boolean,
     onAntenna: () -> Unit, onRange: () -> Unit, onClose: () -> Unit,
+    stack: List<MeshNode> = emptyList(), onPick: (Int) -> Unit = {},
 ) {
     val tracks by vm.tracks.collectAsState()
     val tone = Signal.tone(n, me, member, now)
@@ -427,6 +456,23 @@ private fun NodeCard(
         else -> if (Signal.isLost(n, now)) "Grupo · sin noticias" else "Grupo"
     }
     HudPanel(modifier.width(280.dp), title = kind, accent = tone.color()) {
+        if (stack.size > 1) {
+            // Varios nodos en el mismo lugar: se elige cuál ver.
+            HudLabel("${stack.size} nodos en este lugar")
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                for (o in stack) {
+                    val c = Signal.tone(o, me, isGroupMember(o, me, vm.hasPrivateGroup(), vm.groupSince.value), now).color()
+                    FilterChip(
+                        selected = o.num == n.num, onClick = { onPick(o.num) },
+                        label = { Text(o.shortName.ifEmpty { o.id.takeLast(4) }, color = c, fontWeight = FontWeight.SemiBold) },
+                    )
+                }
+            }
+            Spacer(Modifier.padding(2.dp))
+        }
         Text(
             "${n.shortName.ifEmpty { "?" }}  ${n.longName.ifEmpty { n.id }}",
             style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
