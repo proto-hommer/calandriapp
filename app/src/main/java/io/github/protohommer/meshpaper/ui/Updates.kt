@@ -65,8 +65,16 @@ fun UpdateDialog() {
             confirmButton = {},
         )
         is Updater.State.Ready -> {
-            // Si falta el permiso de instalar, al volver de Ajustes se reintenta con el mismo botón.
+            // Si falta el permiso de instalar: se vuelve a mirar al volver de Ajustes (ON_RESUME).
             var needPerm by remember { mutableStateOf(!Updater.canInstall(ctx)) }
+            val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+            androidx.compose.runtime.DisposableEffect(owner) {
+                val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+                    if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) needPerm = !Updater.canInstall(ctx)
+                }
+                owner.lifecycle.addObserver(obs)
+                onDispose { owner.lifecycle.removeObserver(obs) }
+            }
             AlertDialog(
                 onDismissRequest = { Updater.dismiss() },
                 title = { Text("Lista para instalar") },
@@ -78,19 +86,26 @@ fun UpdateDialog() {
                             Spacer(Modifier.padding(4.dp))
                             Text(
                                 "Android pide permitir que CalandriApp instale apps (una sola vez). Tocá PERMITIR, " +
-                                    "activá \"Permitir de esta fuente\", volvé y tocá INSTALAR.",
+                                    "activá el permiso (\"Permitir\" o \"Confiar en esta fuente\", según el celular), " +
+                                    "volvé y tocá INSTALAR.",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
                         Spacer(Modifier.padding(4.dp))
                         HudLabel("Android te va a pedir confirmar · no se pierde nada", maxLines = 2)
+                        Spacer(Modifier.padding(2.dp))
+                        Text(
+                            "Si aparece Google Play Protect: \"Más detalles\" → \"Instalar sin analizar\" " +
+                                "(o \"Analizar app\", que la manda a Google y tarda un poco).",
+                            style = MaterialTheme.typography.bodySmall, color = HudTextDim,
+                        )
                     }
                 },
                 confirmButton = {
                     TextButton(onClick = {
                         if (Updater.canInstall(ctx)) { needPerm = false; Updater.install(ctx, s.file) }
                         else { needPerm = true; Updater.openInstallPermission(ctx) }
-                    }) { Text(if (needPerm && !Updater.canInstall(ctx)) "PERMITIR" else "INSTALAR") }
+                    }) { Text(if (needPerm) "PERMITIR" else "INSTALAR") }
                 },
                 dismissButton = { TextButton(onClick = { Updater.dismiss() }) { Text("DESPUÉS") } },
             )
