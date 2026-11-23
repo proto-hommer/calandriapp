@@ -325,13 +325,18 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                         val link = Signal.quality(n, now).color().toArgb()
                         val lost = Signal.isLost(n, now)
                         icon = when {
-                            // Ajeno: compacto, un solo anillo con la señal y el nombre en violeta.
+                            // Ajeno: compacto, un solo borde con la señal y el nombre en violeta.
+                            // Rombo si es fijo (router, base, repetidor).
                             Signal.isForeign(tone) -> nodeIcon(
                                 mv.context, label, link, filled = false, lost = lost,
                                 labelColor = tone.color().toArgb(), compact = true,
+                                diamond = Signal.isFixedRole(n),
                             )
-                            // Fijo del grupo: azul, con la señal en un anillo de afuera.
-                            tone == Tone.FIXED -> nodeIcon(mv.context, label, tone.color().toArgb(), filled = true, lost = lost, ring = link)
+                            // Fijo del grupo: rombo azul, con la señal en un rombo de afuera.
+                            tone == Tone.FIXED -> nodeIcon(
+                                mv.context, label, tone.color().toArgb(), filled = true, lost = lost,
+                                ring = link, diamond = true,
+                            )
                             else -> nodeIcon(mv.context, label, tone.color().toArgb(), filled = true, lost = lost)
                         }
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
@@ -474,8 +479,9 @@ private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, 
                 LegendItem(SigFair, "2 a 3 saltos")
                 LegendItem(SigPoor, "4 a 5 saltos")
                 LegendItem(SigWeak, "6 o más / perdido")
-                LegendItem(SigFixed, "Fijo del grupo")
+                LegendItem(SigFixed, "Azul = fijo del grupo")
                 LegendItem(SigRelay, "Nombre violeta = ajeno")
+                HudLabel("◇ Rombo = nodo fijo")
             }
             Spacer(Modifier.padding(2.dp))
             HudLabel("Largo en el mapa = waypoint")
@@ -954,48 +960,57 @@ private val iconCache = HashMap<String, BitmapDrawable>()
 private fun dpPx(ctx: Context, v: Float) = v * ctx.resources.displayMetrics.density
 
 /**
- * Marcador de nodo estilo HUD: anillo de color con el nombre corto adentro.
- * Los del grupo llevan un relleno tenue del color; los ajenos, anillo solo.
- * Perdido = anillo punteado y apagado.
- */
-/**
- * Nodo: anillo de [color] con el nombre corto adentro (en [labelColor]). [ring] = anillo exterior
- * con la señal (fijos del grupo). [compact] = más chico y sin halo (ajenos).
+ * Nodo: borde de [color] con el nombre corto adentro (en [labelColor]). [ring] = borde exterior
+ * con la señal (fijos del grupo). [compact] = más chico y sin halo (ajenos). [diamond] = rombo
+ * en vez de círculo (instalación fija), y el borde de la señal copia la forma.
+ * Perdido = borde punteado y apagado.
  */
 private fun nodeIcon(
     ctx: Context, label: String, color: Int, filled: Boolean, lost: Boolean,
-    ring: Int? = null, labelColor: Int = color, compact: Boolean = false,
+    ring: Int? = null, labelColor: Int = color, compact: Boolean = false, diamond: Boolean = false,
 ): BitmapDrawable =
-    iconCache.getOrPut("n:$label:$color:$filled:$lost:$ring:$labelColor:$compact") {
-        val size = dpPx(ctx, if (ring != null) 46f else if (compact) 32f else 40f).toInt()
+    iconCache.getOrPut("n:$label:$color:$filled:$lost:$ring:$labelColor:$compact:$diamond") {
+        // El rombo es un poco más grande: a la altura del texto es más angosto que el círculo.
+        val base = if (ring != null) 46f else if (compact) 32f else 40f
+        val size = dpPx(ctx, if (diamond) base + 6f else base).toInt()
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         val r = size / 2f
         val ringR = r - dpPx(ctx, if (ring != null) 8f else if (compact) 2f else 5f)
         val alpha = if (lost) 130 else 255
+        fun shape(radius: Float, paint: Paint) {
+            if (!diamond) { c.drawCircle(r, r, radius, paint); return }
+            val path = android.graphics.Path().apply {
+                moveTo(r, r - radius); lineTo(r + radius, r); lineTo(r, r + radius); lineTo(r - radius, r); close()
+            }
+            c.drawPath(path, paint)
+        }
         if (ring != null) {
-            // anillo de señal por fuera, con un borde oscuro para que se separe del principal
-            c.drawCircle(r, r, r - dpPx(ctx, 2.5f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            // borde de señal por fuera, con un borde oscuro para que se separe del principal
+            shape(r - dpPx(ctx, 2.5f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 this.color = android.graphics.Color.argb(200, 5, 9, 13)
                 style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 4.5f)
+                strokeJoin = Paint.Join.ROUND
             })
-            c.drawCircle(r, r, r - dpPx(ctx, 2.5f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shape(r - dpPx(ctx, 2.5f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 this.color = ring; this.alpha = alpha
                 style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 2.5f)
+                strokeJoin = Paint.Join.ROUND
             })
         } else if (!compact) {
             // halo
-            c.drawCircle(r, r, r - dpPx(ctx, 1f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shape(r - dpPx(ctx, 1f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 this.color = color; this.alpha = if (lost) 20 else 45
             })
         }
         // fondo oscuro
-        c.drawCircle(r, r, ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = android.graphics.Color.argb(225, 5, 9, 13) })
-        if (filled) c.drawCircle(r, r, ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; this.alpha = if (lost) 25 else 55 })
-        // anillo
-        c.drawCircle(r, r, ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        shape(ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = android.graphics.Color.argb(225, 5, 9, 13) })
+        if (filled) shape(ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; this.alpha = if (lost) 25 else 55 })
+        // borde
+        shape(ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply {
             this.color = color; this.alpha = alpha
             style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 2.5f)
+            strokeJoin = Paint.Join.ROUND
             if (lost) pathEffect = DashPathEffect(floatArrayOf(dpPx(ctx, 4f), dpPx(ctx, 3f)), 0f)
         })
         val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
