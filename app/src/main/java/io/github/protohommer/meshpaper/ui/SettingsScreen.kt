@@ -350,14 +350,27 @@ private fun SettingsContent(
                 Text("CalandriApp", style = MaterialTheme.typography.titleMedium, color = HudCyan)
                 HudLabel("versión ${appVersion()}")
                 Spacer(Modifier.height(6.dp))
-                Text("powered by Meshtastic", style = MaterialTheme.typography.bodySmall)
+                Text("powered by Meshtastic®", style = MaterialTheme.typography.bodySmall)
                 Text(
-                    "Meshtastic® es una marca registrada de Meshtastic LLC. CalandriApp es una app independiente: " +
-                        "no es la app oficial ni está respaldada por el proyecto Meshtastic.",
+                    "Meshtastic® es una marca registrada de Meshtastic LLC. Los componentes de software de " +
+                        "Meshtastic se publican bajo distintas licencias; ver GitHub para más detalles. " +
+                        "CalandriApp es una app independiente: no es la app oficial ni está patrocinada " +
+                        "ni respaldada por el proyecto Meshtastic. Sin garantía: se usa bajo tu propio riesgo.",
                     style = MaterialTheme.typography.bodySmall, color = HudTextDim,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier.padding(top = 4.dp, start = 8.dp, end = 8.dp),
                 )
+            }
+
+            // ---------- Licencias ----------
+            HudPanel(Modifier.fillMaxWidth(), title = "Licencias") {
+                for ((what, license) in LICENSES) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                        Text(what, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                        Text(license, style = MaterialTheme.typography.bodySmall, color = HudTextDim)
+                    }
+                }
+                Note("Datos del mapa © colaboradores de OpenStreetMap, disponibles bajo la licencia ODbL (openstreetmap.org/copyright).")
             }
             Spacer(Modifier.height(8.dp))
         }
@@ -477,6 +490,18 @@ private fun Warn(text: String, color: Color = SigFair) {
         Text(text, style = MaterialTheme.typography.bodySmall, color = color)
     }
 }
+
+/** Lo que la app incluye o usa, con su licencia. */
+private val LICENSES = listOf(
+    "Protobufs de Meshtastic" to "GPL-3.0",
+    "osmdroid" to "Apache-2.0",
+    "ZXing / zxing-android-embedded" to "Apache-2.0",
+    "Protocol Buffers (lite)" to "BSD-3-Clause",
+    "AndroidX y Jetpack Compose" to "Apache-2.0",
+    "Kotlin y kotlinx.coroutines" to "Apache-2.0",
+    "Space Grotesk (logo)" to "OFL-1.1",
+    "Datos de OpenStreetMap" to "ODbL",
+)
 
 @Composable
 private fun appVersion(): String {

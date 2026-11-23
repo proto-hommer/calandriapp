@@ -326,5 +326,53 @@ for (const [d, px] of Object.entries(DENSITIES)) {
   put(join(RES, `mipmap-${d}`, 'ic_launcher_round.png'), png(iconSvg(px, 'circle'), px));
 }
 
+// Intro animada de la app: geometría en Kotlin y el nombre como vector.
+{
+  const pts = [...nodes.map(n => [n.cx, n.cy]), [eye.cx, eye.cy]];
+  const idx = ([x, y]) => {
+    const i = pts.findIndex(p => p[0] === x && p[1] === y);
+    if (i < 0) throw new Error(`punto ${x},${y} no es un nodo`);
+    return i;
+  };
+  const b = bbox(VARIANTS.completa);
+  const kt = `// Generado por assets/brand/tools/build.mjs desde assets/brand/marca.svg: no editar a mano.
+package io.github.protohommer.meshpaper.ui.brand
+
+/** Geometría de la marca (coordenadas de marca.svg) para animarla. */
+internal object BrandGeometry {
+    /** Caja de la marca completa: x, y, ancho, alto. */
+    val box = floatArrayOf(${[b.x, b.y, b.w, b.h].map(v => f(v) + 'f').join(', ')})
+
+    /** Nodos (x, y); el último es el ojo. */
+    val points = floatArrayOf(${pts.map(p => `${p[0]}f, ${p[1]}f`).join(', ')})
+    const val EYE = ${pts.length - 1}
+
+    /** Contorno, como índices de [points]. */
+    val outline = intArrayOf(${outline.map(p => idx(p)).join(', ')})
+
+    /** Conexiones internas, de a pares de índices. */
+    val edges = intArrayOf(${edges.map(e => `${idx([e[0], e[1]])}, ${idx([e[2], e[3]])}`).join(', ')})
+
+    const val STROKE = ${lineWidth}f
+    const val NODE_R = ${nodes[0].r}f
+    const val EYE_R = ${eye.r}f
+    const val EYE_RING = ${eye.strokeWidth}f
+    const val FILL_ALPHA = ${fillOpacity}f
+}
+`;
+  put(join(ROOT, 'app', 'src', 'main', 'java', 'io', 'github', 'protohommer', 'meshpaper', 'ui', 'brand', 'BrandGeometry.kt'), kt);
+
+  const name = textPath(NAME, 100, 0, 100);
+  const nb = padBox(name.box, 2);
+  const tx = -nb.x, ty = -nb.y;
+  const nameVector = `<?xml version="1.0" encoding="utf-8"?>\n<!-- Generado por assets/brand/tools/build.mjs: no editar a mano. -->\n` +
+    `<vector xmlns:android="http://schemas.android.com/apk/res/android"\n` +
+    `    android:width="${f(nb.w)}dp" android:height="${f(nb.h)}dp"\n` +
+    `    android:viewportWidth="${f(nb.w)}" android:viewportHeight="${f(nb.h)}">\n` +
+    `  <group android:translateX="${f(tx)}" android:translateY="${f(ty)}">\n` +
+    `    <path android:fillColor="${C.text}" android:pathData="${name.d}"/>\n  </group>\n</vector>\n`;
+  put(join(RES, 'drawable', 'brand_nombre.xml'), nameVector);
+}
+
 console.log(`Listo: ${written.length} archivos.`);
 for (const p of written) console.log('  ' + p.slice(ROOT.length + 1).replaceAll('\\', '/'));

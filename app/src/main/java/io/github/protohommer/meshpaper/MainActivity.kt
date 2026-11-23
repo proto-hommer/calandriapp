@@ -80,6 +80,7 @@ import io.github.protohommer.meshpaper.ui.HudPanel
 import io.github.protohommer.meshpaper.ui.HudStat
 import io.github.protohommer.meshpaper.ui.HudValue
 import io.github.protohommer.meshpaper.ui.MapScreen
+import io.github.protohommer.meshpaper.ui.brand.BrandIntro
 import io.github.protohommer.meshpaper.ui.SettingsScreen
 import io.github.protohommer.meshpaper.ui.StatusDot
 import io.github.protohommer.meshpaper.ui.agoText
@@ -97,13 +98,23 @@ import io.github.protohommer.meshpaper.ui.theme.SigWeak
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen() // antes de super.onCreate: muestra la marca mientras arranca
+        installSplashScreen() // antes de super.onCreate: fondo de la marca hasta el primer cuadro
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(AColor.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(AColor.TRANSPARENT),
         )
-        setContent { MeshPaperTheme { App() } }
+        val firstLaunch = savedInstanceState == null
+        setContent {
+            MeshPaperTheme {
+                // La intro solo al abrir la app de cero (no al rotar ni al volver de segundo plano).
+                var intro by rememberSaveable { mutableStateOf(firstLaunch) }
+                Box(Modifier.fillMaxSize()) {
+                    App()
+                    if (intro) BrandIntro(onDone = { intro = false })
+                }
+            }
+        }
     }
 }
 
@@ -322,7 +333,7 @@ private fun NavBar(tab: Tab, unread: Int, onSelect: (Tab) -> Unit) {
         }
         // Crédito al proyecto en el que se apoya la app (y a su marca).
         Text(
-            "powered by Meshtastic",
+            "powered by Meshtastic®",
             Modifier.fillMaxWidth().padding(bottom = 4.dp),
             style = MaterialTheme.typography.labelSmall,
             color = HudTextDim.copy(alpha = 0.7f),

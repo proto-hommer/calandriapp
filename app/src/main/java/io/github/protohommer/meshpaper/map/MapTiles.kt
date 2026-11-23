@@ -17,8 +17,9 @@ import java.io.File
  *
  *  - `maps/` es la "base path" de osmdroid. Los `.mbtiles` que se importan van ahí y el
  *    MapTileFileArchiveProvider de MapTileProviderBasic los encuentra solo.
- *  - `maps/tiles/` es la caché SQLite de osmdroid: cada tile que se mira con conexión queda
- *    guardado y sirve después sin señal.
+ *  - `maps/tiles/` es la caché SQLite de osmdroid. Con un servidor propio cada tile que se mira
+ *    queda guardado un año y sirve sin señal. Con OpenStreetMap se respeta la caché que pide su
+ *    servidor: su política no permite el uso offline (para eso, .mbtiles o servidor propio).
  *
  * Orden en que se busca un tile: caché → archivos importados → aproximación desde otro zoom →
  * descarga (solo si "usar internet" está prendido).
@@ -43,7 +44,7 @@ object MapTiles {
         conf.userAgentValue = "CalandriApp-Android/1.0"
         conf.tileFileSystemCacheMaxBytes = 1024L * 1024 * 1024        // 1 GB de caché
         conf.tileFileSystemCacheTrimBytes = 900L * 1024 * 1024
-        conf.expirationOverrideDuration = 365L * 24 * 3600 * 1000     // en el campo, mejor viejo que nada
+        applyCachePolicy(ctx)
     }
 
     // ---------- Fuente de tiles ----------
@@ -52,8 +53,18 @@ object MapTiles {
     fun customUrl(ctx: Context): String =
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("tileUrl", "").orEmpty()
 
+    /**
+     * Política de caché según la fuente. OpenStreetMap: respetar los encabezados de su servidor
+     * (operations.osmfoundation.org/policies/tiles). Servidor propio: guardar un año, para el campo.
+     */
+    fun applyCachePolicy(ctx: Context) {
+        Configuration.getInstance().expirationOverrideDuration =
+            if (isValidTemplate(customUrl(ctx))) 365L * 24 * 3600 * 1000 else null
+    }
+
     fun setCustomUrl(ctx: Context, url: String) {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("tileUrl", url.trim()).apply()
+        applyCachePolicy(ctx)
     }
 
     fun isValidTemplate(url: String): Boolean {

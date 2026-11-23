@@ -1,5 +1,8 @@
 package io.github.protohommer.meshpaper.ui
 
+import io.github.protohommer.meshpaper.ui.theme.HudBg
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.ui.unit.Dp
 import io.github.protohommer.meshpaper.ui.theme.SigPoor
 import java.util.Locale
@@ -302,6 +305,19 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                 }
                 mv.invalidate()
             },
+        )
+
+        // Atribución de OpenStreetMap (ODbL): obligatoria, visible y abajo a la derecha, sobre la escala.
+        val uri = androidx.compose.ui.platform.LocalUriHandler.current
+        Text(
+            "© OpenStreetMap\ncontributors",
+            Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 38.dp)
+                .background(HudBg.copy(alpha = 0.6f))
+                .clickable { uri.openUri("https://www.openstreetmap.org/copyright") }
+                .padding(horizontal = 4.dp, vertical = 1.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = HudTextDim,
+            textAlign = androidx.compose.ui.text.style.TextAlign.End,
         )
 
         // Marco tipo visor.
@@ -740,9 +756,9 @@ private fun LayersDialog(map: MapView, dark: Boolean, onDark: (Boolean) -> Unit,
                 HudLabel("Descargar la zona visible", color = HudCyan)
                 if (!canBulk) {
                     Text(
-                        "OpenStreetMap no permite bajar zonas enteras. Con OSM se guarda lo que vas " +
-                            "mirando (recorré la zona antes de salir), o importá un .mbtiles. " +
-                            "Para descargar zonas, poné un servidor propio.",
+                        "OpenStreetMap no permite bajar zonas ni usar sus mapas sin conexión. Para el " +
+                            "campo, importá un .mbtiles (de una zona descargada con otra herramienta) " +
+                            "o poné un servidor propio, que sí permite descargar zonas.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 } else {
