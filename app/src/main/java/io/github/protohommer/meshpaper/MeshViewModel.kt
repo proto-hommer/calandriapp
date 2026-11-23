@@ -68,17 +68,29 @@ data class MeshNode(
     val battery: Int?,
     val lat: Double?,
     val lon: Double?,
-    val channel: Int,         // índice local del canal en que lo oímos (0 = primario)
+    val channel: Int?,        // índice local del canal en que lo oímos (0 = primario); null = sin prueba
     val rssi: Int? = null,    // del último paquete que llegó directo (0 saltos)
     val mute: Boolean = false, // rol CLIENT_MUTE: no repite, no aporta cobertura
 )
 
 /**
  * ¿Es del grupo? Lo oímos por el canal privado (índice 0) después de armar el grupo.
- * El resto de los nodos solo sirven de repetidores.
+ * El resto de los nodos solo sirven de repetidores. El canal tiene que estar probado
+ * (ver [channelProof] y [MeshViewModel.upsert]): un 0 sin prueba no cuenta.
  */
 fun isGroupMember(n: MeshNode, me: Int?, hasGroup: Boolean, since: Long): Boolean =
     n.num == me || (hasGroup && n.channel == 0 && n.lastHeard > 0 && n.lastHeard >= since)
+
+/**
+ * Canal que un paquete prueba para su emisor, o null si no prueba nada. Dos casos traen
+ * channel = 0 sin ser del canal privado:
+ * - DM cifrado con PKI: viaja con hash 0 y queda en 0 al descifrarlo (nodo ajeno que nos escribe).
+ * - Replay de la NodeDB al conectar (posición/telemetría, sin rx_rssi): repite el canal guardado,
+ *   que el firmware solo asigna al recibir un NodeInfo; sin NodeInfo queda en 0 por defecto.
+ * Todo paquete recibido de verdad por radio trae rx_rssi.
+ */
+private fun channelProof(p: MeshPacket): Int? =
+    if (p.hasDecoded() && !p.pkiEncrypted && p.hasRxRssi()) p.channel else null
 
 sealed interface ApplyState {
     data object Idle : ApplyState
@@ -773,9 +785,10 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         // Saltos: hop_start - hop_limit. hop_start == 0 = firmware viejo o desconocido.
         val hops = if (p.hopStart != 0 && p.hopStart >= p.hopLimit) p.hopStart - p.hopLimit else null
         val direct = hops == 0
+        val channel = channelProof(p)
         _nodes.update { map ->
             val old = map[from] ?: MeshNode(
-                from, "!%08x".format(from), "", "", 0, 0f, null, null, null, null, p.channel,
+                from, "!%08x".format(from), "", "", 0, 0f, null, null, null, null, channel,
             )
             map + (from to old.copy(
                 lastHeard = t,
@@ -783,7 +796,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 // SNR/RSSI de un paquete repetido son del repetidor, no del nodo: solo si llegó directo.
                 snr = if (direct && p.rxSnr != 0f) p.rxSnr else old.snr,
                 rssi = if (direct && p.hasRxRssi()) p.rxRssi else old.rssi,
-                channel = p.channel,
+                channel = channel ?: old.channel,
                 longName = user?.longName?.ifEmpty { null } ?: old.longName,
                 shortName = user?.shortName?.ifEmpty { null } ?: old.shortName,
                 id = user?.id?.ifEmpty { null } ?: old.id,
@@ -799,7 +812,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         val from = if (p.from == 0) _myNodeNum.value ?: return else p.from
         _nodes.update { map ->
             val old = map[from] ?: MeshNode(
-                from, "!%08x".format(from), "", "", 0, 0f, null, null, null, null, p.channel,
+                from, "!%08x".format(from), "", "", 0, 0f, null, null, null, null, channelProof(p),
             )
             map + (from to old.copy(lat = pos.latitudeI / 1e7, lon = pos.longitudeI / 1e7))
         }
@@ -824,7 +837,9 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             battery = if (n.deviceMetrics.hasBatteryLevel()) n.deviceMetrics.batteryLevel else null,
             lat = if (n.position.hasLatitudeI()) n.position.latitudeI / 1e7 else null,
             lon = if (n.position.hasLongitudeI()) n.position.longitudeI / 1e7 else null,
-            channel = n.channel,
+            // La NodeDB asigna el canal solo al recibir un NodeInfo (updateUser): sin user queda en 0
+            // por defecto, aunque lo hayamos oído por el público. Ese 0 no prueba nada.
+            channel = if (n.hasUser()) n.channel else _nodes.value[n.num]?.channel,
             mute = n.user.role == Config.DeviceConfig.Role.CLIENT_MUTE,
         )
         _nodes.update { it + (n.num to node) }
