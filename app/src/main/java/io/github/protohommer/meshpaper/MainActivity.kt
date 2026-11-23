@@ -343,8 +343,6 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
             // Vidrio que se desvanece hacia abajo: arriba desenfoca el mapa, abajo ya no.
             .then(
                 if (haze != null) Modifier.hazeEffect(haze, GlassStyle) {
-                    @OptIn(dev.chrisbanes.haze.ExperimentalHazeApi::class)
-                    inputScale = dev.chrisbanes.haze.HazeInputScale.Fixed(0.33f)
                     mask = Brush.verticalGradient(0f to Color.Black, 0.6f to Color.Black, 1f to Color.Transparent)
                 } else Modifier
             )
@@ -415,10 +413,7 @@ private fun NavBar(tab: Tab, unread: Int, onSelect: (Tab) -> Unit, modifier: Mod
     Column(
         modifier.fillMaxWidth()
             .then(
-                if (haze != null) Modifier.hazeEffect(haze, GlassStyle) {
-                    @OptIn(dev.chrisbanes.haze.ExperimentalHazeApi::class)
-                    inputScale = dev.chrisbanes.haze.HazeInputScale.Fixed(0.33f)
-                } else Modifier
+                if (haze != null) Modifier.hazeEffect(haze, GlassStyle) else Modifier
             )
             .background(HudSurface.copy(alpha = if (haze != null) 0.35f else 0.96f))
             .windowInsetsPadding(WindowInsets.navigationBars),

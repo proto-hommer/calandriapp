@@ -92,12 +92,16 @@ fun Tone.color(): Color = when (this) {
  */
 val LocalHaze = staticCompositionLocalOf<HazeState?> { null }
 
-/** Vidrio esmerilado oscuro: desenfoque fuerte, tinte del fondo a media opacidad y algo de grano. */
+/**
+ * Vidrio esmerilado oscuro: desenfoque fuerte y tinte del fondo a media opacidad. Sin grano y a
+ * resolución completa: con grano y la entrada a 1/3 (para ahorrar al arrastrar) se veía pixelado,
+ * y desde que el desenfoque se apaga mientras se mueve el mapa ese ahorro no hace falta.
+ */
 internal val GlassStyle = HazeStyle(
     backgroundColor = HudBg,
     tint = HazeTint(HudBg.copy(alpha = 0.42f)),
     blurRadius = 18.dp,
-    noiseFactor = 0.07f,
+    noiseFactor = 0f,
     // Sin desenfoque (Android 11 o anterior, o el mapa moviéndose): un velo oscuro que se lea igual.
     fallbackTint = HazeTint(HudBg.copy(alpha = 0.74f)),
 )
@@ -131,7 +135,7 @@ fun Modifier.glass(shape: Shape, accent: Color = HudCyan, blur: Boolean = true, 
         .then(if (glow) Modifier.neonGlow(accent.copy(alpha = 0.55f), shape, 7.dp) else Modifier)
         .clip(shape)
         .then(
-            if (haze != null) Modifier.hazeEffect(haze, GlassStyle) { inputScale = HazeInputScale.Fixed(0.33f) }.background(HudSurface.copy(alpha = 0.18f))
+            if (haze != null) Modifier.hazeEffect(haze, GlassStyle).background(HudSurface.copy(alpha = 0.18f))
             else Modifier.background(HudSurface.copy(alpha = if (blur) 0.62f else 0.55f))
         )
         .background(
