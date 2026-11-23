@@ -600,11 +600,14 @@ private fun NodeCard(
             }
             tracks[n.num]?.size?.takeIf { it > 1 }?.let { add("rastro $it pts") }
             groundM?.let { add("terreno ${it.roundToInt()} m") }
-            n.hw?.takeIf { it != org.meshtastic.proto.MeshProtos.HardwareModel.UNSET }?.let { add(io.github.protohommer.meshpaper.mesh.Hardware.name(it)) }
         }
         if (extra.isNotEmpty()) {
             Spacer(Modifier.padding(2.dp))
-            HudLabel(extra.joinToString("  ·  "), color = MaterialTheme.colorScheme.onSurface, maxLines = 2)
+            HudLabel(extra.joinToString("  ·  "), color = MaterialTheme.colorScheme.onSurface, maxLines = 3)
+        }
+        // El modelo en su propia línea: con RSSI, distancia y rastro no entraba y se cortaba.
+        n.hw?.takeIf { it != org.meshtastic.proto.MeshProtos.HardwareModel.UNSET }?.let {
+            HudLabel(io.github.protohommer.meshpaper.mesh.Hardware.name(it), maxLines = 2)
         }
         val est = antenna?.let { Range.estimate(it, preset) }
         if (antenna != null && est != null) {
