@@ -61,6 +61,8 @@ data class ChatMsg(
      * entregados, los del ACK que volvió del destinatario. null = no se sabe (firmware viejo).
      */
     val hops: Int? = null,
+    /** Id del paquete al que responde (Data.reply_id), o null si no es una respuesta. */
+    val replyTo: Int? = null,
 )
 
 /** Saltos de un paquete según su hop_start y hop_limit (null si el firmware no manda hop_start). */
@@ -121,6 +123,7 @@ class MessageStore(private val dir: File) {
         (if (m.status == MsgStatus.SENDING) "sin confirmación" else m.error)?.let { put("error", it) }
         put("attempt", m.attempt)
         m.hops?.let { put("hops", it) }
+        m.replyTo?.let { put("reply", it) }
     }
 
     private fun fromJson(o: JSONObject): ChatMsg? = try {
@@ -130,6 +133,7 @@ class MessageStore(private val dir: File) {
             mine = o.getBoolean("mine"), status = MsgStatus.valueOf(o.getString("status")),
             error = o.optString("error").ifEmpty { null }, attempt = o.optInt("attempt", 1),
             hops = if (o.has("hops")) o.getInt("hops") else null,
+            replyTo = if (o.has("reply")) o.getInt("reply") else null,
         )
     } catch (e: Exception) {
         null

@@ -769,7 +769,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Manda texto a una conversación. Devuelve null si salió, o el motivo si no se puede. */
-    fun sendText(conv: String, raw: String): String? {
+    fun sendText(conv: String, raw: String, replyTo: Int? = null): String? {
         val text = raw.trim()
         if (text.isEmpty()) return "mensaje vacío"
         if (text.toByteArray(Charsets.UTF_8).size > MAX_TEXT_BYTES) return "mensaje demasiado largo"
@@ -783,6 +783,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         val m = ChatMsg(
             conv = conv, id = newPacketId(), from = me, to = to, channel = ch, text = text,
             time = System.currentTimeMillis() / 1000, mine = true, status = MsgStatus.SENDING,
+            replyTo = replyTo,
         )
         addMessage(m)
         transmit(m)
@@ -812,6 +813,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 MeshProtos.Data.newBuilder()
                     .setPortnum(PortNum.TEXT_MESSAGE_APP)
                     .setPayload(com.google.protobuf.ByteString.copyFromUtf8(m.text))
+                    .apply { m.replyTo?.let { setReplyId(it) } }
             )
             .build()
         viewModelScope.launch {
@@ -887,6 +889,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 text = p.decoded.payload.toStringUtf8(), time = t, mine = mine,
                 status = if (mine) MsgStatus.RELAYED else MsgStatus.RECEIVED,
                 hops = if (mine) null else hopsOf(p.hopStart, p.hopLimit),
+                replyTo = p.decoded.replyId.takeIf { it != 0 },
             )
         )
         if (!mine) _messages.value.lastOrNull { it.id == p.id && it.from == p.from }?.let(::notifyIncoming)

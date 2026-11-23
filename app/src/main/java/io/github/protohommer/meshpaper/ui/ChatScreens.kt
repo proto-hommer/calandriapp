@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.foundation.combinedClickable
+import kotlinx.coroutines.launch
 import io.github.protohommer.meshpaper.ui.theme.HudCyan
 import io.github.protohommer.meshpaper.ui.theme.SigFair
 import androidx.compose.foundation.layout.Arrangement
@@ -111,6 +113,7 @@ fun ChatsScreen(vm: MeshViewModel, onOpen: (String) -> Unit) {
             }
         }
         HudLabel("Mensaje directo: tocá un nodo en el mapa o en NODOS", Modifier.padding(vertical = 10.dp))
+        HudLabel("Para responder un mensaje, mantenelo apretado", Modifier.padding(bottom = 10.dp))
     }
 }
 
@@ -123,6 +126,11 @@ fun ChatScreen(vm: MeshViewModel, conv: String, onBack: () -> Unit) {
     var text by rememberSaveable(conv) { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     val isChannel = conv.startsWith("ch:")
+    var replying by remember(conv) { mutableStateOf<ChatMsg?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    fun nameOf(m: ChatMsg): String = if (m.mine) "Vos" else nodes[m.from]?.let { n ->
+        n.shortName.ifEmpty { null } ?: n.longName.ifEmpty { null }
+    } ?: "!%08x".format(m.from)
 
     LaunchedEffect(msgs.size) {
         vm.markRead(conv)
@@ -136,10 +144,32 @@ fun ChatScreen(vm: MeshViewModel, conv: String, onBack: () -> Unit) {
                 val sender = if (m.mine) null else nodes[m.from]?.let { n ->
                     n.shortName.ifEmpty { null } ?: n.longName.ifEmpty { null }
                 } ?: "!%08x".format(m.from)
-                Bubble(m, if (isChannel) sender else null, onRetry = { vm.retry(m) })
+                val quoted = m.replyTo?.let { r -> msgs.firstOrNull { it.id == r } }
+                Bubble(
+                    m, if (isChannel) sender else null, onRetry = { vm.retry(m) },
+                    onReply = { replying = m },
+                    quote = m.replyTo?.let { quoted?.let { q -> nameOf(q) to q.text } ?: (null to "un mensaje que no está acá") },
+                    onQuote = quoted?.let { q -> { scope.launch { list.animateScrollToItem(msgs.indexOf(q).coerceAtLeast(0)) } } },
+                )
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        replying?.let { r ->
+            Row(
+                Modifier.fillMaxWidth().padding(top = 6.dp)
+                    .background(HudCyan.copy(alpha = 0.08f), CutCornerShape(topStart = 6.dp, bottomEnd = 6.dp))
+                    .padding(start = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.width(3.dp).height(30.dp).background(HudCyan))
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Respondiendo a ${nameOf(r)}", style = MaterialTheme.typography.labelMedium, color = HudCyan)
+                    Text(r.text, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                TextButton(onClick = { replying = null }) { Text("✕") }
+            }
+        }
         val bytes = text.trim().toByteArray(Charsets.UTF_8).size
         Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
@@ -156,8 +186,8 @@ fun ChatScreen(vm: MeshViewModel, conv: String, onBack: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             HudButton(
                 onClick = {
-                    val why = vm.sendText(conv, text)
-                    if (why == null) text = "" else error = why
+                    val why = vm.sendText(conv, text, replying?.id)
+                    if (why == null) { text = ""; replying = null } else error = why
                 },
                 enabled = text.isNotBlank() && bytes <= MAX_TEXT_BYTES,
             ) { Text("ENVIAR") }
@@ -168,7 +198,11 @@ fun ChatScreen(vm: MeshViewModel, conv: String, onBack: () -> Unit) {
 private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
 
 @Composable
-private fun Bubble(m: ChatMsg, sender: String?, onRetry: () -> Unit) {
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun Bubble(
+    m: ChatMsg, sender: String?, onRetry: () -> Unit,
+    onReply: () -> Unit, quote: Pair<String?, String>?, onQuote: (() -> Unit)?,
+) {
     val bg = if (m.mine) HudCyan.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant
     val fg = MaterialTheme.colorScheme.onSurface
     val edge = when (m.status) {
@@ -181,10 +215,30 @@ private fun Bubble(m: ChatMsg, sender: String?, onRetry: () -> Unit) {
             Modifier.widthIn(max = 300.dp)
                 .background(bg, shape)
                 .border(1.dp, edge, shape)
-                .then(if (m.status == MsgStatus.FAILED) Modifier.clickable(onClick = onRetry) else Modifier)
+                // Toque: reintentar si falló. Toque largo: responder.
+                .combinedClickable(
+                    onClick = { if (m.status == MsgStatus.FAILED) onRetry() },
+                    onLongClick = onReply,
+                )
                 .padding(horizontal = 10.dp, vertical = 6.dp),
         ) {
             sender?.let { Text(it, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = HudCyan) }
+            quote?.let { (who, what) ->
+                // Cita del mensaje al que responde; tocarla lleva hasta él.
+                Row(
+                    Modifier.padding(vertical = 3.dp)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
+                        .then(if (onQuote != null) Modifier.clickable(onClick = onQuote) else Modifier)
+                        .padding(end = 6.dp),
+                ) {
+                    Box(Modifier.width(2.dp).height(32.dp).background(HudCyan.copy(alpha = 0.7f)))
+                    Spacer(Modifier.width(6.dp))
+                    Column {
+                        Text("↩ " + (who ?: "Respuesta"), style = MaterialTheme.typography.labelSmall, color = HudCyan)
+                        Text(what, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, color = fg.copy(alpha = 0.75f))
+                    }
+                }
+            }
             Text(m.text, color = fg)
             val status = when (m.status) {
                 MsgStatus.RECEIVED -> ""
