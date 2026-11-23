@@ -44,6 +44,7 @@ import org.meshtastic.proto.AppOnlyProtos.ChannelSet
 import org.meshtastic.proto.ChannelProtos.Channel
 import org.meshtastic.proto.ChannelProtos.ChannelSettings
 import org.meshtastic.proto.ConfigProtos.Config
+import org.meshtastic.proto.ConfigProtos.Config.DeviceConfig
 import org.meshtastic.proto.ConfigProtos.Config.LoRaConfig
 import org.meshtastic.proto.ConfigProtos.Config.PositionConfig
 import org.meshtastic.proto.MeshProtos
@@ -94,6 +95,21 @@ fun isGroupMember(n: MeshNode, me: Int?, hasGroup: Boolean, since: Long): Boolea
  */
 private fun channelProof(p: MeshPacket): Int? =
     if (p.hasDecoded() && !p.pkiEncrypted && p.hasRxRssi()) p.channel else null
+
+/** Ajustes del nodo conectado que cambiaron. null / vacío = no tocar. */
+data class NodeEdits(
+    val owner: MeshProtos.User? = null,
+    val device: DeviceConfig? = null,
+    val position: PositionConfig? = null,
+    val fixed: MeshProtos.Position? = null,   // poner (o mover) la posición fija
+    val removeFixed: Boolean = false,         // volver a la posición del celular
+    val lora: LoRaConfig? = null,
+    val channels: List<Channel> = emptyList(),
+) {
+    val isEmpty: Boolean
+        get() = owner == null && device == null && position == null && fixed == null && !removeFixed &&
+            lora == null && channels.isEmpty()
+}
 
 sealed interface ApplyState {
     data object Idle : ApplyState
@@ -170,6 +186,19 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- Posición del teléfono ----------
 
     private val _position = MutableStateFlow<PositionConfig?>(null)
+    val positionConfig: StateFlow<PositionConfig?> = _position
+
+    // ---------- Ajustes del nodo conectado ----------
+
+    private val _device = MutableStateFlow<DeviceConfig?>(null)
+    val deviceConfig: StateFlow<DeviceConfig?> = _device
+
+    /** El User del nodo conectado, tal como lo manda en su NodeInfo. */
+    private val _owner = MutableStateFlow<MeshProtos.User?>(null)
+    val owner: StateFlow<MeshProtos.User?> = _owner
+
+    private val _metadata = MutableStateFlow<MeshProtos.DeviceMetadata?>(null)
+    val metadata: StateFlow<MeshProtos.DeviceMetadata?> = _metadata
 
     /** Compartir la posición del celular con el grupo (a través del nodo). */
     private val _sharePosition = MutableStateFlow(prefs.getBoolean("sharePosition", true))
@@ -340,6 +369,9 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         _channels.value = emptyMap()
         _lora.value = null
         _position.value = null
+        _device.value = null
+        _owner.value = null
+        _metadata.value = null
         _lastPosSent.value = 0L
         lastSentFix = null
         if (lastLoaded != device.address) {
@@ -426,6 +458,32 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putStringSet(groupKey(me), groupNums.map { "%08x".format(it) }.toSet()).apply()
     }
 
+    /**
+     * Guarda los ajustes que cambiaron en el nodo conectado, en una sola transacción.
+     * Orden: el dueño antes que el rol (un rol nuevo instala defaults, p. ej. is_unmessagable,
+     * que un set_owner posterior pisaría) y el rol antes que la posición (para que lo que
+     * eligió el usuario le gane a los defaults del rol).
+     */
+    fun saveNodeSettings(e: NodeEdits) = runEdit("Guardando los ajustes…", "Ajustes guardados.") { me ->
+        fun cfg(c: Config.Builder) = AdminMessage.newBuilder().setSetConfig(c).build()
+        e.owner?.let { sendAdmin(me, AdminMessage.newBuilder().setSetOwner(it).build()) }
+        e.device?.let { sendAdmin(me, cfg(Config.newBuilder().setDevice(it))) }
+        if (e.removeFixed) sendAdmin(me, AdminMessage.newBuilder().setRemoveFixedPosition(true).build())
+        e.position?.let { sendAdmin(me, cfg(Config.newBuilder().setPosition(it))) }
+        e.fixed?.let { sendAdmin(me, AdminMessage.newBuilder().setSetFixedPosition(it).build()) }
+        e.lora?.let { sendAdmin(me, cfg(Config.newBuilder().setLora(it))) }
+        for (ch in e.channels) sendAdmin(me, AdminMessage.newBuilder().setSetChannel(ch).build())
+    }
+
+    fun rebootNode() = runEdit("Reiniciando el nodo…", "Nodo reiniciado.", transaction = false) { me ->
+        sendAdmin(me, AdminMessage.newBuilder().setRebootSeconds(2).build())
+    }
+
+    /** Borra la lista de nodos conocidos (guarda los favoritos) y reinicia. Sirve para limpiar fantasmas. */
+    fun forgetNodes() = runEdit("Borrando la lista de nodos…", "Lista de nodos borrada.", transaction = false) { me ->
+        sendAdmin(me, AdminMessage.newBuilder().setNodedbReset(true).build())
+    }
+
     /** ¿El nodo ya tiene la config de posición para rastreo? (null = todavía no la leímos) */
     fun trackingConfigured(): Boolean? = _position.value?.let { it == trackingPosition(it) }
 
@@ -439,7 +497,17 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
      * Transacción de edición: begin_edit → [escrituras] → commit_edit. Al hacer commit el nodo
      * guarda, apaga el BLE y puede reiniciarse: reconectamos solos.
      */
-    private fun runEdit(firstStep: String, doneText: String, writes: suspend (me: Int) -> Unit) {
+    /**
+     * Manda mensajes de admin al nodo local y espera a que reinicie para reconectar.
+     * Con [transaction], van dentro de begin_edit/commit_edit (el commit guarda y reinicia);
+     * sin ella, los mensajes mismos tienen que reiniciar el nodo (reboot, nodedb_reset).
+     */
+    private fun runEdit(
+        firstStep: String,
+        doneText: String,
+        transaction: Boolean = true,
+        writes: suspend (me: Int) -> Unit,
+    ) {
         val me = _myNodeNum.value ?: run {
             _apply.value = ApplyState.Failed("todavía no sé cuál es el nodo local")
             return
@@ -449,9 +517,9 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         applyJob = viewModelScope.launch {
             try {
                 _apply.value = ApplyState.Working(firstStep)
-                sendAdmin(me, AdminMessage.newBuilder().setBeginEditSettings(true).build())
+                if (transaction) sendAdmin(me, AdminMessage.newBuilder().setBeginEditSettings(true).build())
                 writes(me)
-                sendAdmin(me, AdminMessage.newBuilder().setCommitEditSettings(true).build())
+                if (transaction) sendAdmin(me, AdminMessage.newBuilder().setCommitEditSettings(true).build())
 
                 _apply.value = ApplyState.Working("El nodo está guardando y reiniciando…")
                 // Esperar a que el nodo corte y volver a conectar.
@@ -770,10 +838,12 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             }
             FromRadio.PayloadVariantCase.CONFIG -> when (msg.config.payloadVariantCase) {
                 Config.PayloadVariantCase.LORA -> _lora.value = msg.config.lora
+                Config.PayloadVariantCase.DEVICE -> _device.value = msg.config.device
                 Config.PayloadVariantCase.POSITION -> _position.value = msg.config.position
                 else -> Unit
             }
             FromRadio.PayloadVariantCase.PACKET -> onPacket(msg.packet)
+            FromRadio.PayloadVariantCase.METADATA -> _metadata.value = msg.metadata
             else -> Unit
         }
     }
@@ -854,6 +924,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun upsert(n: NodeInfo) {
+        if (n.num == _myNodeNum.value && n.hasUser()) _owner.value = n.user
         if (n.hasUser() && n.channel == 0 && n.num != _myNodeNum.value) markGroup(n.num)
         val node = MeshNode(
             num = n.num,

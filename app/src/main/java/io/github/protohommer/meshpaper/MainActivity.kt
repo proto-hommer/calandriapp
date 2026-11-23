@@ -76,6 +76,7 @@ import io.github.protohommer.meshpaper.ui.HudPanel
 import io.github.protohommer.meshpaper.ui.HudStat
 import io.github.protohommer.meshpaper.ui.HudValue
 import io.github.protohommer.meshpaper.ui.MapScreen
+import io.github.protohommer.meshpaper.ui.SettingsScreen
 import io.github.protohommer.meshpaper.ui.StatusDot
 import io.github.protohommer.meshpaper.ui.agoText
 import io.github.protohommer.meshpaper.ui.color
@@ -112,7 +113,9 @@ private val blePermissions: Array<String> =
         arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
-private enum class Tab(val label: String) { MAP("Mapa"), NODES("Nodos"), CHATS("Mensajes"), GROUP("Grupo") }
+private enum class Tab(val label: String) {
+    MAP("Mapa"), NODES("Nodos"), CHATS("Mensajes"), GROUP("Grupo"), SETTINGS("Ajustes")
+}
 
 @Composable
 fun App(vm: MeshViewModel = viewModel()) {
@@ -171,6 +174,7 @@ fun App(vm: MeshViewModel = viewModel()) {
                                 } else ChatsScreen(vm, onOpen = { chat = it })
                                 Tab.GROUP -> if (connected) GroupScreen(vm, onBack = { tabName = Tab.MAP.name })
                                 else Unit
+                                Tab.SETTINGS -> if (connected) SettingsScreen(vm) else Unit
                                 Tab.MAP -> Unit
                             }
                         }
