@@ -12,7 +12,7 @@ CalandriApp
 **Una app Android chica y propia para usar nodos Meshtastic en el campo: mensajes, mapa offline y
 seguimiento de un grupo cerrado, sin cuentas, sin nube y sin internet.**
 
-Versión **1.0.0** | Android 8 o más nuevo | *powered by Meshtastic®*
+Versión **1.0.1** | Android 8 o más nuevo | *powered by Meshtastic®*
 
 [![Descargar APK](https://img.shields.io/github/v/release/proto-hommer/calandriapp?label=descargar%20APK&color=2ea44f)](https://github.com/proto-hommer/calandriapp/releases/latest)
 
@@ -82,7 +82,7 @@ sin cuentas, sin nube ni servicios de Google: todo queda en el teléfono.
 Descargar e instalar
 --------------------
 
-1. Bajá el `CalandriApp-1.0.0.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
+1. Bajá el `CalandriApp-1.0.1.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
 2. Abrilo en el celular. Android va a pedir permiso para **instalar apps de origen desconocido**:
    dáselo al navegador o al gestor de archivos con el que lo abriste.
 3. Abrí CalandriApp, dale los permisos de **Bluetooth** y **ubicación**, tocá **BUSCAR** y
@@ -90,6 +90,11 @@ Descargar e instalar
 4. En **Grupo**, creá un grupo nuevo o escaneá el QR de alguien que ya lo tenga.
 
 La próxima vez se conecta sola al último nodo.
+
+**Si no aparece el nodo:** en Android 8 a 11 hay que tener **prendida la ubicación** del teléfono para
+buscar por Bluetooth (la app avisa). Y el nodo no se anuncia mientras está conectado a otra app, como
+la oficial de Meshtastic: cerrala o desconectalo de ahí. Si ya lo emparejaste desde los ajustes de
+Android, aparece igual en la lista con el botón CONECTAR.
 
 ### Con qué nodos anda
 
