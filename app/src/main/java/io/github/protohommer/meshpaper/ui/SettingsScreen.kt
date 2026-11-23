@@ -519,6 +519,7 @@ private val LICENSES = listOf(
     "Kotlin y kotlinx.coroutines" to "Apache-2.0",
     "Space Grotesk (logo)" to "OFL-1.1",
     "Datos de OpenStreetMap" to "ODbL",
+    "Relieve SRTM (USGS, vía Terrain Tiles)" to "Dominio público",
 )
 
 @Composable

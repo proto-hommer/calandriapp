@@ -50,6 +50,9 @@ trabajo de campo con un grupo cerrado:
   - los fijos del grupo (router, base), en azul;
   - los ajenos, con el nombre en violeta y un anillo con la señal.
 - **Alcance estimado**: con un toque largo sobre un nodo, si le cargaste los datos de la antena.
+- **Perfil de terreno** entre vos y cualquier nodo: el corte del relieve, la línea de vista, la zona
+  de Fresnel y si el enlace **pasa, está al límite o no pasa**, con el margen en dB. Usa el relieve
+  del SRTM (≈30 m), que se baja por zonas y queda guardado para usarlo sin señal.
 - **Grupo cerrado en dos toques**: crea un canal privado con clave AES-256 y lo comparte por QR
   (el formato estándar de Meshtastic, así que sirve también con la app oficial).
 - **Posición del celular** al grupo a través del nodo, para nodos sin GPS.
@@ -167,7 +170,7 @@ Privacidad
 - Los mensajes, rastros, waypoints y datos de antenas quedan **solo en el teléfono**.
 - La ubicación del celular se usa para el mapa y, si lo dejás prendido, para pasársela al nodo, que
   la manda **cifrada por el canal privado del grupo**.
-- Lo único que sale a internet son los tiles del mapa, si tenés "usar internet" prendido.
+- Lo único que sale a internet son los tiles del mapa y del relieve, si tenés "usar internet" prendido.
 
 * * *
 
@@ -176,6 +179,8 @@ Lo que viene
 
 - Conexión por **WiFi** y por **USB**, para nodos sin Bluetooth.
 - Paleta de la marca (cobre y verde) en toda la interfaz.
+- Alcance según el terreno: en vez de un círculo, la zona que cubre un nodo y la que queda en
+  sombra detrás de los cerros.
 
 * * *
 
@@ -204,6 +209,8 @@ Créditos, marcas y licencias
   ni respaldada por el proyecto Meshtastic**. Sin garantía: se usa bajo tu propio riesgo.
 - Datos del mapa © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright),
   disponibles bajo la licencia ODbL.
+- Relieve: SRTM, cortesía del U.S. Geological Survey, a través de
+  [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (AWS Open Data, Mapzen / Tilezen).
 - Usa los [protobufs de Meshtastic](https://github.com/meshtastic/protobufs) (GPL-3.0),
   [osmdroid](https://github.com/osmdroid/osmdroid), [ZXing](https://github.com/zxing/zxing) y
   [zxing-android-embedded](https://github.com/journeyapps/zxing-android-embedded) (Apache-2.0),

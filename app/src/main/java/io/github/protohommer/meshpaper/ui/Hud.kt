@@ -107,10 +107,10 @@ fun HudPanel(
 
 /** Rótulo chico, monoespaciado y en mayúsculas. */
 @Composable
-fun HudLabel(text: String, modifier: Modifier = Modifier, color: Color = HudTextDim) {
+fun HudLabel(text: String, modifier: Modifier = Modifier, color: Color = HudTextDim, maxLines: Int = 1) {
     Text(
         text.uppercase(), modifier, style = MaterialTheme.typography.labelSmall, color = color,
-        maxLines = 1, overflow = TextOverflow.Ellipsis,
+        maxLines = maxLines, overflow = TextOverflow.Ellipsis,
     )
 }
 
