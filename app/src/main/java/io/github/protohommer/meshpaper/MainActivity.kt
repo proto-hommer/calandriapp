@@ -17,6 +17,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.asPaddingValues
@@ -262,7 +263,11 @@ fun App(vm: MeshViewModel) {
                         else -> Column(Modifier.fillMaxSize().padding(top = topPad)) {
                             if (!connected) LinkPanel(vm, link, Modifier.padding(12.dp))
                             when (tab) {
-                                Tab.NODES -> NodesScreen(vm, onAskLocation = { launcher.launch(locationPermissions) }, onNode = { openChat(Conv.Direct(it).key) })
+                                Tab.NODES -> NodesScreen(
+                                    vm, onAskLocation = { launcher.launch(locationPermissions) },
+                                    onNode = { openChat(Conv.Direct(it).key) },
+                                    onShowOnMap = { vm.focusNode.value = it; chat = null; tabName = Tab.MAP.name },
+                                )
                                 Tab.CHATS -> if (chat != null) {
                                     Box(Modifier.navigationBarsPadding()) { ChatScreen(vm, chat!!, onBack = { chat = null }) }
                                 } else ChatsScreen(vm, onOpen = { chat = it })
@@ -590,7 +595,7 @@ private fun CenterPanel(title: String, content: @Composable () -> Unit) {
 // ---------- Nodos ----------
 
 @Composable
-private fun NodesScreen(vm: MeshViewModel, onAskLocation: () -> Unit, onNode: (Int) -> Unit) {
+private fun NodesScreen(vm: MeshViewModel, onAskLocation: () -> Unit, onNode: (Int) -> Unit, onShowOnMap: (Int) -> Unit) {
     val nodes by vm.nodes.collectAsState()
     val me by vm.myNodeNum.collectAsState()
     val channels by vm.channels.collectAsState()
@@ -617,10 +622,10 @@ private fun NodesScreen(vm: MeshViewModel, onAskLocation: () -> Unit, onNode: (I
             HudLabel(if (hasGroup) "Todavía no se oyó a nadie del grupo" else "Sin grupo privado: armalo en GRUPO")
             Spacer(Modifier.height(8.dp))
         }
-        items(members, key = { it.num }) { n -> NodeRow(n, me, true, fix, now, onNode) }
+        items(members, key = { it.num }) { n -> NodeRow(n, me, true, fix, now, onNode, onShowOnMap) }
         if (others.isNotEmpty()) {
             item { Spacer(Modifier.height(12.dp)); SectionTitle("Repetidores y otros · ${others.size}", MaterialTheme.colorScheme.tertiary) }
-            items(others, key = { it.num }) { n -> NodeRow(n, me, false, fix, now, onNode) }
+            items(others, key = { it.num }) { n -> NodeRow(n, me, false, fix, now, onNode, onShowOnMap) }
         }
         item {
             Spacer(Modifier.height(16.dp))
@@ -641,13 +646,25 @@ private fun SectionTitle(text: String, color: Color) {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun NodeRow(n: MeshNode, me: Int?, member: Boolean, fix: Location?, now: Long, onClick: (Int) -> Unit) {
+private fun NodeRow(
+    n: MeshNode, me: Int?, member: Boolean, fix: Location?, now: Long,
+    onClick: (Int) -> Unit, onShowOnMap: (Int) -> Unit,
+) {
     val tone = Signal.tone(n, me, member, now)
     val lost = n.num != me && Signal.isLost(n, now)
-    val tap = if (n.num != me) Modifier.clickable { onClick(n.num) } else Modifier
+    // Toque: mensaje directo. Toque largo: menú (ver en el mapa, mensaje).
+    var menu by remember { mutableStateOf(false) }
+    val onMap = (n.lat != null && n.lon != null) || (n.num == me && fix != null)
+    Box {
     Row(
-        Modifier.fillMaxWidth().then(tap).padding(vertical = 10.dp),
+        Modifier.fillMaxWidth()
+            .combinedClickable(
+                onClick = { if (n.num != me) onClick(n.num) else menu = true },
+                onLongClick = { menu = true },
+            )
+            .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -683,6 +700,18 @@ private fun NodeRow(n: MeshNode, me: Int?, member: Boolean, fix: Location?, now:
             // El punto es la señal (saltos); el color del nombre corto dice qué es el nodo.
             StatusDot(Signal.linkTone(tone, n, now).color().copy(alpha = if (lost) 0.4f else 1f), 10.dp)
         }
+    }
+    androidx.compose.material3.DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+        androidx.compose.material3.DropdownMenuItem(
+            text = { Text(if (onMap) "Ver en el mapa" else "Ver en el mapa (no mandó su posición)") },
+            enabled = onMap,
+            onClick = { menu = false; onShowOnMap(n.num) },
+        )
+        if (n.num != me) androidx.compose.material3.DropdownMenuItem(
+            text = { Text("Mensaje directo") },
+            onClick = { menu = false; onClick(n.num) },
+        )
+    }
     }
     HorizontalDivider(color = HudLine)
 }

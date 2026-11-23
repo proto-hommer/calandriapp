@@ -305,6 +305,9 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     /** Conversación a abrir pedida desde una notificación. */
     val openRequest = MutableStateFlow<String?>(null)
 
+    /** Nodo a mostrar en el mapa, pedido desde la lista de nodos. */
+    val focusNode = MutableStateFlow<Int?>(null)
+
     /** Mensajes sin leer por conversación desde la última notificación (para apilarlos). */
     private val notified = mutableMapOf<String, MutableList<Pair<String, String>>>()
 

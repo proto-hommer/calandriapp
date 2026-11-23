@@ -127,6 +127,9 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     val mapPrefs = remember { context.getSharedPreferences("map", Context.MODE_PRIVATE) }
     var showLegend by remember { mutableStateOf(mapPrefs.getBoolean("legend", true)) }
     var selectedNode by remember { mutableStateOf<Int?>(null) }
+    // Nodo pedido desde la lista ("Ver en el mapa"): se dibuja aunque esté oculto (ajeno sin oír
+    // o REP apagado) mientras su ficha siga abierta.
+    var pinned by remember { mutableStateOf<Int?>(null) }
     var stack by remember { mutableStateOf<List<Int>>(emptyList()) } // nodos encimados con el elegido
     var selectedWpt by remember { mutableStateOf<Int?>(null) }
     var newWptAt by remember { mutableStateOf<GeoPoint?>(null) }
@@ -202,6 +205,17 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         selectedNode = num; selectedWpt = null; stack = overlapping(num)
     }
 
+    val focus by vm.focusNode.collectAsState()
+    LaunchedEffect(focus) {
+        val num = focus ?: return@LaunchedEffect
+        vm.focusNode.value = null
+        val at = nodeCenter(num) ?: return@LaunchedEffect
+        pinned = num
+        map.controller.setZoom(max(map.zoomLevelDouble, 15.0))
+        map.controller.setCenter(at)
+        selectNode(num)
+    }
+
     /** Toque largo sobre un nodo: si tiene antena cargada, muestra el alcance; si no, pide los datos. */
     fun longPressNode(num: Int) {
         selectNode(num)
@@ -270,8 +284,10 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     // Los ajenos que no se oyen hace más de 30 min no se dibujan (vuelven solos al oírlos de
     // nuevo). Los del grupo y el propio siempre están: de esos importa ver que se perdieron.
     val visibleNodes = nodes.values.filter { n ->
-        n.lat != null && n.lon != null && (showOthers || isMember(n)) &&
-            (n.num == me || isMember(n) || !Signal.isStale(n, now))
+        n.lat != null && n.lon != null && (
+            (n.num == pinned && pinned == selectedNode) ||
+                ((showOthers || isMember(n)) && (n.num == me || isMember(n) || !Signal.isStale(n, now)))
+            )
     }
     val activeWpts = waypoints.values.filter { it.isActive(now) }
 
