@@ -47,6 +47,7 @@ import io.github.protohommer.meshpaper.mesh.ChatMsg
 import io.github.protohommer.meshpaper.mesh.Conv
 import io.github.protohommer.meshpaper.mesh.MAX_TEXT_BYTES
 import io.github.protohommer.meshpaper.mesh.MsgStatus
+import io.github.protohommer.meshpaper.mesh.hopsText
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -189,11 +190,12 @@ private fun Bubble(m: ChatMsg, sender: String?, onRetry: () -> Unit) {
                 MsgStatus.RECEIVED -> ""
                 MsgStatus.SENDING -> if (m.attempt > 1) " · reintentando…" else " · enviando…"
                 MsgStatus.RELAYED -> if (m.to == -1) " · ✓ salió" else " · ✓ repetido"
-                MsgStatus.DELIVERED -> " · ✓✓ entregado"
+                MsgStatus.DELIVERED -> " · ✓✓ entregado" + (m.hops?.let { " (${hopsText(it)})" } ?: "")
                 MsgStatus.FAILED -> " · ✗ ${m.error ?: "falló"} · tocá para reintentar"
             }
+            val hops = if (!m.mine) m.hops?.let { " · ${hopsText(it)}" }.orEmpty() else ""
             Text(
-                timeFmt.format(Date(m.time * 1000)) + status,
+                timeFmt.format(Date(m.time * 1000)) + hops + status,
                 style = MaterialTheme.typography.labelSmall,
                 color = if (m.status == MsgStatus.FAILED) MaterialTheme.colorScheme.error else fg.copy(alpha = 0.7f),
             )

@@ -21,6 +21,7 @@ import io.github.protohommer.meshpaper.mesh.ChatMsg
 import io.github.protohommer.meshpaper.mesh.Conv
 import io.github.protohommer.meshpaper.mesh.Group
 import io.github.protohommer.meshpaper.mesh.Regions
+import io.github.protohommer.meshpaper.mesh.hopsOf
 import io.github.protohommer.meshpaper.mesh.MAX_TEXT_BYTES
 import io.github.protohommer.meshpaper.mesh.MessageStore
 import io.github.protohommer.meshpaper.mesh.MsgStatus
@@ -845,7 +846,10 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             // (oyó que otro lo repitió).
             val delivered = m.to != BROADCAST && p.from == m.to
             ackTimeouts.remove(m.id)?.cancel()
-            replaceMessage(m.id, m.copy(status = if (delivered) MsgStatus.DELIVERED else MsgStatus.RELAYED, error = null))
+            replaceMessage(m.id, m.copy(
+                status = if (delivered) MsgStatus.DELIVERED else MsgStatus.RELAYED, error = null,
+                hops = if (delivered) hopsOf(p.hopStart, p.hopLimit) else m.hops,
+            ))
         } else {
             fail(m.id, routingErrorText(r.errorReason), autoRetry = true)
         }
@@ -882,6 +886,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 conv = conv, id = p.id, from = p.from, to = p.to, channel = p.channel,
                 text = p.decoded.payload.toStringUtf8(), time = t, mine = mine,
                 status = if (mine) MsgStatus.RELAYED else MsgStatus.RECEIVED,
+                hops = if (mine) null else hopsOf(p.hopStart, p.hopLimit),
             )
         )
         if (!mine) _messages.value.lastOrNull { it.id == p.id && it.from == p.from }?.let(::notifyIncoming)

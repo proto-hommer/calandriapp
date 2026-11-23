@@ -56,7 +56,23 @@ data class ChatMsg(
     val status: MsgStatus,
     val error: String? = null,
     val attempt: Int = 1,
+    /**
+     * Saltos (repetidores) que dio: para los recibidos, los del mensaje; para los propios
+     * entregados, los del ACK que volvió del destinatario. null = no se sabe (firmware viejo).
+     */
+    val hops: Int? = null,
 )
+
+/** Saltos de un paquete según su hop_start y hop_limit (null si el firmware no manda hop_start). */
+fun hopsOf(hopStart: Int, hopLimit: Int): Int? =
+    if (hopStart != 0 && hopStart >= hopLimit) hopStart - hopLimit else null
+
+/** "directo", "1 salto", "3 saltos". */
+fun hopsText(h: Int): String = when (h) {
+    0 -> "directo"
+    1 -> "1 salto"
+    else -> "$h saltos"
+}
 
 /** Texto corto en castellano para cada error de ruteo. */
 fun routingErrorText(e: Routing.Error): String = when (e) {
@@ -104,6 +120,7 @@ class MessageStore(private val dir: File) {
         put("status", st.name)
         (if (m.status == MsgStatus.SENDING) "sin confirmación" else m.error)?.let { put("error", it) }
         put("attempt", m.attempt)
+        m.hops?.let { put("hops", it) }
     }
 
     private fun fromJson(o: JSONObject): ChatMsg? = try {
@@ -112,6 +129,7 @@ class MessageStore(private val dir: File) {
             channel = o.getInt("ch"), text = o.getString("text"), time = o.getLong("time"),
             mine = o.getBoolean("mine"), status = MsgStatus.valueOf(o.getString("status")),
             error = o.optString("error").ifEmpty { null }, attempt = o.optInt("attempt", 1),
+            hops = if (o.has("hops")) o.getInt("hops") else null,
         )
     } catch (e: Exception) {
         null
