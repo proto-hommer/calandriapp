@@ -72,6 +72,8 @@ fun SettingsScreen(vm: MeshViewModel, connected: Boolean = true) {
     val pos by vm.positionConfig.collectAsState()
     val lora by vm.lora.collectAsState()
     val channels by vm.channels.collectAsState()
+    val phoneFix by vm.myFix.collectAsState()
+    val here = phoneFix?.let { it.latitude to it.longitude }
     val o = owner; val d = device; val p = pos; val l = lora
     if (!connected || o == null || d == null || p == null || l == null || channels.isEmpty()) {
         // Sin nodo (o mientras llega su config) igual se pueden bajar los mapas.
@@ -81,6 +83,7 @@ fun SettingsScreen(vm: MeshViewModel, connected: Boolean = true) {
         ) {
             HudHeader("Ajustes")
             OfflineMapsPanel()
+            RoutesPanel(here)
             UpdatesPanel()
             Text(
                 if (connected) "Leyendo la configuración del nodo…" else "Conectá un nodo para ver y cambiar sus ajustes.",
@@ -355,6 +358,7 @@ private fun SettingsContent(
 
             // ---------- Mapas sin conexión ----------
             OfflineMapsPanel()
+            RoutesPanel(fix?.let { it.latitude to it.longitude })
 
             // ---------- Mantenimiento ----------
             HudPanel(Modifier.fillMaxWidth(), title = "Mantenimiento") {
@@ -530,6 +534,7 @@ private val LICENSES = listOf(
     "osmdroid" to "Apache-2.0",
     "ZXing / zxing-android-embedded" to "Apache-2.0",
     "Haze (vidrio esmerilado)" to "Apache-2.0",
+    "BRouter (motor de rutas)" to "MIT",
     "Protocol Buffers (lite)" to "BSD-3-Clause",
     "AndroidX y Jetpack Compose" to "Apache-2.0",
     "Kotlin y kotlinx.coroutines" to "Apache-2.0",

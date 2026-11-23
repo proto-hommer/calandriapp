@@ -100,6 +100,7 @@ import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 import java.io.File
 import io.github.protohommer.meshpaper.map.Dem
+import io.github.protohommer.meshpaper.map.Nav
 import io.github.protohommer.meshpaper.mesh.Profile
 import kotlin.math.roundToInt
 import kotlin.math.hypot
@@ -141,6 +142,14 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     var rangeNode by remember { mutableStateOf<Int?>(null) }   // nodo con el alcance dibujado
     var antennaFor by remember { mutableStateOf<Int?>(null) }  // nodo al que se le cargan los datos de antena
     var profileFor by remember { mutableStateOf<Int?>(null) }  // nodo con el perfil de terreno abierto
+    val nav by Nav.state.collectAsState()
+    LaunchedEffect(fix) { Nav.onFix(fix) }
+    // Si el destino es un nodo y manda otra posición, el destino se mueve con él.
+    val navNode = nav?.target?.nodeNum?.let { nodes[it] }
+    LaunchedEffect(navNode?.lat, navNode?.lon) {
+        val la = navNode?.lat; val lo = navNode?.lon
+        if (la != null && lo != null) Nav.onTargetMoved(la, lo)
+    }
 
     // Antenas con "altura del GPS": altitud que manda el nodo − terreno del relieve.
     val gpsKeys = antennas.filterValues { it.gpsHeight }.keys
@@ -203,6 +212,28 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
 
     fun selectNode(num: Int) {
         selectedNode = num; selectedWpt = null; stack = overlapping(num)
+    }
+
+    /** Encuadra el teléfono, el destino y la ruta. */
+    fun fitNav() {
+        val s = Nav.state.value ?: return
+        val pts = (s.route?.points.orEmpty().map { GeoPoint(it.first, it.second) } +
+            listOfNotNull(GeoPoint(s.target.lat, s.target.lon), fix?.let { GeoPoint(it.latitude, it.longitude) }))
+        if (pts.size < 2) { map.controller.animateTo(pts.first()); return }
+        val box = BoundingBox.fromGeoPoints(pts)
+        map.post { map.zoomToBoundingBox(box.increaseByScale(1.4f), true, dpPx(context, 40f).toInt()) }
+    }
+    var fittedFor by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(nav?.route) {
+        val s = nav ?: return@LaunchedEffect
+        val key = "${s.target.nodeNum}/${s.target.wptId}/${s.mode}"
+        if (s.route != null && fittedFor != key) { fittedFor = key; fitNav() }
+    }
+    fun startNav(t: Nav.Target) {
+        fittedFor = null
+        selectedNode = null; selectedWpt = null; rangeNode = null; stack = emptyList()
+        Nav.start(context, t, fix)
+        fitNav()
     }
 
     val focus by vm.focusNode.collectAsState()
@@ -351,6 +382,47 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                         setOnClickListener { _, _, _ -> false }
                     })
                 }
+                nav?.let { s ->
+                    val here = fix?.let { GeoPoint(it.latitude, it.longitude) }
+                    val dest = GeoPoint(s.target.lat, s.target.lon)
+                    val route = s.route?.points?.map { GeoPoint(it.first, it.second) }
+                    val c = RouteColor.toArgb()
+                    if (route != null && route.size >= 2) {
+                        // Halo ancho y translúcido + trazo fino: se lee sobre el mapa oscuro y el claro.
+                        mv.overlays.add(Polyline(mv).apply {
+                            setPoints(route)
+                            outlinePaint.color = c; outlinePaint.alpha = 70
+                            outlinePaint.strokeWidth = dpPx(mv.context, 11f)
+                            outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                            infoWindow = null; setOnClickListener { _, _, _ -> false }
+                        })
+                        mv.overlays.add(Polyline(mv).apply {
+                            setPoints(route)
+                            outlinePaint.color = c
+                            outlinePaint.strokeWidth = dpPx(mv.context, 4f)
+                            outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                            infoWindow = null; setOnClickListener { _, _, _ -> false }
+                        })
+                        // Del final de la ruta al destino, si el nodo se movió o el punto está fuera del camino.
+                        mv.overlays.add(Polyline(mv).apply {
+                            setPoints(listOf(route.last(), dest))
+                            outlinePaint.color = c
+                            outlinePaint.strokeWidth = dpPx(mv.context, 2f)
+                            outlinePaint.pathEffect = DashPathEffect(floatArrayOf(dpPx(mv.context, 4f), dpPx(mv.context, 4f)), 0f)
+                            infoWindow = null; setOnClickListener { _, _, _ -> false }
+                        })
+                    } else if (here != null) {
+                        // Sin ruta todavía (o sin datos de la zona): línea recta punteada.
+                        mv.overlays.add(Polyline(mv).apply {
+                            setPoints(listOf(here, dest))
+                            outlinePaint.color = c
+                            outlinePaint.strokeWidth = dpPx(mv.context, 3f)
+                            outlinePaint.pathEffect = DashPathEffect(floatArrayOf(dpPx(mv.context, 10f), dpPx(mv.context, 6f)), 0f)
+                            isGeodesic = true
+                            infoWindow = null; setOnClickListener { _, _, _ -> false }
+                        })
+                    }
+                }
                 for (w in activeWpts) {
                     mv.overlays.add(Marker(mv).apply {
                         position = GeoPoint(w.lat, w.lon)
@@ -422,6 +494,13 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         // Marco tipo visor.
         Box(Modifier.fillMaxSize().padding(start = 6.dp, end = 6.dp, bottom = 6.dp + bottomInset, top = topInset + 2.dp).hudCorners(len = 22.dp))
 
+        nav?.let { s ->
+            NavPanel(
+                s, Modifier.align(Alignment.TopStart).padding(top = topInset).padding(12.dp),
+                onCenter = { fitNav() },
+            )
+        }
+
         // Herramientas.
         Column(
             Modifier.align(Alignment.CenterEnd).padding(end = 12.dp, top = topInset, bottom = bottomInset),
@@ -454,10 +533,18 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                     } else null,
                     stack = stack.mapNotNull { nodes[it] }.takeIf { it.size > 1 }.orEmpty(),
                     onPick = { selectedNode = it },
+                    onGo = if (n.num != me && n.lat != null && n.lon != null) {
+                        { startNav(Nav.Target(n.num, null, n.shortName.ifEmpty { n.longName.ifEmpty { n.id } }, n.lat, n.lon)) }
+                    } else null,
                 )
             }
             selectedWpt != null && waypoints[selectedWpt] != null ->
-                WaypointCard(vm, waypoints.getValue(selectedWpt!!), nodes, fix, now, bottom, onClose = { selectedWpt = null })
+                WaypointCard(
+                    vm, waypoints.getValue(selectedWpt!!), nodes, fix, now, bottom, onClose = { selectedWpt = null },
+                    onGo = { w -> startNav(Nav.Target(null, w.id, "${w.iconText} ${w.name}".trim(), w.lat, w.lon)) },
+                )
+            // Navegando, la leyenda taparía la ruta.
+            nav != null -> Unit
             else -> Legend(
                 bottom, expanded = showLegend,
                 onToggle = { showLegend = !showLegend; mapPrefs.edit().putBoolean("legend", showLegend).apply() },
@@ -546,6 +633,7 @@ private fun NodeCard(
     stack: List<MeshNode> = emptyList(), onPick: (Int) -> Unit = {},
     onProfile: (() -> Unit)? = null,
     fromGps: Boolean = false,
+    onGo: (() -> Unit)? = null,
 ) {
     // Altura del terreno donde está el nodo, si ya está el relieve de la zona (sin bajar nada).
     val ctx = LocalContext.current
@@ -633,6 +721,7 @@ private fun NodeCard(
         val tight = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (n.num != me) TextButton(onClick = { onMessage(n.num) }, contentPadding = tight) { Text("MENSAJE") }
+            onGo?.let { TextButton(onClick = it, contentPadding = tight) { Text("IR", color = RouteColor) } }
             onProfile?.let { TextButton(onClick = it, contentPadding = tight) { Text("PERFIL") } }
             TextButton(onClick = onAntenna, contentPadding = tight) { Text("ANTENA") }
             Spacer(Modifier.weight(1f))
@@ -644,7 +733,7 @@ private fun NodeCard(
 @Composable
 private fun WaypointCard(
     vm: MeshViewModel, w: Wpt, nodes: Map<Int, MeshNode>, fix: Location?, now: Long,
-    modifier: Modifier, onClose: () -> Unit,
+    modifier: Modifier, onClose: () -> Unit, onGo: (Wpt) -> Unit,
 ) {
     var confirm by remember { mutableStateOf(false) }
     HudPanel(modifier.width(280.dp), title = "Waypoint") {
@@ -667,6 +756,7 @@ private fun WaypointCard(
                 Text(if (vm.canDeleteForAll(w)) "BORRAR" else "OCULTAR", color = MaterialTheme.colorScheme.error)
             }
             Spacer(Modifier.weight(1f))
+            TextButton(onClick = { onGo(w) }) { Text("IR", color = RouteColor) }
             TextButton(onClick = onClose) { Text("CERRAR") }
         }
     }

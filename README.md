@@ -54,6 +54,10 @@ trabajo de campo con un grupo cerrado:
   - los ajenos, con el nombre en violeta y un anillo con la señal;
   - los nodos fijos (router, base, repetidor), del grupo o ajenos, con forma de rombo;
   - los ajenos que no se oyen hace más de 30 minutos se ocultan del mapa hasta que vuelven a oírse.
+- **Ir a un nodo o waypoint** sin salir de la app: la ruta por calles y senderos (a pie, en bici o
+  en auto), lo que falta, el tiempo y el rumbo, que se recalcula si te salís del camino o si el nodo
+  se mueve. Funciona **sin señal**: los datos de rutas de la zona se bajan una vez (Córdoba y
+  alrededores, unos 11 MB). Sin esos datos, muestra la línea recta.
 - **Alcance estimado**: con un toque largo sobre un nodo, si le cargaste los datos de la antena.
   La altura puede salir sola del GPS del nodo (su altitud menos el terreno), si la manda.
 - **Perfil de terreno** entre vos y cualquier nodo: el corte del relieve, la línea de vista, la zona
@@ -182,7 +186,8 @@ Privacidad
 - La ubicación del celular se usa para el mapa y, si lo dejás prendido, para pasársela al nodo, que
   la manda **cifrada por el canal privado del grupo**.
 - Lo único que sale a internet son los tiles del mapa y del relieve, si tenés "usar internet" prendido,
-  y, al abrir la app, una consulta a GitHub para ver si hay una versión nueva (se apaga en
+  los datos de rutas de una zona cuando los pedís (de brouter.de: el servidor solo sabe qué cuadro de
+  5° bajaste), y, al abrir la app, una consulta a GitHub para ver si hay una versión nueva (se apaga en
   Ajustes → Actualizaciones). Las actualizaciones se bajan de los releases de este repo y solo se
   instalan si están firmadas con el mismo certificado y coinciden con su SHA-256.
 
@@ -223,6 +228,8 @@ Créditos, marcas y licencias
   ni respaldada por el proyecto Meshtastic**. Sin garantía: se usa bajo tu propio riesgo.
 - Datos del mapa © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright),
   disponibles bajo la licencia ODbL.
+- Rutas calculadas en el teléfono con [BRouter](https://github.com/abrensch/brouter) (MIT), con datos
+  de OpenStreetMap preparados por brouter.de.
 - Relieve: SRTM, cortesía del U.S. Geological Survey, a través de
   [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (AWS Open Data, Mapzen / Tilezen).
 - Usa los [protobufs de Meshtastic](https://github.com/meshtastic/protobufs) (GPL-3.0),

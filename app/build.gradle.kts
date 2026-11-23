@@ -89,6 +89,7 @@ dependencies {
     implementation(libs.zxing.embedded) { isTransitive = false } // solo la pantalla de escaneo; core va arriba
     implementation(libs.osmdroid.android)
     implementation(libs.androidx.core.splashscreen)
+    implementation(files("libs/brouter-1.7.10-ro.jar")) // motor de rutas BRouter (MIT), ver libs/brouter-LICENSE.txt
     implementation(libs.haze) // vidrio esmerilado: desenfoca lo que hay detrás de los paneles (Android 12+)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
