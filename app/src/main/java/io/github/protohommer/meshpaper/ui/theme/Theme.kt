@@ -7,6 +7,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
@@ -41,6 +42,35 @@ private fun nightScheme(p: Palette): ColorScheme = darkColorScheme(
     onError = Color(0xFF2A0006),
 )
 
+/** Día: claro, con el cian y el magenta de la paleta. */
+private fun dayScheme(p: Palette): ColorScheme = lightColorScheme(
+    primary = p.cyan,
+    onPrimary = Color.White,
+    primaryContainer = p.cyanDim,
+    onPrimaryContainer = Color(0xFF00313D),
+    secondary = Color(0xFF4F6B7C),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFDCE6EC),
+    onSecondaryContainer = p.text,
+    tertiary = p.relay,
+    onTertiary = Color.White,
+    background = p.bg,
+    onBackground = p.text,
+    surface = p.surface,
+    onSurface = p.text,
+    surfaceVariant = p.surfaceHi,
+    onSurfaceVariant = p.textDim,
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = p.surface,
+    surfaceContainer = p.surface,
+    surfaceContainerHigh = p.surfaceHi,
+    surfaceContainerHighest = Color(0xFFDCE4E9),
+    outline = p.line,
+    outlineVariant = Color(0xFFD3DDE3),
+    error = p.weak,
+    onError = Color.White,
+)
+
 /** Esquinas cortadas en vez de redondeadas. */
 private val HudShapes = Shapes(
     extraSmall = CutCornerShape(3.dp),
@@ -61,8 +91,7 @@ fun MeshPaperTheme(content: @Composable () -> Unit) {
     // Se fija acá mismo para que el primer cuadro ya salga con la paleta correcta (solo si cambió).
     if (Appearance.isDay != day) Appearance.isDay = day
     val pal = if (day) DayPalette else NightPalette
-    // Los dos modos son oscuros: el día cambia la paleta (más contraste) y el mapa, no el estilo.
-    MaterialTheme(colorScheme = nightScheme(pal), typography = Typography, shapes = HudShapes) {
+    MaterialTheme(colorScheme = if (day) dayScheme(pal) else nightScheme(pal), typography = Typography, shapes = HudShapes) {
         // Color de texto por defecto en toda la app (no todo está dentro de un Surface).
         CompositionLocalProvider(LocalContentColor provides pal.text, content = content)
     }

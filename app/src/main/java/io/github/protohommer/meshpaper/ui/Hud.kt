@@ -102,12 +102,12 @@ val LocalHaze = staticCompositionLocalOf<HazeState?> { null }
 internal val GlassStyle: HazeStyle
     get() = HazeStyle(
         backgroundColor = HudBg,
-        // De día el velo es más opaco: sobre el mapa claro y con sol, el texto necesita fondo oscuro.
-        tint = HazeTint(HudBg.copy(alpha = if (Appearance.isDay) 0.74f else 0.42f)),
+        // De día, vidrio claro: velo blanco translúcido sobre el mapa desenfocado.
+        tint = HazeTint(if (Appearance.isDay) HudSurface.copy(alpha = 0.52f) else HudBg.copy(alpha = 0.42f)),
         blurRadius = 18.dp,
         noiseFactor = 0f,
         // Sin desenfoque (Android 11 o anterior, o el mapa moviéndose): un velo que se lea igual.
-        fallbackTint = HazeTint(HudBg.copy(alpha = if (Appearance.isDay) 0.9f else 0.74f)),
+        fallbackTint = HazeTint(if (Appearance.isDay) HudSurface.copy(alpha = 0.78f) else HudBg.copy(alpha = 0.74f)),
     )
 
 /**
@@ -136,12 +136,13 @@ fun Modifier.neonGlow(color: Color, shape: Shape, radius: Dp = 8.dp, width: Dp =
 fun Modifier.glass(shape: Shape, accent: Color = HudCyan, blur: Boolean = true, glow: Boolean = true): Modifier {
     val haze = LocalHaze.current.takeIf { blur }
     return this
-        .then(if (glow) Modifier.neonGlow(accent.copy(alpha = if (Appearance.isDay) 0.8f else 0.55f), shape, 7.dp) else Modifier)
+        // De día el borde cian de los paneles es el neón brillante, con un halo más ancho.
+        .then(if (glow) Modifier.neonGlow(dayNeon(accent).copy(alpha = if (Appearance.isDay) 0.85f else 0.55f), shape, if (Appearance.isDay) 9.dp else 7.dp) else Modifier)
         .clip(shape)
         .then(
             if (haze != null) Modifier.hazeEffect(haze, GlassStyle).background(HudSurface.copy(alpha = 0.18f))
-            // De día, más opaco: sobre el mapa claro los botones translúcidos se perdían.
-            else Modifier.background(HudSurface.copy(alpha = if (Appearance.isDay) 0.88f else if (blur) 0.62f else 0.55f))
+            // De día, vidrio claro translúcido (sin desenfoque: botones, o Android 11 o anterior).
+            else Modifier.background(HudSurface.copy(alpha = if (Appearance.isDay) 0.7f else if (blur) 0.62f else 0.55f))
         )
         .background(
             Brush.verticalGradient(
@@ -152,17 +153,21 @@ fun Modifier.glass(shape: Shape, accent: Color = HudCyan, blur: Boolean = true, 
         )
         .border(
             1.dp,
-            Brush.linearGradient(listOf(accent.copy(alpha = 0.95f), accent.copy(alpha = 0.25f), accent.copy(alpha = 0.75f))),
+            dayNeon(accent).let { a -> Brush.linearGradient(listOf(a.copy(alpha = 0.95f), a.copy(alpha = 0.25f), a.copy(alpha = 0.75f))) },
             shape,
         )
 }
+
+/** De día, el acento cian de los bordes pasa al neón brillante (los demás colores quedan igual). */
+private fun dayNeon(accent: Color): Color =
+    if (Appearance.isDay && accent == HudCyan) io.github.protohommer.meshpaper.ui.theme.DayNeon else accent
 
 /** Texto con brillo de neón (sombra difusa del mismo color). */
 fun TextStyle.neon(color: Color, radius: Float = 14f): TextStyle =
     copy(shadow = Shadow(color.copy(alpha = 0.85f), Offset.Zero, radius))
 
 /** Los textos de color (acentos y señales) brillan; los grises y el blanco del texto, no. */
-private fun glows(color: Color) = color.alpha > 0.5f && color != HudTextDim &&
+private fun glows(color: Color) = !Appearance.isDay && color.alpha > 0.5f && color != HudTextDim &&
     color.red + color.green + color.blue < 2.6f && maxOf(color.red, color.green, color.blue) - minOf(color.red, color.green, color.blue) > 0.35f
 
 /** Esquinas tipo visor sobre cualquier cosa. */

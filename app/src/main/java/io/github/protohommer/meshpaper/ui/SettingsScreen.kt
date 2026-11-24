@@ -556,8 +556,8 @@ private fun AppearancePanel() {
         }
         Text(
             when (mode) {
-                io.github.protohommer.meshpaper.ui.theme.ThemeMode.NIGHT -> "Mapa oscuro y HUD tenue. Ahorra batería en pantallas OLED."
-                io.github.protohommer.meshpaper.ui.theme.ThemeMode.DAY -> "Mapa claro y HUD con más contraste, para leer al sol."
+                io.github.protohommer.meshpaper.ui.theme.ThemeMode.NIGHT -> "HUD oscuro, la de siempre. Ahorra batería en pantallas OLED."
+                io.github.protohommer.meshpaper.ui.theme.ThemeMode.DAY -> "Neón sobre luz: vidrio claro translúcido y bordes que brillan. Para leer al sol."
                 io.github.protohommer.meshpaper.ui.theme.ThemeMode.AUTO -> "Noche o día según el tema oscuro del teléfono."
             },
             style = MaterialTheme.typography.bodySmall, color = HudTextDim,

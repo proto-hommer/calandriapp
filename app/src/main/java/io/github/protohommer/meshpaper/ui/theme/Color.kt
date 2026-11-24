@@ -7,10 +7,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 
 /**
- * Dos paletas, las dos HUD: noche (la original) y día, que sigue siendo oscura y neón pero con más
- * contraste (negro puro, texto blanco, grises y líneas más claros) para leerse al sol sobre el mapa
- * en colores normales. Los colores de abajo leen la paleta activa: al cambiar de modo, todo lo que
- * los usa se redibuja solo.
+ * Dos paletas: noche (HUD neón sobre casi negro, la original) y día ("neón de día": gris perla,
+ * vidrio claro translúcido y bordes neón cian que brillan; magenta para los ajenos). Los colores
+ * de abajo leen la paleta activa: al cambiar de modo, todo lo que los usa se redibuja solo.
  */
 data class Palette(
     val bg: Color, val surface: Color, val surfaceHi: Color, val line: Color,
@@ -28,14 +27,17 @@ val NightPalette = Palette(
     relay = Color(0xFFC45CFF), mute = Color(0xFF6B7785), fixed = Color(0xFF2E8BFF),
 )
 
-/** Día: el mismo HUD con contraste al máximo (paneles negros sobre el mapa claro). */
+/** Día: neón sobre luz. Los colores de señal son los de noche, apenas más profundos para leerse sobre claro. */
 val DayPalette = Palette(
-    bg = Color(0xFF000000), surface = Color(0xFF04080B), surfaceHi = Color(0xFF0A1319), line = Color(0xFF2C7894),
-    cyan = Color(0xFF2EF6FF), cyanDim = Color(0xFF0E4E5B), text = Color(0xFFFFFFFF), textDim = Color(0xFFBCCDD8),
-    copper = Color(0xFFFFA24A), green = Color(0xFF3DFF95),
-    good = Color(0xFF3DFF95), fair = Color(0xFFFFE94D), poor = Color(0xFFFF9333), weak = Color(0xFFFF3D6E),
-    relay = Color(0xFFD27BFF), mute = Color(0xFF8D99A6), fixed = Color(0xFF4A9CFF),
+    bg = Color(0xFFDDE3E8), surface = Color(0xFFF8FAFC), surfaceHi = Color(0xFFE9EEF2), line = Color(0xFFC3CCD3),
+    cyan = Color(0xFF0096C7), cyanDim = Color(0xFFD2F2F8), text = Color(0xFF0D1318), textDim = Color(0xFF56636D),
+    copper = Color(0xFFE8650E), green = Color(0xFF00B35C),
+    good = Color(0xFF00B35C), fair = Color(0xFFE0A800), poor = Color(0xFFF06A00), weak = Color(0xFFEE1757),
+    relay = Color(0xFFC21FD6), mute = Color(0xFF7A8691), fixed = Color(0xFF1F7AE0),
 )
+
+/** Borde neón de los paneles de día: un cian más brillante que el de los textos. */
+val DayNeon = Color(0xFF00C8E8)
 
 /** Modo elegido en Ajustes → Apariencia. AUTO sigue al sistema (tema oscuro del teléfono). */
 enum class ThemeMode(val label: String) { NIGHT("NOCHE"), DAY("DÍA"), AUTO("AUTO") }

@@ -1229,9 +1229,9 @@ private fun nodeIcon(
  * El teléfono (y el nodo conectado, que está con él): punto cian con retícula y, abajo, el nombre
  * corto del nodo. El bitmap es simétrico para que el anclaje al centro caiga justo en el punto.
  */
-/** Fondo de los íconos del mapa: oscuro siempre; de día, más opaco (sobre el mapa claro). */
+/** Fondo de los íconos del mapa: casi negro de noche; de día, vidrio claro translúcido. */
 private fun markerBg(): Int =
-    if (Appearance.isDay) android.graphics.Color.argb(235, 0, 0, 0) else android.graphics.Color.argb(200, 5, 9, 13)
+    if (Appearance.isDay) android.graphics.Color.argb(215, 248, 250, 252) else android.graphics.Color.argb(200, 5, 9, 13)
 
 private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.getOrPut("me:$label:${Appearance.isDay}") {
     val size = dpPx(ctx, 34f).toInt()
