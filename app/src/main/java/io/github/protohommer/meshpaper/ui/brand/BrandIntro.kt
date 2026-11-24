@@ -53,6 +53,21 @@ private object RealTime : MotionDurationScale {
 
 /** Progreso local de una fase [from, to] dentro de la línea de tiempo 0..1. */
 private fun phase(t: Float, from: Float, to: Float): Float = ((t - from) / (to - from)).coerceIn(0f, 1f)
+
+private const val SCAN_FROM = 0.02f
+private const val SCAN_TO = 0.36f
+
+/** Instante (0..1) en que la línea de escaneo llega a la altura relativa [y]. */
+private fun scanTimeAt(y: Float): Float {
+    var lo = 0f
+    var hi = 1f
+    repeat(18) {
+        val mid = (lo + hi) / 2
+        if (ease(mid) < y) lo = mid else hi = mid
+    }
+    return SCAN_FROM + (SCAN_TO - SCAN_FROM) * (lo + hi) / 2
+}
+
 private fun ease(x: Float) = FastOutSlowInEasing.transform(x)
 
 // Paleta de la intro (la del fondo "Topografía"): siempre oscura, aunque la app esté en modo día.
@@ -81,6 +96,9 @@ private val STARTS = floatArrayOf(
     0.88f, 0.14f, 0.55f, 0.08f, 0.30f, 0.16f, 0.12f, 0.34f, 0.10f, 0.62f, 0.22f, 0.80f, 0.45f, 0.93f,
     0.70f, 0.86f, 0.92f, 0.74f, 0.86f, 0.44f, 0.66f, 0.27f, 0.38f, 0.58f, 0.60f, 0.55f, 0.40f, 0.33f,
 )
+
+/** Cuándo aparece cada nodo: cuando el escaneo pasa por su lugar en el mapa. */
+private val APPEAR_AT = FloatArray(STARTS.size / 2) { i -> scanTimeAt(STARTS[2 * i + 1]) }
 
 /**
  * Intro de la app: primero se "escanea" el relieve (curvas de nivel, como un mapa holográfico),
@@ -139,7 +157,7 @@ private fun DrawScope.drawIntro(t: Float, markCenterY: Float) {
     drawRect(Brush.verticalGradient(listOf(BgTop, BgBottom)))
 
     // ---------- 1 · El relieve: curvas de nivel que aparecen detrás de una línea de escaneo ----------
-    val scan = ease(phase(t, 0.02f, 0.34f))
+    val scan = ease(phase(t, SCAN_FROM, SCAN_TO))
     val scanY = h * scan
     val contours = Stroke(0.7.dp.toPx())
     clipRect(bottom = scanY) {
@@ -166,7 +184,8 @@ private fun DrawScope.drawIntro(t: Float, markCenterY: Float) {
     val s = w * 0.62f / box[2]
     val ox = w / 2 - (box[0] + box[2] / 2) * s
     val oy = h * markCenterY - (box[1] + box[3] / 2) * s
-    val appear = phase(t, 0.30f, 0.40f)
+    // Cada nodo aparece cuando el escaneo pasa por su lugar en el mapa.
+    val appearOf = FloatArray(n) { i -> phase(t, APPEAR_AT[i], APPEAR_AT[i] + 0.03f) }
     val pos = Array(n) { i ->
         val tx = ox + g.points[2 * i] * s
         val ty = oy + g.points[2 * i + 1] * s
@@ -178,10 +197,10 @@ private fun DrawScope.drawIntro(t: Float, markCenterY: Float) {
     val travel = ease(phase(t, 0.42f, 0.66f))
 
     // Pulso de radio de cada nodo al aparecer (dos anillos que se abren y se apagan).
-    if (appear > 0f && travel < 1f) {
+    if (travel < 1f) {
         for (i in 0 until n) {
             for (ring in 0..1) {
-                val p = phase(t, 0.30f + ring * 0.05f + i * 0.004f, 0.46f + ring * 0.05f + i * 0.004f)
+                val p = phase(t, APPEAR_AT[i] + ring * 0.05f, APPEAR_AT[i] + 0.16f + ring * 0.05f)
                 if (p <= 0f || p >= 1f) continue
                 drawCircle(Scan.copy(alpha = 0.45f * (1f - p)), 6.dp.toPx() + 30.dp.toPx() * p, pos[i], style = Stroke(1.dp.toPx()))
             }
@@ -189,13 +208,16 @@ private fun DrawScope.drawIntro(t: Float, markCenterY: Float) {
     }
 
     // Mientras viajan, la malla ya se enlaza: líneas tenues entre los nodos que van a quedar unidos.
-    if (appear > 0f) {
-        val a = 0.5f * appear * (1f - ease(phase(t, 0.66f, 0.78f)))
-        if (a > 0f) {
-            val o = g.outline
-            for (k in o.indices) drawLine(Link.copy(alpha = a), pos[o[k]], pos[o[(k + 1) % o.size]], 1.dp.toPx())
-            for (k in g.edges.indices step 2) drawLine(Link.copy(alpha = a), pos[g.edges[k]], pos[g.edges[k + 1]], 1.dp.toPx())
+    // Cada enlace se ve cuando ya aparecieron sus dos nodos.
+    val linkFade = 0.5f * (1f - ease(phase(t, 0.66f, 0.78f)))
+    if (linkFade > 0f) {
+        fun link(a: Int, b: Int) {
+            val al = linkFade * minOf(appearOf[a], appearOf[b])
+            if (al > 0f) drawLine(Link.copy(alpha = al), pos[a], pos[b], 1.dp.toPx())
         }
+        val o = g.outline
+        for (k in o.indices) link(o[k], o[(k + 1) % o.size])
+        for (k in g.edges.indices step 2) link(g.edges[k], g.edges[k + 1])
     }
 
     // ---------- 3 · La calandria: el trazo de cobre crece por las conexiones ----------
@@ -226,8 +248,8 @@ private fun DrawScope.drawIntro(t: Float, markCenterY: Float) {
         if (i == g.EYE && phase(t, 0.72f, 0.84f) > 0f) continue
         val arrived = phase(t, 0.62f + i * 0.008f, 0.70f + i * 0.008f)
         val c = lerp(Scan, Copper, arrived)
-        drawCircle(c.copy(alpha = 0.18f * appear), g.NODE_R * s * 1.6f, pos[i])
-        drawCircle(c.copy(alpha = appear), g.NODE_R * s * 0.62f, pos[i])
+        drawCircle(c.copy(alpha = 0.18f * appearOf[i]), g.NODE_R * s * 1.6f, pos[i])
+        drawCircle(c.copy(alpha = appearOf[i]), g.NODE_R * s * 0.62f, pos[i])
     }
     // El ojo: llega como los demás y al final se enciende en verde.
     val eye = pos[g.EYE]
