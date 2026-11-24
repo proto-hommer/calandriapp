@@ -3,7 +3,7 @@
 **Una app Android chica y propia para usar nodos Meshtastic en el campo: mensajes, mapa offline y
 seguimiento de un grupo cerrado, sin cuentas, sin nube y sin internet.**
 
-Versión **1.5.2** | Android 8 o más nuevo | *powered by Meshtastic®*
+Versión **1.6.0** | Android 8 o más nuevo | *powered by Meshtastic®*
 
 [![Descargar APK](https://img.shields.io/github/v/release/proto-hommer/calandriapp?label=descargar%20APK&color=2ea44f)](https://github.com/proto-hommer/calandriapp/releases/latest)
 
@@ -96,16 +96,19 @@ cuadrantes por donde pasa la ruta.
 <p><img src="docs/img/titulos/s-alcance-y-perfil-del-terreno.png" alt="Alcance y perfil del terreno" height="26"/></p>
 
 <p align="center">
-  <img src="docs/img/alcance.png" alt="Alcance estimado de un nodo fijo" width="32%"/>
+  <img src="docs/img/alcance.png" alt="Cobertura de un nodo fijo según el relieve, con la escala CMRmap" width="32%"/>
   &nbsp;
   <img src="docs/img/perfil-pasa.png" alt="Perfil del terreno: el enlace pasa" width="32%"/>
   &nbsp;
   <img src="docs/img/perfil-no-pasa.png" alt="Perfil del terreno: el enlace no pasa" width="32%"/>
 </p>
 
-- **Alcance estimado**: con un toque largo sobre un nodo al que le cargaste los datos de la antena,
-  se dibujan dos círculos: el alcance en ciudad (lleno) y a campo abierto (punteado). La altura de la
-  antena puede salir sola del GPS del nodo (su altitud menos el terreno), si la manda.
+- **Cobertura según el relieve**: con un toque largo sobre un nodo al que le cargaste los datos de la
+  antena, se pinta la señal que le llegaría a alguien de mano en 25 km a la redonda, de violeta (al
+  límite) a amarillo (fuerte), con la escala CMRmap. Lo que queda sin pintar es sombra detrás de los
+  cerros o demasiado lejos. Se calcula en el teléfono, sin internet si ya está el relieve de la zona.
+  Es una estimación (un solo filo por camino, sin árboles ni edificios); para un enlace puntual está
+  el perfil. La altura de la antena puede salir sola del GPS del nodo (su altitud menos el terreno).
 - **Perfil del terreno** entre vos y cualquier nodo: el corte del relieve, la línea de vista, la zona de
   Fresnel (las líneas punteadas) y si el enlace **pasa, está al límite o no pasa**, con el margen en
   dB. En el ejemplo, la base pasa con +17 dB aunque un cerro roza la línea de vista; JUAN, del otro lado
@@ -186,7 +189,7 @@ sin cuentas, sin nube ni servicios de Google: todo queda en el teléfono.
 
 <p><img src="docs/img/titulos/descargar-e-instalar.png" alt="Descargar e instalar" width="100%"/></p>
 
-1. Bajá el `CalandriApp-1.5.2.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
+1. Bajá el `CalandriApp-1.6.0.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
 2. Abrilo en el celular. Android va a pedir permiso para **instalar apps de origen desconocido**:
    dáselo al navegador o al gestor de archivos con el que lo abriste.
 3. Abrí CalandriApp, dale los permisos de **Bluetooth** y **ubicación**, tocá **BUSCAR** y
