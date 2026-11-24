@@ -15,6 +15,7 @@ android {
 
     defaultConfig {
         applicationId = "io.github.protohommer.calandriapp"
+        buildConfigField("boolean", "DEMO", "false")
         minSdk = 26
         targetSdk = 37
         versionCode = 16
@@ -39,6 +40,15 @@ android {
     }
 
     buildTypes {
+        // Variante con datos inventados para las capturas del README. Se instala al lado de la de
+        // verdad (otro paquete) y no se publica.
+        create("demo") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".demo"
+            versionNameSuffix = "-demo"
+            buildConfigField("boolean", "DEMO", "true")
+            matchingFallbacks += listOf("debug")
+        }
         release {
             signingConfig = signingConfigs.findByName("release")
             optimization {
@@ -55,6 +65,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     sourceSets {
         getByName("main") {

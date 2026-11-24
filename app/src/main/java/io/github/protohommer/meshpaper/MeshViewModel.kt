@@ -203,7 +203,8 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         knownPin = prefs.getString("pin", MeshBle.DEFAULT_PIN) ?: MeshBle.DEFAULT_PIN
         onPinAccepted = { prefs.edit().putString("pin", it).apply() }
     }
-    val link: StateFlow<LinkState> = ble.state
+    /** En la variante demo (capturas del README) la app se muestra conectada, sin nodo de verdad. */
+    val link: StateFlow<LinkState> = if (BuildConfig.DEMO) MutableStateFlow<LinkState>(LinkState.Connected) else ble.state
 
     private val store = MessageStore(app.filesDir)
 
@@ -278,6 +279,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     private var lastSentFix: Location? = null
 
     private val phoneLocation = PhoneLocation(app) { loc ->
+        if (BuildConfig.DEMO) return@PhoneLocation // la posición es la inventada
         _myFix.value = loc
         if (!loc.hasAccuracy() || loc.accuracy <= MAX_FIX_ACCURACY_M) {
             _myNodeNum.value?.let { recordTrack(it, loc.latitude, loc.longitude, loc.time / 1000) }
@@ -319,7 +321,27 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     /** Mensajes sin leer por conversación desde la última notificación (para apilarlos). */
     private val notified = mutableMapOf<String, MutableList<Pair<String, String>>>()
 
+    /** Carga los datos inventados de [Demo] (solo en la variante demo). */
+    private fun loadDemo() {
+        val d = Demo.build(System.currentTimeMillis() / 1000)
+        _groupSince.value = 1L
+        groupNums = d.group
+        _myNodeNum.value = Demo.ME
+        _channels.value = d.channels
+        _lora.value = d.lora
+        _owner.value = d.owner
+        _device.value = d.device
+        _position.value = trackingPosition(d.position) // ya ajustado para rastreo
+        _nodes.value = d.nodes
+        _messages.value = d.messages
+        _tracks.value = d.tracks
+        _waypoints.value = d.waypoints
+        _antennas.value = d.antennas
+        _myFix.value = d.fix
+    }
+
     init {
+        if (BuildConfig.DEMO) loadDemo()
         viewModelScope.launch {
             var prev: LinkState = LinkState.Disconnected
             link.collect {

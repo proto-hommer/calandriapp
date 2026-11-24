@@ -204,7 +204,7 @@ private fun QrCard(url: String) {
     val context = LocalContext.current
     val bmp = remember(url) { qrBitmap(url, 720) }
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp)) {
             Image(
                 bmp.asImageBitmap(), contentDescription = "QR del grupo",
                 Modifier.size(300.dp).align(androidx.compose.ui.Alignment.CenterHorizontally),

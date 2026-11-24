@@ -179,7 +179,7 @@ private fun OfflineMapsScreen(onClose: () -> Unit) {
                 map.invalidate()
             }
             selected = emptyList()
-            job = DownloadState.Finished(if (fails == 0) "Listo: ${cells.size} cuadrantes guardados." else "Terminó con $fails tiles fallidos: volvé a bajar los que quedaron en naranja.")
+            job = DownloadState.Finished(if (fails == 0) "Listo: " + if (cells.size == 1) "1 cuadrante guardado." else "${cells.size} cuadrantes guardados." else "Terminó con $fails " + (if (fails == 1) "tile fallido" else "tiles fallidos") + ": volvé a bajar los que quedaron en naranja.")
             running = null
             refresh++
             map.invalidate()
