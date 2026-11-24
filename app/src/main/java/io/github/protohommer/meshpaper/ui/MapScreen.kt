@@ -362,7 +362,9 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                 .then(LocalHaze.current?.let { Modifier.hazeSource(it) } ?: Modifier),
             update = { mv ->
                 scaleBar.setScaleBarOffset(dpPx(mv.context, 12f).toInt(), dpPx(mv.context, 12f + bottomInset.value).toInt())
-                scaleBar.textPaint.color = HudCyan.toArgb(); scaleBar.barPaint.color = HudCyan.toArgb()
+                // De día, sobre el mapa claro, el cian fino no se lee: la escala va en negro.
+                val scaleColor = if (Appearance.isDay) android.graphics.Color.BLACK else HudCyan.toArgb()
+                scaleBar.textPaint.color = scaleColor; scaleBar.barPaint.color = scaleColor
                 mv.setBackgroundColor(HudBg.toArgb())
                 mv.overlayManager.tilesOverlay.setColorFilter(if (dark) darkFilter else null)
                 mv.overlays.clear()
@@ -1217,7 +1219,7 @@ private fun nodeIcon(
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             textAlign = Paint.Align.CENTER
             textSize = dpPx(ctx, if (label.length <= 2) 12f else if (compact) 8.5f else 9.5f)
-            if (!lost && !Appearance.isDay) setShadowLayer(dpPx(ctx, 3f), 0f, 0f, labelColor)
+            if (!lost) setShadowLayer(dpPx(ctx, 3f), 0f, 0f, labelColor)
         }
         c.drawText(label.take(4), m, m - (text.descent() + text.ascent()) / 2, text)
         BitmapDrawable(ctx.resources, bmp)
@@ -1227,9 +1229,9 @@ private fun nodeIcon(
  * El teléfono (y el nodo conectado, que está con él): punto cian con retícula y, abajo, el nombre
  * corto del nodo. El bitmap es simétrico para que el anclaje al centro caiga justo en el punto.
  */
-/** Fondo de los íconos del mapa: casi negro de noche, casi blanco de día. */
+/** Fondo de los íconos del mapa: oscuro siempre; de día, más opaco (sobre el mapa claro). */
 private fun markerBg(): Int =
-    if (Appearance.isDay) android.graphics.Color.argb(225, 255, 255, 255) else android.graphics.Color.argb(200, 5, 9, 13)
+    if (Appearance.isDay) android.graphics.Color.argb(235, 0, 0, 0) else android.graphics.Color.argb(200, 5, 9, 13)
 
 private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.getOrPut("me:$label:${Appearance.isDay}") {
     val size = dpPx(ctx, 34f).toInt()

@@ -7,9 +7,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 
 /**
- * Dos paletas: noche (HUD neón sobre casi negro, la original) y día (fondo claro y los mismos
- * colores de señal, más oscuros para que se lean al sol). Los colores de abajo leen la paleta
- * activa: al cambiar de modo, todo lo que los usa se redibuja solo.
+ * Dos paletas, las dos HUD: noche (la original) y día, que sigue siendo oscura y neón pero con más
+ * contraste (negro puro, texto blanco, grises y líneas más claros) para leerse al sol sobre el mapa
+ * en colores normales. Los colores de abajo leen la paleta activa: al cambiar de modo, todo lo que
+ * los usa se redibuja solo.
  */
 data class Palette(
     val bg: Color, val surface: Color, val surfaceHi: Color, val line: Color,
@@ -27,13 +28,13 @@ val NightPalette = Palette(
     relay = Color(0xFFC45CFF), mute = Color(0xFF6B7785), fixed = Color(0xFF2E8BFF),
 )
 
-/** Día: contraste alto sobre fondo claro (amarillo y verde neón no se leen sobre blanco). */
+/** Día: el mismo HUD con contraste al máximo (paneles negros sobre el mapa claro). */
 val DayPalette = Palette(
-    bg = Color(0xFFF2F5F7), surface = Color(0xFFFFFFFF), surfaceHi = Color(0xFFE6ECF0), line = Color(0xFFAFC3CF),
-    cyan = Color(0xFF007C9C), cyanDim = Color(0xFFCDECF3), text = Color(0xFF0C1A23), textDim = Color(0xFF4D6271),
-    copper = Color(0xFFC4560E), green = Color(0xFF0B8F4D),
-    good = Color(0xFF0B8F4D), fair = Color(0xFFA37A00), poor = Color(0xFFD15A00), weak = Color(0xFFCC1444),
-    relay = Color(0xFF8A2BD6), mute = Color(0xFF6E7B87), fixed = Color(0xFF1A5FD1),
+    bg = Color(0xFF000000), surface = Color(0xFF04080B), surfaceHi = Color(0xFF0A1319), line = Color(0xFF2C7894),
+    cyan = Color(0xFF2EF6FF), cyanDim = Color(0xFF0E4E5B), text = Color(0xFFFFFFFF), textDim = Color(0xFFBCCDD8),
+    copper = Color(0xFFFFA24A), green = Color(0xFF3DFF95),
+    good = Color(0xFF3DFF95), fair = Color(0xFFFFE94D), poor = Color(0xFFFF9333), weak = Color(0xFFFF3D6E),
+    relay = Color(0xFFD27BFF), mute = Color(0xFF8D99A6), fixed = Color(0xFF4A9CFF),
 )
 
 /** Modo elegido en Ajustes → Apariencia. AUTO sigue al sistema (tema oscuro del teléfono). */
