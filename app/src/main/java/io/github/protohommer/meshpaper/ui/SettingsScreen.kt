@@ -129,6 +129,8 @@ private fun SettingsContent(
     var preset by remember(lora) { mutableStateOf(lora.modemPreset) }
     var slot by remember(lora) { mutableIntStateOf(lora.channelNum) }
     var hops by remember(lora) { mutableIntStateOf(lora.hopLimit) }
+    // Radio en modo manual (use_preset apagado): el botón del aviso lo vuelve a poner en preset.
+    var fixPreset by remember(lora) { mutableStateOf(false) }
     var txPower by remember(lora) { mutableIntStateOf(lora.txPower) }
     var precision by remember(channels) {
         mutableStateOf(channels.mapValues { it.value.settings.moduleSettings.positionPrecision })
@@ -169,7 +171,7 @@ private fun SettingsContent(
             .setLocationSource(MeshProtos.Position.LocSource.LOC_MANUAL)
             .build() else null
         val newLora = lora.toBuilder().setModemPreset(preset).setChannelNum(slot).setHopLimit(hops).setTxPower(txPower)
-            .apply { if (preset != lora.modemPreset) setUsePreset(true) }
+            .apply { if (preset != lora.modemPreset || fixPreset) setUsePreset(true) }
             .build().takeIf { it != lora }
         NodeEdits(
             owner = newOwner, device = newDevice, position = newPos, fixed = newFix,
@@ -287,6 +289,19 @@ private fun SettingsContent(
                 }
                 Spacer(Modifier.height(8.dp))
                 Select("Preset (velocidad / alcance)", preset, withCurrent(presetsFor(lora.region), preset), { presetName(it) }) { preset = it }
+                // Con "usar preset" apagado, el firmware llama "Custom" a los canales sin nombre (el
+                // público): su clave ya no coincide con LongFast y el nodo deja de ver a los ajenos.
+                // Pasa, p. ej., al editar la radio a mano desde la app oficial de iOS.
+                if (!lora.usePreset && !fixPreset && preset == lora.modemPreset) {
+                    Warn(
+                        "La radio está en modo manual: el canal público queda como \"Custom\" en vez de " +
+                            "\"${presetName(preset)}\", así que este nodo no ve a los nodos ajenos ni lee el canal público.",
+                        SigWeak,
+                    )
+                    TextButton(onClick = { fixPreset = true }) { Text("USAR EL PRESET ${presetName(preset).uppercase()}") }
+                } else if (fixPreset) {
+                    Note("Se guarda con el preset ${presetName(preset)} (tocá GUARDAR). El nodo se reinicia.")
+                }
                 val slots = slotCount(lora.region, preset)
                 if (slots != null) {
                     Select("Canal de frecuencia (slot)", slot, (0..slots).toList(), { s ->
