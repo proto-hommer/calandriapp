@@ -126,10 +126,18 @@ fun isGroupMember(n: MeshNode, me: Int?, hasGroup: Boolean, since: Long): Boolea
  * - DM cifrado con PKI: viaja con hash 0 y queda en 0 al descifrarlo (nodo ajeno que nos escribe).
  * - Replay de la NodeDB al conectar (posición/telemetría, sin rx_rssi): repite el canal guardado,
  *   que el firmware solo asigna al recibir un NodeInfo; sin NodeInfo queda en 0 por defecto.
- * Todo paquete recibido de verdad por radio trae rx_rssi.
+ * Todo paquete recibido de verdad por radio trae rx_rssi... salvo con señal muy fuerte: el
+ * chip mide 0 dBm (nodos a pocos metros con mucha potencia) y un firmware 2.7 manda el 0 como
+ * "sin dato". Por eso los tipos que el firmware nunca repite desde la NodeDB (solo repite
+ * posición, telemetría y estado: ver PhoneAPI::makeReplay*) cuentan aunque no traigan rx_rssi.
  */
 private fun channelProof(p: MeshPacket): Int? =
-    if (p.hasDecoded() && !p.pkiEncrypted && p.hasRxRssi()) p.channel else null
+    if (p.hasDecoded() && !p.pkiEncrypted && (p.hasRxRssi() || p.decoded.portnum in LIVE_ONLY_PORTS)) p.channel else null
+
+/** Paquetes que solo pueden haber llegado por radio en el momento (nunca son un replay). */
+private val LIVE_ONLY_PORTS = setOf(
+    PortNum.TEXT_MESSAGE_APP, PortNum.WAYPOINT_APP, PortNum.NODEINFO_APP, PortNum.ROUTING_APP,
+)
 
 /** Ajustes del nodo conectado que cambiaron. null / vacío = no tocar. */
 data class NodeEdits(
