@@ -594,6 +594,7 @@ private val LICENSES = listOf(
     "AndroidX y Jetpack Compose" to "Apache-2.0",
     "Kotlin y kotlinx.coroutines" to "Apache-2.0",
     "Space Grotesk (logo)" to "OFL-1.1",
+    "Barlow (nombre en la intro)" to "OFL-1.1",
     "Datos de OpenStreetMap" to "ODbL",
     "Relieve SRTM (USGS, vía Terrain Tiles)" to "Dominio público",
 )

@@ -11,6 +11,8 @@
 
     <!-- Marca CalandriApp (assets/brand) -->
     <color name="brand_navy">#FF14223A</color>
+    <!-- Fondo de la intro (relieve): la pantalla de arranque usa el mismo, así no hay salto de color. -->
+    <color name="intro_bg">#FF060A10</color>
     <color name="brand_copper">#FFC98245</color>
     <color name="brand_green">#FF268647</color>
     <color name="brand_text">#FFF3F5F6</color>

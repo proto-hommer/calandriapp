@@ -5,20 +5,15 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,30 +21,30 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
-import kotlinx.coroutines.withContext
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.unit.dp
-import io.github.protohommer.meshpaper.R
-import io.github.protohommer.meshpaper.ui.theme.BrandCopper
-import io.github.protohommer.meshpaper.ui.theme.BrandGreen
-import io.github.protohommer.meshpaper.ui.theme.BrandNavy
-import io.github.protohommer.meshpaper.ui.theme.BrandText
-import io.github.protohommer.meshpaper.ui.theme.NightPalette
-import androidx.compose.ui.draw.blur
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
+import io.github.protohommer.meshpaper.R
+import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-private const val DURATION_MS = 2800
+private const val DURATION_MS = 4600
 
 /** Escala de animación fija en 1: ignora "duración de animaciones" del sistema. */
 private object RealTime : MotionDurationScale {
@@ -60,10 +55,38 @@ private object RealTime : MotionDurationScale {
 private fun phase(t: Float, from: Float, to: Float): Float = ((t - from) / (to - from)).coerceIn(0f, 1f)
 private fun ease(x: Float) = FastOutSlowInEasing.transform(x)
 
+// Paleta de la intro (la del fondo "Topografía"): siempre oscura, aunque la app esté en modo día.
+private val BgTop = Color(0xFF060A10)
+private val BgBottom = Color(0xFF090E16)
+private val Contour = Color(0xFF1C3140)
+private val Scan = Color(0xFF3FD6E6)
+private val Copper = Color(0xFFC98245)
+private val CopperDim = Color(0xFF784E2C)
+private val Eye = Color(0xFF3CC878)
+private val Link = Color(0xFF2E6E7C)
+private val Name = Color(0xFFC8D6DE)
+private val Sub = Color(0xFF5A7887)
+
+private val Barlow = FontFamily(Font(R.font.barlow_regular))
+
+/** Cerros del relieve (x, y relativos a la pantalla, fase de la deformación) y cantidad de curvas. */
+private val PEAKS = listOf(
+    floatArrayOf(0.26f, 0.25f, 0.4f, 14f),
+    floatArrayOf(0.82f, 0.68f, 1.7f, 12f),
+    floatArrayOf(0.17f, 0.90f, 2.9f, 8f),
+)
+
+/** Dónde aparece cada nodo antes de juntarse (relativo a la pantalla, repartidos por el "mapa"). */
+private val STARTS = floatArrayOf(
+    0.88f, 0.14f, 0.55f, 0.08f, 0.30f, 0.16f, 0.12f, 0.34f, 0.10f, 0.62f, 0.22f, 0.80f, 0.45f, 0.93f,
+    0.70f, 0.86f, 0.92f, 0.74f, 0.86f, 0.44f, 0.66f, 0.27f, 0.38f, 0.58f, 0.60f, 0.55f, 0.40f, 0.33f,
+)
+
 /**
- * Intro de la app: los nodos llegan sueltos desde afuera, se juntan, se unen con las conexiones
- * y forman la calandria; después aparece el nombre y abajo "powered by Meshtastic®".
- * Un toque la saltea.
+ * Intro de la app: primero se "escanea" el relieve (curvas de nivel, como un mapa holográfico),
+ * después aparecen los nodos repartidos por el terreno, cada uno con su pulso de radio, y viajan
+ * al centro enlazándose hasta formar la calandria; el ojo se enciende, abajo el nombre y al pie
+ * "powered by Meshtastic®". Un toque la saltea.
  */
 @Composable
 fun BrandIntro(onDone: () -> Unit) {
@@ -75,117 +98,171 @@ fun BrandIntro(onDone: () -> Unit) {
         onDone()
     }
     val t = time.value
-    val out = 1f - phase(t, 0.9f, 1f) // fundido final hacia la app
+    val out = 1f - phase(t, 0.95f, 1f) // fundido final hacia la app
 
-    Box(
-        Modifier.fillMaxSize().graphicsLayer { alpha = out }.background(BrandNavy)
-            .background(Brush.radialGradient(listOf(NeonCopper.copy(alpha = 0.10f * phase(t, 0.3f, 0.7f)), Color.Transparent)))
+    BoxWithConstraints(
+        Modifier.fillMaxSize().graphicsLayer { alpha = out }
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDone),
     ) {
+        val markCenterY = 0.44f
+        Canvas(Modifier.fillMaxSize()) { drawIntro(t, markCenterY) }
+
+        // Nombre y bajada, debajo de la marca.
+        val name = ease(phase(t, 0.74f, 0.88f))
         Column(
-            Modifier.fillMaxSize().padding(horizontal = 48.dp),
+            Modifier.align(Alignment.TopCenter).offset(y = maxHeight * 0.66f)
+                .graphicsLayer { alpha = name; translationY = (1f - name) * 16.dp.toPx() },
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
         ) {
-            val box = BrandGeometry.box
-            Canvas(Modifier.fillMaxWidth(0.85f).aspectRatio(box[2] / box[3])) { drawMark(t, size.width / box[2]) }
-            Spacer(Modifier.height(36.dp))
-            val name = ease(phase(t, 0.55f, 0.75f))
-            Box(
-                Modifier.fillMaxWidth(0.9f).graphicsLayer {
-                    alpha = name
-                    translationY = (1f - name) * 24.dp.toPx()
-                },
-            ) {
-                // Brillo de neón: la misma palabra en cobre, desenfocada, detrás.
-                Image(
-                    painterResource(R.drawable.brand_nombre), contentDescription = null,
-                    modifier = Modifier.matchParentSize().blur(10.dp).graphicsLayer { alpha = 0.8f },
-                    colorFilter = ColorFilter.tint(NeonCopper),
-                )
-                Image(painterResource(R.drawable.brand_nombre), contentDescription = "CalandriApp", modifier = Modifier.fillMaxWidth())
-            }
+            Text(
+                "CALANDRIAPP",
+                style = TextStyle(fontFamily = Barlow, fontSize = 30.sp, letterSpacing = 0.42.em, color = Name, textAlign = TextAlign.Center),
+            )
+            Text(
+                "MESH · LORA · OFFLINE",
+                Modifier.padding(top = 10.dp),
+                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, letterSpacing = 0.3.em, color = Sub),
+            )
         }
         Text(
             "powered by Meshtastic®",
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 28.dp)
-                .graphicsLayer { alpha = ease(phase(t, 0.68f, 0.85f)) },
-            style = MaterialTheme.typography.labelMedium,
-            color = BrandText.copy(alpha = 0.75f),
+                .graphicsLayer { alpha = ease(phase(t, 0.84f, 0.94f)) },
+            style = TextStyle(fontFamily = Barlow, fontSize = 12.sp, letterSpacing = 0.08.em, color = Name.copy(alpha = 0.7f)),
         )
     }
 }
 
-/** Dibuja la marca en el instante [t]; [s] = píxeles por unidad de marca.svg. */
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMark(t: Float, s: Float) {
+private fun DrawScope.drawIntro(t: Float, markCenterY: Float) {
+    val w = size.width
+    val h = size.height
+    drawRect(Brush.verticalGradient(listOf(BgTop, BgBottom)))
+
+    // ---------- 1 · El relieve: curvas de nivel que aparecen detrás de una línea de escaneo ----------
+    val scan = ease(phase(t, 0.02f, 0.34f))
+    val scanY = h * scan
+    val contours = Stroke(0.7.dp.toPx())
+    clipRect(bottom = scanY) {
+        for (pk in PEAKS) drawContours(pk, w, h, Contour, contours)
+    }
+    if (scan in 0.001f..0.999f) {
+        // La franja recién escaneada brilla un poco más, como un mapa holográfico que se dibuja.
+        val band = 70.dp.toPx()
+        clipRect(top = scanY - band, bottom = scanY) {
+            for (pk in PEAKS) drawContours(pk, w, h, Scan.copy(alpha = 0.35f), contours)
+        }
+        drawRect(
+            Brush.verticalGradient(listOf(Color.Transparent, Scan.copy(alpha = 0.10f)), startY = scanY - band, endY = scanY),
+            topLeft = Offset(0f, scanY - band), size = Size(w, band),
+        )
+        drawLine(Scan.copy(alpha = 0.18f), Offset(0f, scanY), Offset(w, scanY), 6.dp.toPx())
+        drawLine(Scan.copy(alpha = 0.85f), Offset(0f, scanY), Offset(w, scanY), 1.5.dp.toPx())
+    }
+
+    // ---------- 2 · Los nodos: aparecen en el terreno, laten y viajan al centro ----------
     val g = BrandGeometry
     val box = g.box
     val n = g.points.size / 2
-    val cx = box[0] + box[2] / 2
-    val cy = box[1] + box[3] / 2
-    // Cada nodo arranca afuera, en un lugar fijo (ángulo áureo), y llega con un pequeño escalonado.
+    val s = w * 0.62f / box[2]
+    val ox = w / 2 - (box[0] + box[2] / 2) * s
+    val oy = h * markCenterY - (box[1] + box[3] / 2) * s
+    val appear = phase(t, 0.30f, 0.40f)
     val pos = Array(n) { i ->
-        val tx = g.points[2 * i]
-        val ty = g.points[2 * i + 1]
-        val a = i * 2.39996f + 0.6f
-        val r = 150f + (i % 4) * 22f
-        val sx = cx + cos(a) * r
-        val sy = cy + sin(a) * r
-        val k = ease(phase(t, 0.02f + i * 0.012f, 0.42f + i * 0.012f))
-        Offset((sx + (tx - sx) * k - box[0]) * s, (sy + (ty - sy) * k - box[1]) * s)
+        val tx = ox + g.points[2 * i] * s
+        val ty = oy + g.points[2 * i + 1] * s
+        val sx = STARTS[2 * i] * w
+        val sy = STARTS[2 * i + 1] * h
+        val k = ease(phase(t, 0.42f + i * 0.008f, 0.66f + i * 0.008f))
+        Offset(sx + (tx - sx) * k, sy + (ty - sy) * k)
     }
-    val nodesIn = phase(t, 0f, 0.15f)
-    val lines = ease(phase(t, 0.28f, 0.58f))
-    val fill = phase(t, 0.5f, 0.7f)
+    val travel = ease(phase(t, 0.42f, 0.66f))
 
+    // Pulso de radio de cada nodo al aparecer (dos anillos que se abren y se apagan).
+    if (appear > 0f && travel < 1f) {
+        for (i in 0 until n) {
+            for (ring in 0..1) {
+                val p = phase(t, 0.30f + ring * 0.05f + i * 0.004f, 0.46f + ring * 0.05f + i * 0.004f)
+                if (p <= 0f || p >= 1f) continue
+                drawCircle(Scan.copy(alpha = 0.45f * (1f - p)), 6.dp.toPx() + 30.dp.toPx() * p, pos[i], style = Stroke(1.dp.toPx()))
+            }
+        }
+    }
+
+    // Mientras viajan, la malla ya se enlaza: líneas tenues entre los nodos que van a quedar unidos.
+    if (appear > 0f) {
+        val a = 0.5f * appear * (1f - ease(phase(t, 0.66f, 0.78f)))
+        if (a > 0f) {
+            val o = g.outline
+            for (k in o.indices) drawLine(Link.copy(alpha = a), pos[o[k]], pos[o[(k + 1) % o.size]], 1.dp.toPx())
+            for (k in g.edges.indices step 2) drawLine(Link.copy(alpha = a), pos[g.edges[k]], pos[g.edges[k + 1]], 1.dp.toPx())
+        }
+    }
+
+    // ---------- 3 · La calandria: el trazo de cobre crece por las conexiones ----------
+    val lines = ease(phase(t, 0.62f, 0.80f))
+    val fill = phase(t, 0.72f, 0.86f)
     if (fill > 0f) {
         val p = Path().apply {
             g.outline.forEachIndexed { k, i -> if (k == 0) moveTo(pos[i].x, pos[i].y) else lineTo(pos[i].x, pos[i].y) }
             close()
         }
-        drawPath(p, NeonCopper.copy(alpha = g.FILL_ALPHA * fill))
+        drawPath(p, Copper.copy(alpha = 0.07f * fill))
     }
     if (lines > 0f) {
-        val stroke = Stroke(g.STROKE * s, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        // Las conexiones crecen desde un extremo hasta unirse con el otro. Tres pasadas: dos de
-        // halo (anchas y tenues) y el trazo, con el centro casi blanco como un tubo de neón.
-        val passes = listOf(
-            5.5f to NeonCopper.copy(alpha = 0.10f * lines),
-            2.6f to NeonCopper.copy(alpha = 0.28f * lines),
-            1f to NeonCopper.copy(alpha = lines),
-            0.4f to Color(0xFFFFE2C4).copy(alpha = 0.9f * lines),
-        )
+        val stroke = g.STROKE * s * 0.55f
+        fun seg(a: Int, b: Int, color: Color, width: Float) {
+            val end = Offset(pos[a].x + (pos[b].x - pos[a].x) * lines, pos[a].y + (pos[b].y - pos[a].y) * lines)
+            drawLine(color, pos[a], end, width, StrokeCap.Round)
+        }
+        for (k in g.edges.indices step 2) seg(g.edges[k], g.edges[k + 1], CopperDim.copy(alpha = lines), stroke * 0.7f)
         val o = g.outline
-        for ((w, color) in passes) {
-            fun seg(a: Int, b: Int) {
-                val end = Offset(pos[a].x + (pos[b].x - pos[a].x) * lines, pos[a].y + (pos[b].y - pos[a].y) * lines)
-                drawLine(color, pos[a], end, stroke.width * w, StrokeCap.Round)
-            }
-            for (k in o.indices) seg(o[k], o[(k + 1) % o.size])
-            for (k in g.edges.indices step 2) seg(g.edges[k], g.edges[k + 1])
+        for (k in 0 until o.size - 1) {
+            seg(o[k], o[k + 1], Copper.copy(alpha = 0.12f * lines), stroke * 3.5f) // halo suave
+            seg(o[k], o[k + 1], Copper.copy(alpha = lines), stroke)
         }
     }
+    // Los nodos (cian mientras viajan, cobre al llegar).
     for (i in 0 until n) {
-        if (i == g.EYE) continue
-        drawCircle(NeonCopper.copy(alpha = 0.18f * nodesIn), g.NODE_R * 2.6f * s, pos[i])
-        drawCircle(NeonCopper.copy(alpha = nodesIn), g.NODE_R * s, pos[i])
-        drawCircle(Color(0xFFFFE2C4).copy(alpha = nodesIn), g.NODE_R * 0.45f * s, pos[i])
+        if (i == g.EYE && phase(t, 0.72f, 0.84f) > 0f) continue
+        val arrived = phase(t, 0.62f + i * 0.008f, 0.70f + i * 0.008f)
+        val c = lerp(Scan, Copper, arrived)
+        drawCircle(c.copy(alpha = 0.18f * appear), g.NODE_R * s * 1.6f, pos[i])
+        drawCircle(c.copy(alpha = appear), g.NODE_R * s * 0.62f, pos[i])
     }
-    // El ojo: llega como los demás y al final "se enciende" en verde.
+    // El ojo: llega como los demás y al final se enciende en verde.
     val eye = pos[g.EYE]
-    val glow = ease(phase(t, 0.45f, 0.6f))
-    val pop = 1f + 0.35f * sin(PI.toFloat() * glow)
-    drawCircle(NeonCopper.copy(alpha = nodesIn * (1f - glow)), g.NODE_R * s, eye)
+    val glow = ease(phase(t, 0.72f, 0.84f))
     if (glow > 0f) {
-        // El ojo se enciende: halo verde grande y tenue, el anillo oscuro y el ojo con centro claro.
-        drawCircle(NeonGreen.copy(alpha = 0.16f * glow), g.EYE_R * 3.2f * s * pop, eye)
-        drawCircle(NeonGreen.copy(alpha = 0.30f * glow), g.EYE_R * 1.8f * s * pop, eye)
-        drawCircle(BrandNavy.copy(alpha = glow), (g.EYE_R + g.EYE_RING / 2) * s * pop, eye)
-        drawCircle(NeonGreen.copy(alpha = glow), (g.EYE_R - g.EYE_RING / 2) * s * pop, eye)
-        drawCircle(Color(0xFFD8FFE8).copy(alpha = glow), (g.EYE_R - g.EYE_RING / 2) * 0.45f * s * pop, eye)
+        val pop = 1f + 0.25f * sin(PI.toFloat() * glow)
+        drawCircle(Eye.copy(alpha = 0.14f * glow), g.EYE_R * s * 1.8f * pop, eye)
+        drawCircle(Eye.copy(alpha = glow), g.EYE_R * s * 0.62f * pop, eye, style = Stroke(g.EYE_RING * s * 0.5f))
+        drawCircle(Eye.copy(alpha = glow), g.EYE_R * s * 0.28f * pop, eye)
     }
 }
 
-// La intro es siempre de noche (fondo oscuro), aunque la app esté en modo día.
-private val NeonCopper = NightPalette.copper
-private val NeonGreen = NightPalette.green
+/** Curvas de nivel de un cerro: anillos deformados (como en el fondo de pantalla "Topografía"). */
+private fun DrawScope.drawContours(pk: FloatArray, w: Float, h: Float, color: Color, stroke: Stroke) {
+    val px = pk[0] * w
+    val py = pk[1] * h
+    val ph = pk[2]
+    val count = pk[3].toInt()
+    val step = w * 0.0486f
+    for (k in 1..count) {
+        val r = step * k
+        val path = Path()
+        var a = 0
+        while (a <= 360) {
+            val rad = Math.toRadians(a.toDouble()).toFloat()
+            val rr = r * (1f + 0.10f * sin(3 * rad + ph + k * 0.3f) + 0.05f * sin(5 * rad + ph * 2))
+            val x = px + rr * cos(rad)
+            val y = py + rr * sin(rad) * 1.15f
+            if (a == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            a += 4
+        }
+        drawPath(path, color, style = stroke)
+    }
+}
+
+private fun lerp(a: Color, b: Color, f: Float) = Color(
+    a.red + (b.red - a.red) * f, a.green + (b.green - a.green) * f, a.blue + (b.blue - a.blue) * f, a.alpha + (b.alpha - a.alpha) * f,
+)
