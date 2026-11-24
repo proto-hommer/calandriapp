@@ -3,7 +3,7 @@
 **Una app Android chica y propia para usar nodos Meshtastic en el campo: mensajes, mapa offline y
 seguimiento de un grupo cerrado, sin cuentas, sin nube y sin internet.**
 
-Versión **1.7.0** | Android 8 o más nuevo | *powered by Meshtastic®*
+Versión **1.7.1** | Android 8 o más nuevo | *powered by Meshtastic®*
 
 [![Descargar APK](https://img.shields.io/github/v/release/proto-hommer/calandriapp?label=descargar%20APK&color=2ea44f)](https://github.com/proto-hommer/calandriapp/releases/latest)
 
@@ -89,7 +89,7 @@ llegar te avisa.
 
 Funciona **sin señal**: las rutas se calculan en el teléfono con [BRouter](https://github.com/abrensch/brouter).
 Los datos de cada zona se bajan una sola vez (Córdoba y alrededores son unos 11 MB) desde el mismo panel
-o desde Ajustes → Rutas sin conexión. Sin esos datos, muestra la línea recta con la distancia y el
+o desde Ajustes → App → Rutas sin conexión. Sin esos datos, muestra la línea recta con la distancia y el
 rumbo. **GUARDAR EL CAMINO** baja además el relieve (y el mapa, si la fuente lo permite) de los
 cuadrantes por donde pasa la ruta.
 
@@ -141,7 +141,7 @@ demás vuelven a escanear el QR. El QR de la captura es del grupo inventado.
   <img src="docs/img/cuadricula.png" alt="Cuadrícula de mapas sin conexión" width="32%"/>
 </p>
 
-En Ajustes → Mapas sin conexión hay una cuadrícula sobre el mapa (1-A, 2-B…): **verde** lo bajado,
+En Ajustes → App → Mapas sin conexión hay una cuadrícula sobre el mapa (1-A, 2-B…): **verde** lo bajado,
 **amarillo** lo que se está bajando, **naranja** lo que está a medias y **rojo** lo que falta. Tocás
 los cuadrantes que querés (quedan con borde cian) y se baja todo junto: el relieve y, si la fuente lo
 permite, el mapa.
@@ -154,13 +154,13 @@ permite, el mapa.
   <img src="docs/img/modo-dia-nodos.png" alt="Modo día: lista de nodos" width="32%"/>
 </p>
 
-En Ajustes → Apariencia: **NOCHE** (el HUD oscuro de siempre), **DÍA** ("neón de día": vidrio claro
+En Ajustes → App → Apariencia: **NOCHE** (el HUD oscuro de siempre), **DÍA** ("neón de día": vidrio claro
 translúcido y bordes que brillan, para leer al sol) o **AUTO** (según el tema del teléfono).
 
 <p><img src="docs/img/titulos/s-y-ademas.png" alt="Y además" height="26"/></p>
 
 - **Posición del celular** al grupo a través del nodo, para nodos sin GPS.
-- **Ajustes del nodo conectado**: nombre, rol, posición, radio, canales y reinicio. Avisa si algo
+- **Ajustes del nodo conectado**, en pestañas: Nodo (nombre, rol, posición, reinicio), LoRa (radio y canales), App y Acerca de. Avisa si algo
   quedó mal configurado (por ejemplo, la radio en modo manual, que deja de ver a los nodos ajenos).
 - **Nodos Calandria**: reconoce los [Calandria MK1 epaper](https://github.com/proto-hommer/calandria-mk1-epaper)
   y muestra su firmware y si está al día con la última versión publicada.
@@ -193,7 +193,7 @@ sin cuentas, sin nube ni servicios de Google: todo queda en el teléfono.
 
 <p><img src="docs/img/titulos/descargar-e-instalar.png" alt="Descargar e instalar" width="100%"/></p>
 
-1. Bajá el `CalandriApp-1.7.0.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
+1. Bajá el `CalandriApp-1.7.1.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
 2. Abrilo en el celular. Android va a pedir permiso para **instalar apps de origen desconocido**:
    dáselo al navegador o al gestor de archivos con el que lo abriste.
 3. Abrí CalandriApp, dale los permisos de **Bluetooth** y **ubicación**, tocá **BUSCAR** y
@@ -279,7 +279,7 @@ Algunas cosas que salieron en el camino:
 - Lo único que sale a internet son los tiles del mapa y del relieve, si tenés "usar internet" prendido,
   los datos de rutas de una zona cuando los pedís (de brouter.de: el servidor solo sabe qué cuadro de
   5° bajaste), y, al abrir la app, una consulta a GitHub para ver si hay una versión nueva (se apaga en
-  Ajustes → Actualizaciones). Las actualizaciones se bajan de los releases de este repo y solo se
+  Ajustes → Acerca de → Actualizaciones). Las actualizaciones se bajan de los releases de este repo y solo se
   instalan si están firmadas con el mismo certificado y coinciden con su SHA-256.
 
 * * *
