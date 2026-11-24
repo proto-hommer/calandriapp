@@ -66,6 +66,10 @@ data class FoundDevice(val device: BluetoothDevice, val name: String, val rssi: 
 
 /** rssi de un emparejado que no vimos anunciarse. */
 const val NO_RSSI = Int.MIN_VALUE
+private const val RECONNECT_TOTAL_MS = 120_000L
+
+/** Roles con los que el firmware apaga el Bluetooth en un ESP32 apenas no hay teléfono conectado. */
+val BLUETOOTH_OFF_ROLES = setOf(DeviceConfig.Role.ROUTER, DeviceConfig.Role.ROUTER_LATE)
 /** Lo que entra en set_canned_message_module_messages (char[201] en el firmware). */
 const val CANNED_MAX_BYTES = 200
 private const val SCAN_MS = 30_000L
@@ -619,6 +623,15 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         startScan()
     }
 
+    /** El botón CANCELAR mientras se aplica o se reconecta: corta todo y suelta el Bluetooth. */
+    fun cancelApply() {
+        applyJob?.cancel(); applyJob = null
+        _keepAlive.value = false
+        reconnectJob?.cancel(); reconnectJob = null
+        ble.disconnect()
+        _apply.value = ApplyState.Failed("cancelado: conectá a mano cuando el nodo esté listo")
+    }
+
     fun disconnect() {
         _keepAlive.value = false
         reconnectJob?.cancel(); reconnectJob = null
@@ -750,7 +763,15 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
      * que un set_owner posterior pisaría) y el rol antes que la posición (para que lo que
      * eligió el usuario le gane a los defaults del rol).
      */
-    fun saveNodeSettings(e: NodeEdits) = runEdit("Guardando los ajustes…", "Ajustes guardados.") { me ->
+    fun saveNodeSettings(e: NodeEdits) = runEdit(
+        "Guardando los ajustes…",
+        if (e.device?.role in BLUETOOTH_OFF_ROLES) "Guardado. Como router, el nodo apaga el Bluetooth: la app ya no se puede conectar."
+        else "Ajustes guardados.",
+        // Un router (ROUTER / ROUTER_LATE) en un ESP32 apaga el Bluetooth al segundo de quedar sin
+        // teléfono (wait_bluetooth_secs = 1 y light sleep, PowerFSM.cpp / Default.h): reintentar
+        // conectar es inútil y dejaba la app colgada varios minutos.
+        reconnect = e.device?.role !in BLUETOOTH_OFF_ROLES,
+    ) { me ->
         fun cfg(c: Config.Builder) = AdminMessage.newBuilder().setSetConfig(c).build()
         e.owner?.let { sendAdmin(me, AdminMessage.newBuilder().setSetOwner(it).build()) }
         e.device?.let { sendAdmin(me, cfg(Config.newBuilder().setDevice(it))) }
@@ -792,6 +813,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         firstStep: String,
         doneText: String,
         transaction: Boolean = true,
+        reconnect: Boolean = true,
         writes: suspend (me: Int) -> Unit,
     ) {
         val me = _myNodeNum.value ?: run {
@@ -811,18 +833,35 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 // Esperar a que el nodo corte y volver a conectar.
                 withTimeoutOrNull(15_000) { link.first { it !is LinkState.Connected } }
                 ble.disconnect()
-                var ok = false
-                for (attempt in 1..6) {
-                    delay(if (attempt == 1) 8_000 else 5_000)
-                    _apply.value = ApplyState.Working("Reconectando (intento $attempt/6)…")
-                    connectDevice(device)
-                    val st = withTimeoutOrNull(60_000) {
-                        link.first { it is LinkState.Connected || it is LinkState.Failed }
+                if (!reconnect) {
+                    _keepAlive.value = false
+                    _apply.value = ApplyState.Done(doneText)
+                    return@launch
+                }
+                // Tope total: cada intento de conexión puede tardar más de un minuto (connectWithRetry),
+                // y antes eran 6 seguidos sin forma de cortarlos.
+                val ok = withTimeoutOrNull(RECONNECT_TOTAL_MS) {
+                    var attempt = 0
+                    while (true) {
+                        attempt++
+                        delay(if (attempt == 1) 8_000 else 5_000)
+                        _apply.value = ApplyState.Working("Reconectando (intento $attempt)…")
+                        connectDevice(device)
+                        val st = withTimeoutOrNull(60_000) {
+                            link.first { it is LinkState.Connected || it is LinkState.Failed }
+                        }
+                        if (st is LinkState.Connected) return@withTimeoutOrNull true
                     }
-                    if (st is LinkState.Connected) { ok = true; break }
+                    @Suppress("UNREACHABLE_CODE") false
+                } == true
+                if (!ok) {
+                    // Soltar el intento en curso: si queda un connectGatt pendiente, el Bluetooth del
+                    // teléfono puede quedar trabado hasta reiniciarlo.
+                    _keepAlive.value = false
+                    ble.disconnect()
                 }
                 _apply.value = if (ok) ApplyState.Done(doneText)
-                else ApplyState.Failed("se aplicó, pero no pude reconectar: probá Conectar a mano")
+                else ApplyState.Failed("se aplicó, pero no pude reconectar en 2 minutos: probá Conectar a mano")
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "applyChannelSet", e)

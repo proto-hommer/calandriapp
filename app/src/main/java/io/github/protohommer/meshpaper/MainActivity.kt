@@ -298,7 +298,7 @@ fun App(vm: MeshViewModel) {
                 }
             }
             TopStatus(vm, Modifier.align(Alignment.TopCenter))
-            if (apply is ApplyState.Working) WorkingOverlay((apply as ApplyState.Working).step)
+            if (apply is ApplyState.Working) WorkingOverlay((apply as ApplyState.Working).step, onCancel = vm::cancelApply)
         }
         if (showNav) {
             NavBar(
@@ -596,12 +596,20 @@ private fun ApplyBanner(vm: MeshViewModel, apply: ApplyState, modifier: Modifier
 }
 
 @Composable
-private fun BoxScope.WorkingOverlay(step: String) {
+private fun BoxScope.WorkingOverlay(step: String, onCancel: () -> Unit) {
+    // CANCELAR aparece a los pocos segundos: escribir la config es rápido, lo que se puede
+    // estirar es la reconexión (nodo que no vuelve, Bluetooth apagado, etc.).
+    var canCancel by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(6_000); canCancel = true }
     Box(Modifier.matchParentSize().background(HudBg.copy(alpha = 0.85f)).clickable(enabled = true, onClick = {}), contentAlignment = Alignment.Center) {
         HudPanel(Modifier.padding(32.dp).hudCorners(), title = "Trabajando") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.padding(end = 12.dp))
                 Text(step)
+            }
+            if (canCancel) {
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.End)) { Text("CANCELAR") }
             }
         }
     }

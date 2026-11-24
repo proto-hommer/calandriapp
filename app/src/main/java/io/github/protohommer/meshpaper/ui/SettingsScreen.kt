@@ -232,7 +232,14 @@ private fun SettingsContent(
             HudPanel(Modifier.fillMaxWidth(), title = "Rol") {
                 Select("Qué hace el nodo", role, ROLES.map { it.first }, { roleName(it) }, { r -> ROLES.first { it.first == r }.second }) { role = it }
                 Note(ROLES.firstOrNull { it.first == role }?.second ?: "")
-                if (role != device.role && role in WARN_ROLES) Warn("Este rol cambia también intervalos del nodo y lo marca como \"no recibe mensajes directos\".")
+                if (role != device.role && role in io.github.protohommer.meshpaper.BLUETOOTH_OFF_ROLES) Warn(
+                    "Como router, el nodo apaga el Bluetooth apenas no hay un teléfono conectado (así funciona " +
+                        "Meshtastic en estas placas, para ahorrar batería). Después de guardar, ni esta app ni la " +
+                        "oficial se van a poder conectar. Para volverlo a Cliente: desde su pantalla (Menú → " +
+                        "Node Config → Device → Role → Client) o por USB.",
+                    SigWeak,
+                )
+                else if (role != device.role && role in WARN_ROLES) Warn("Este rol cambia también intervalos del nodo y lo marca como \"no recibe mensajes directos\".")
                 Spacer(Modifier.height(8.dp))
                 Select("Qué repite", rebroadcast, REBROADCAST.map { it.first }, { rebroadcastName(it) }, { m -> REBROADCAST.first { it.first == m }.second }) { rebroadcast = it }
                 Note(REBROADCAST.firstOrNull { it.first == rebroadcast }?.second ?: "")
