@@ -174,30 +174,40 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         if (a.gpsHeight && h != null) a.copy(heightM = h) else a
     }
 
-    // Cobertura según el relieve del nodo con el alcance abierto. Mientras se calcula, o si falta
-    // el relieve, queda el círculo de antes.
+    // Cobertura según el relieve del nodo con el alcance abierto. Mientras se calcula por primera
+    // vez, o si falta el relieve, queda el círculo de antes.
+    //
+    // Las claves van redondeadas: el GPS (del teléfono o el que manda el nodo) se mueve unos metros
+    // en cada lectura, y recalcular por eso hacía parpadear el mapa. ~50 m es menos que dos píxeles
+    // del relieve, y 1 m de altura de antena no cambia nada a la vista. Al recalcular (porque el nodo
+    // se movió de verdad) la cobertura anterior queda hasta que esté la nueva.
     var coverage by remember { mutableStateOf<Coverage.Result?>(null) }
+    var coverageFor by remember { mutableStateOf<Int?>(null) }
     var coverageMsg by remember { mutableStateOf<String?>(null) }
     val covNode = rangeNode
-    val covAnt = covNode?.let { effAntenna(it) }
+    val covAnt = covNode?.let { effAntenna(it) }?.let { it.copy(heightM = it.heightM.roundToInt().toDouble().coerceAtLeast(0.5)) }
     val covAt = covNode?.let { num ->
-        if (num == me && fix != null) fix!!.latitude to fix!!.longitude
+        val f = fix
+        if (num == me && f != null) f.latitude to f.longitude
         else nodes[num]?.let { n -> if (n.lat != null && n.lon != null) n.lat to n.lon else null }
-    }
-    LaunchedEffect(covNode, covAnt, covAt, lora) {
-        coverage = null
+    }?.let { (la, lo) -> Math.round(la * 2000) / 2000.0 to Math.round(lo * 2000) / 2000.0 }
+    val covFreq = Profile.frequencyMHz(lora)
+    LaunchedEffect(covNode, covAnt, covAt, covFreq, preset) {
         val at = covAt; val a = covAnt
-        if (covNode == null || at == null || a == null) { coverageMsg = null; return@LaunchedEffect }
-        coverageMsg = "Calculando la cobertura…"
+        if (covNode == null || at == null || a == null) {
+            coverage = null; coverageFor = null; coverageMsg = null; return@LaunchedEffect
+        }
+        if (coverageFor != covNode) { coverage = null; coverageFor = null }
+        if (coverage == null) coverageMsg = "Calculando la cobertura…"
         val net = MapTiles.useInternet(context)
         val out = withContext(Dispatchers.Default) {
-            Coverage.compute(context, at.first, at.second, a, Profile.frequencyMHz(lora), preset, net) { done, total ->
-                if (done < total) coverageMsg = "Relieve: $done de $total…"
+            Coverage.compute(context, at.first, at.second, a, covFreq, preset, net) { done, total ->
+                if (done < total && coverage == null) coverageMsg = "Relieve: $done de $total…"
             }
         }
         when (out) {
-            is Coverage.Outcome.Done -> { coverage = out.result; coverageMsg = null }
-            is Coverage.Outcome.MissingTerrain -> coverageMsg =
+            is Coverage.Outcome.Done -> { coverage = out.result; coverageFor = covNode; coverageMsg = null }
+            is Coverage.Outcome.MissingTerrain -> if (coverage == null) coverageMsg =
                 if (net) "Faltan ${out.missing} de ${out.total} tiles de relieve y no bajaron: queda el círculo."
                 else "Sin relieve de la zona: prendé \"Usar internet\" (CAPA) o guardalo en Mapas sin conexión."
             Coverage.Outcome.NoPreset -> coverageMsg = null
