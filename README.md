@@ -42,37 +42,138 @@ CalandriApp habla con un nodo [Meshtastic](https://meshtastic.org) por Bluetooth
 de Meshtastic. **No es un fork de la app oficial**: es una app más simple, hecha para un uso concreto,
 trabajo de campo con un grupo cerrado:
 
-- **Mensajes** al grupo, al canal público y directos, con confirmación de entrega y reintento,
-  respuestas a un mensaje concreto (mantenerlo apretado) y los saltos que dio cada uno.
-- **Avisos de mensajes nuevos**: un cartel dentro de la app y notificaciones con la app cerrada o la
-  pantalla apagada (la conexión sigue en segundo plano y se reconecta sola si se corta).
-- **Mapa offline** con los nodos del grupo, su rastro y los waypoints (se crean con un toque largo
-  y llegan los de los demás).
-- **Colores que se leen de un vistazo**:
-  - los del grupo, en verde, amarillo, naranja o rojo según los saltos;
-  - los fijos del grupo (router, base), en azul;
-  - los ajenos, con el nombre en violeta y un anillo con la señal;
-  - los nodos fijos (router, base, repetidor), del grupo o ajenos, con forma de rombo;
-  - los ajenos que no se oyen hace más de 30 minutos se ocultan del mapa hasta que vuelven a oírse.
-- **Ir a un nodo o waypoint** sin salir de la app: la ruta por calles y senderos (a pie, en bici o
-  en auto), lo que falta, el tiempo y el rumbo, que se recalcula si te salís del camino o si el nodo
-  se mueve. Funciona **sin señal**: los datos de rutas de la zona se bajan una vez (Córdoba y
-  alrededores, unos 11 MB). Sin esos datos, muestra la línea recta.
-- **Modo noche y modo día** (Ajustes → Apariencia): el HUD oscuro de siempre, o "neón de día" con
-  vidrio claro translúcido y bordes que brillan, para usar al sol. También puede seguir al teléfono.
-- **Alcance estimado**: con un toque largo sobre un nodo, si le cargaste los datos de la antena.
-  La altura puede salir sola del GPS del nodo (su altitud menos el terreno), si la manda.
-- **Perfil de terreno** entre vos y cualquier nodo: el corte del relieve, la línea de vista, la zona
-  de Fresnel y si el enlace **pasa, está al límite o no pasa**, con el margen en dB. Usa el relieve
-  del SRTM (≈30 m), que se baja por zonas y queda guardado para usarlo sin señal.
-- **Mapas sin conexión por cuadrantes** (en Ajustes): una cuadrícula sobre el mapa (1-A, 2-B…)
-  con lo bajado en verde, lo que se está bajando en amarillo y lo que falta en rojo. Se elige qué
-  cuadrantes bajar y se baja todo junto: el relieve y, si la fuente lo permite, el mapa.
-- **Grupo cerrado en dos toques**: crea un canal privado con clave AES-256 y lo comparte por QR
-  (el formato estándar de Meshtastic, así que sirve también con la app oficial). El nombre del grupo
-  se puede cambiar después (los demás vuelven a escanear el QR).
+Las capturas usan un **grupo de ejemplo inventado** (una expedición en el valle de Calamuchita): ni los
+nodos ni las posiciones son de nadie real.
+
+### El mapa y los nodos
+
+<p align="center">
+  <img src="docs/img/mapa-noche.png" alt="Mapa con el grupo, los repetidores, rastros y waypoints" width="32%"/>
+  &nbsp;
+  <img src="docs/img/mapa-detalle.png" alt="Detalle de los íconos de los nodos" width="62%"/>
+</p>
+
+**Mapa offline** con los nodos del grupo, su rastro (la línea que dejan al moverse) y los waypoints.
+Cada nodo se lee de un vistazo por su **color**, su **forma** y su **borde**:
+
+| Cómo se ve | Qué es | En el ejemplo |
+|---|---|---|
+| Círculo **verde** | Del grupo, se lo oye directo o a 1 salto | ANA |
+| Círculo **amarillo** | Del grupo, a 2 o 3 saltos | JUAN |
+| Círculo **naranja** | Del grupo, a 4 o 5 saltos | SOFI |
+| Borde **rojo punteado** | Del grupo, perdido: no se lo oye hace rato | TOMI |
+| **Rombo azul** | Fijo del grupo (router, base), con el borde de la señal por fuera | BASE |
+| Nombre **violeta** | Ajeno (no es del grupo): solo sirve de repetidor | SRC2, CHMP |
+| **Rombo** | Nodo fijo (router, base, repetidor), del grupo o ajeno | CHMP, VGB1 |
+| Retícula **cian** | Vos: el teléfono y el nodo conectado | EX1 |
+| Emoji con un palito | Waypoint (campamento, peligro, auto…) | ⛺ ⚠️ 🚗 |
+
+Los ajenos que no se oyen hace más de 30 minutos se ocultan del mapa hasta que vuelven a oírse. La
+leyenda de abajo a la izquierda se puede achicar.
+
+### La ficha de un nodo
+
+<p align="center">
+  <img src="docs/img/ficha-nodo.png" alt="Ficha de un nodo del grupo" width="32%"/>
+  &nbsp;
+  <img src="docs/img/nodos.png" alt="Lista de nodos" width="32%"/>
+  &nbsp;
+  <img src="docs/img/waypoint.png" alt="Ficha de un waypoint" width="32%"/>
+</p>
+
+Tocás un nodo y aparece su ficha: hace cuánto se lo oyó, el enlace (saltos o SNR), la batería, a qué
+distancia y en qué dirección está, su rastro y el modelo de placa. Desde ahí le escribís, vas hacia él
+(**IR**), ves el perfil del terreno o cargás los datos de su antena. En la pestaña **Nodos** está la
+misma información en lista: primero los del grupo y después los repetidores y otros. Mantené apretado
+un nodo de la lista para verlo en el mapa. Los waypoints tienen su propia ficha (quién lo puso, si vence,
+a qué distancia está) y también se puede ir hacia ellos; se crean con un toque largo en el mapa.
+
+### Ir a un nodo o waypoint
+
+<p align="center">
+  <img src="docs/img/ir-a.png" alt="Ruta a pie hasta un nodo, por senderos" width="32%"/>
+  &nbsp;
+  <img src="docs/img/rutas-ajustes.png" alt="Ajustes: mapas y rutas sin conexión" width="32%"/>
+</p>
+
+Sin salir de la app: tocás **IR** en la ficha de un nodo o de un waypoint y la app te marca el camino
+**por calles y senderos**, a pie, en bici o en auto, con lo que falta, el tiempo estimado, el rumbo y
+cuánto sube. Si te salís del camino recalcula, y si el destino es un nodo que se mueve, lo sigue. Al
+llegar te avisa.
+
+Funciona **sin señal**: las rutas se calculan en el teléfono con [BRouter](https://github.com/abrensch/brouter).
+Los datos de cada zona se bajan una sola vez (Córdoba y alrededores son unos 11 MB) desde el mismo panel
+o desde Ajustes → Rutas sin conexión. Sin esos datos, muestra la línea recta con la distancia y el
+rumbo. **GUARDAR EL CAMINO** baja además el relieve (y el mapa, si la fuente lo permite) de los
+cuadrantes por donde pasa la ruta.
+
+### Alcance y perfil del terreno
+
+<p align="center">
+  <img src="docs/img/alcance.png" alt="Alcance estimado de un nodo fijo" width="32%"/>
+  &nbsp;
+  <img src="docs/img/perfil-pasa.png" alt="Perfil del terreno: el enlace pasa" width="32%"/>
+  &nbsp;
+  <img src="docs/img/perfil-no-pasa.png" alt="Perfil del terreno: el enlace no pasa" width="32%"/>
+</p>
+
+- **Alcance estimado**: con un toque largo sobre un nodo al que le cargaste los datos de la antena,
+  se dibujan dos círculos: el alcance en ciudad (lleno) y a campo abierto (punteado). La altura de la
+  antena puede salir sola del GPS del nodo (su altitud menos el terreno), si la manda.
+- **Perfil del terreno** entre vos y cualquier nodo: el corte del relieve, la línea de vista, la zona de
+  Fresnel (las líneas punteadas) y si el enlace **pasa, está al límite o no pasa**, con el margen en
+  dB. En el ejemplo, la base pasa con +17 dB aunque un cerro roza la línea de vista; JUAN, del otro lado
+  de las sierras, no pasa. Usa el relieve del SRTM (≈30 m), que se baja por zonas y queda guardado.
+
+### Mensajes
+
+<p align="center">
+  <img src="docs/img/chat.png" alt="Chat del grupo con respuestas y saltos" width="32%"/>
+</p>
+
+Al grupo, al canal público y directos, con confirmación de entrega y reintento. Cada mensaje dice
+cuántos **saltos** dio ("directo", "2 saltos"…). Mantené apretado un mensaje para **responderlo**: la
+respuesta lleva la cita arriba. Llegan **avisos** dentro de la app y notificaciones con la app cerrada
+o la pantalla apagada: la conexión sigue en segundo plano y se reconecta sola si se corta.
+
+### Grupo cerrado
+
+<p align="center">
+  <img src="docs/img/grupo.png" alt="Pestaña Grupo con el QR para sumar a otros" width="32%"/>
+</p>
+
+En dos toques crea un canal privado con clave AES-256 y lo comparte por **QR**, en el formato estándar
+de Meshtastic (sirve también con la app oficial). El nombre del grupo se puede cambiar después: los
+demás vuelven a escanear el QR. El QR de la captura es del grupo inventado.
+
+### Mapas sin conexión
+
+<p align="center">
+  <img src="docs/img/cuadricula.png" alt="Cuadrícula de mapas sin conexión" width="32%"/>
+</p>
+
+En Ajustes → Mapas sin conexión hay una cuadrícula sobre el mapa (1-A, 2-B…): **verde** lo bajado,
+**amarillo** lo que se está bajando, **naranja** lo que está a medias y **rojo** lo que falta. Tocás
+los cuadrantes que querés (quedan con borde cian) y se baja todo junto: el relieve y, si la fuente lo
+permite, el mapa.
+
+### Modo día
+
+<p align="center">
+  <img src="docs/img/modo-dia.png" alt="Modo día: mapa" width="32%"/>
+  &nbsp;
+  <img src="docs/img/modo-dia-nodos.png" alt="Modo día: lista de nodos" width="32%"/>
+</p>
+
+En Ajustes → Apariencia: **NOCHE** (el HUD oscuro de siempre), **DÍA** ("neón de día": vidrio claro
+translúcido y bordes que brillan, para leer al sol) o **AUTO** (según el tema del teléfono).
+
+### Y además
+
 - **Posición del celular** al grupo a través del nodo, para nodos sin GPS.
-- **Ajustes del nodo conectado**: nombre, rol, posición, radio, canales, reinicio.
+- **Ajustes del nodo conectado**: nombre, rol, posición, radio, canales y reinicio. Avisa si algo
+  quedó mal configurado (por ejemplo, la radio en modo manual, que deja de ver a los nodos ajenos).
+- **Se actualiza sola** desde los releases de este repo, verificando la firma.
 
 La calandria es un pájaro cantor de acá. En el logo está dibujada como una malla de nodos
 conectados, y el ojo es el nodo principal.
