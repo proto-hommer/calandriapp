@@ -12,7 +12,7 @@ CalandriApp
 **Una app Android chica y propia para usar nodos Meshtastic en el campo: mensajes, mapa offline y
 seguimiento de un grupo cerrado, sin cuentas, sin nube y sin internet.**
 
-Versión **1.5.1** | Android 8 o más nuevo | *powered by Meshtastic®*
+Versión **1.5.2** | Android 8 o más nuevo | *powered by Meshtastic®*
 
 [![Descargar APK](https://img.shields.io/github/v/release/proto-hommer/calandriapp?label=descargar%20APK&color=2ea44f)](https://github.com/proto-hommer/calandriapp/releases/latest)
 
@@ -23,7 +23,7 @@ Versión **1.5.1** | Android 8 o más nuevo | *powered by Meshtastic®*
 **Bajás el APK, lo instalás, emparejás tu nodo por Bluetooth y tenés a tu grupo en el mapa.**
 
 <p align="center">
-  <img src="docs/img/intro-nodos.png" alt="Intro: los nodos llegan sueltos" width="23%"/>
+  <img src="docs/img/intro-nodos.png" alt="Intro: se escanea el relieve y aparecen los nodos" width="23%"/>
   &nbsp;
   <img src="docs/img/intro-calandria.png" alt="Intro: los nodos forman la calandria" width="23%"/>
   &nbsp;
@@ -31,7 +31,7 @@ Versión **1.5.1** | Android 8 o más nuevo | *powered by Meshtastic®*
   &nbsp;
   <img src="docs/img/acerca.png" alt="Acerca de y licencias" width="23%"/>
 </p>
-<p align="center"><i>La intro (los nodos sueltos se juntan y forman la calandria), los ajustes del nodo y el "acerca de".</i></p>
+<p align="center"><i>La intro (se escanea el relieve, los nodos aparecen en el mapa y se juntan formando la calandria), los ajustes del nodo y el "acerca de".</i></p>
 
 * * *
 
@@ -202,7 +202,7 @@ sin cuentas, sin nube ni servicios de Google: todo queda en el teléfono.
 Descargar e instalar
 --------------------
 
-1. Bajá el `CalandriApp-1.5.1.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
+1. Bajá el `CalandriApp-1.5.2.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
 2. Abrilo en el celular. Android va a pedir permiso para **instalar apps de origen desconocido**:
    dáselo al navegador o al gestor de archivos con el que lo abriste.
 3. Abrí CalandriApp, dale los permisos de **Bluetooth** y **ubicación**, tocá **BUSCAR** y
