@@ -1,5 +1,7 @@
 package io.github.protohommer.meshpaper.ui
 
+import io.github.protohommer.meshpaper.ui.theme.Appearance
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -97,21 +99,24 @@ val LocalHaze = staticCompositionLocalOf<HazeState?> { null }
  * resolución completa: con grano y la entrada a 1/3 (para ahorrar al arrastrar) se veía pixelado,
  * y desde que el desenfoque se apaga mientras se mueve el mapa ese ahorro no hace falta.
  */
-internal val GlassStyle = HazeStyle(
-    backgroundColor = HudBg,
-    tint = HazeTint(HudBg.copy(alpha = 0.42f)),
-    blurRadius = 18.dp,
-    noiseFactor = 0f,
-    // Sin desenfoque (Android 11 o anterior, o el mapa moviéndose): un velo oscuro que se lea igual.
-    fallbackTint = HazeTint(HudBg.copy(alpha = 0.74f)),
-)
+internal val GlassStyle: HazeStyle
+    get() = HazeStyle(
+        backgroundColor = HudBg,
+        // De día el velo es más opaco: sobre un mapa claro y con sol, el texto oscuro necesita fondo.
+        tint = HazeTint(HudBg.copy(alpha = if (Appearance.isDay) 0.58f else 0.42f)),
+        blurRadius = 18.dp,
+        noiseFactor = 0f,
+        // Sin desenfoque (Android 11 o anterior, o el mapa moviéndose): un velo que se lea igual.
+        fallbackTint = HazeTint(HudBg.copy(alpha = if (Appearance.isDay) 0.86f else 0.74f)),
+    )
 
 /**
  * Halo de luz alrededor de [shape], como un tubo de neón. Se dibuja por fuera (no recorta).
  * Android 9 o más (antes la GPU no desenfoca trazos): en los viejos no hace nada.
  */
 fun Modifier.neonGlow(color: Color, shape: Shape, radius: Dp = 8.dp, width: Dp = 2.dp): Modifier =
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) this else drawBehind {
+    // De día no hay neón: sobre fondo claro el halo parece una mancha.
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || Appearance.isDay) this else drawBehind {
         val outline = shape.createOutline(size, layoutDirection, this)
         val paint = Paint().apply {
             style = PaintingStyle.Stroke
@@ -136,7 +141,8 @@ fun Modifier.glass(shape: Shape, accent: Color = HudCyan, blur: Boolean = true, 
         .clip(shape)
         .then(
             if (haze != null) Modifier.hazeEffect(haze, GlassStyle).background(HudSurface.copy(alpha = 0.18f))
-            else Modifier.background(HudSurface.copy(alpha = if (blur) 0.62f else 0.55f))
+            // De día, más opaco: sobre el mapa claro los botones translúcidos se perdían.
+            else Modifier.background(HudSurface.copy(alpha = if (Appearance.isDay) 0.86f else if (blur) 0.62f else 0.55f))
         )
         .background(
             Brush.verticalGradient(
@@ -157,7 +163,7 @@ fun TextStyle.neon(color: Color, radius: Float = 14f): TextStyle =
     copy(shadow = Shadow(color.copy(alpha = 0.85f), Offset.Zero, radius))
 
 /** Los textos de color (acentos y señales) brillan; los grises y el blanco del texto, no. */
-private fun glows(color: Color) = color.alpha > 0.5f && color != HudTextDim &&
+private fun glows(color: Color) = !Appearance.isDay && color.alpha > 0.5f && color != HudTextDim &&
     color.red + color.green + color.blue < 2.6f && maxOf(color.red, color.green, color.blue) - minOf(color.red, color.green, color.blue) > 0.35f
 
 /** Esquinas tipo visor sobre cualquier cosa. */

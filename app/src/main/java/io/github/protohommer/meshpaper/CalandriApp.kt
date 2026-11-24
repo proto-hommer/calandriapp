@@ -20,6 +20,7 @@ class CalandriApp : Application(), ViewModelStoreOwner {
 
     override fun onCreate() {
         super.onCreate()
+        io.github.protohommer.meshpaper.ui.theme.Appearance.load(this)
         Notifier.createChannels(this)
     }
 }

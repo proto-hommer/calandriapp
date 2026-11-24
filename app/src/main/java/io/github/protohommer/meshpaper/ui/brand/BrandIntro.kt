@@ -40,8 +40,7 @@ import io.github.protohommer.meshpaper.ui.theme.BrandCopper
 import io.github.protohommer.meshpaper.ui.theme.BrandGreen
 import io.github.protohommer.meshpaper.ui.theme.BrandNavy
 import io.github.protohommer.meshpaper.ui.theme.BrandText
-import io.github.protohommer.meshpaper.ui.theme.NeonCopper
-import io.github.protohommer.meshpaper.ui.theme.NeonGreen
+import io.github.protohommer.meshpaper.ui.theme.NightPalette
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -186,3 +185,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMark(t: Float, 
         drawCircle(Color(0xFFD8FFE8).copy(alpha = glow), (g.EYE_R - g.EYE_RING / 2) * 0.45f * s * pop, eye)
     }
 }
+
+// La intro es siempre de noche (fondo oscuro), aunque la app esté en modo día.
+private val NeonCopper = NightPalette.copper
+private val NeonGreen = NightPalette.green

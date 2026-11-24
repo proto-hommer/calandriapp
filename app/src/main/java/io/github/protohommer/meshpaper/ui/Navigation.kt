@@ -38,7 +38,7 @@ import io.github.protohommer.meshpaper.ui.theme.SigGood
 import kotlinx.coroutines.launch
 
 /** Color de la ruta en el mapa y del panel de navegación. */
-val RouteColor = NeonCopper
+val RouteColor get() = NeonCopper
 
 /** Panel de arriba mientras se navega: destino, lo que falta, medio y estado de la ruta. */
 @Composable

@@ -292,7 +292,7 @@ private class GridOverlay(
     private val dp = ctx.resources.displayMetrics.density
     private val fill = Paint().apply { style = Paint.Style.FILL }
     private val line = Paint().apply { style = Paint.Style.STROKE; strokeWidth = 1f * dp; color = 0x99FFFFFF.toInt() }
-    private val sel = Paint().apply { style = Paint.Style.STROKE; strokeWidth = 3f * dp; color = HudCyan.toArgb() }
+    private val sel = Paint().apply { style = Paint.Style.STROKE; strokeWidth = 3f * dp }
     private val text = Paint().apply {
         color = 0xFFFFFFFF.toInt(); textSize = 12f * dp; typeface = Typeface.MONOSPACE
         isAntiAlias = true; setShadowLayer(3f * dp, 0f, 0f, 0xFF000000.toInt()); textAlign = Paint.Align.CENTER
@@ -310,6 +310,7 @@ private class GridOverlay(
     }
 
     override fun draw(c: Canvas, mv: MapView, shadow: Boolean) {
+        sel.color = HudCyan.toArgb()
         if (shadow) return
         if (mapSource != lastSource || maxZoom != lastZoom) { cache.clear(); lastSource = mapSource; lastZoom = maxZoom }
         val rows = visible(mv)

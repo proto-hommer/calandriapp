@@ -82,6 +82,7 @@ fun SettingsScreen(vm: MeshViewModel, connected: Boolean = true) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             HudHeader("Ajustes")
+            AppearancePanel()
             OfflineMapsPanel()
             RoutesPanel(here)
             UpdatesPanel()
@@ -356,6 +357,9 @@ private fun SettingsContent(
                 Note("El nombre y la clave de los canales se cambian en la pestaña Grupo.")
             }
 
+            // ---------- Apariencia ----------
+            AppearancePanel()
+
             // ---------- Mapas sin conexión ----------
             OfflineMapsPanel()
             RoutesPanel(fix?.let { it.latitude to it.longitude })
@@ -522,6 +526,42 @@ private fun Warn(text: String, color: Color = SigFair) {
         Text("▲", color = color, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.width(6.dp))
         Text(text, style = MaterialTheme.typography.bodySmall, color = color)
+    }
+}
+
+/** Noche (la de siempre), día (clara, para usar al sol) o automático (como el teléfono). */
+@Composable
+private fun AppearancePanel() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val system = androidx.compose.foundation.isSystemInDarkTheme()
+    val mode = io.github.protohommer.meshpaper.ui.theme.Appearance.mode
+    HudPanel(Modifier.fillMaxWidth(), title = "Apariencia") {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (m in io.github.protohommer.meshpaper.ui.theme.ThemeMode.entries) {
+                androidx.compose.material3.FilterChip(
+                    selected = mode == m,
+                    onClick = {
+                        io.github.protohommer.meshpaper.ui.theme.Appearance.set(ctx, m)
+                        // El mapa acompaña: oscuro de noche, normal de día (se puede cambiar en CAPA).
+                        val night = when (m) {
+                            io.github.protohommer.meshpaper.ui.theme.ThemeMode.NIGHT -> true
+                            io.github.protohommer.meshpaper.ui.theme.ThemeMode.DAY -> false
+                            io.github.protohommer.meshpaper.ui.theme.ThemeMode.AUTO -> system
+                        }
+                        io.github.protohommer.meshpaper.map.MapTiles.setDarkMap(ctx, night)
+                    },
+                    label = { Text(m.label, softWrap = false) },
+                )
+            }
+        }
+        Text(
+            when (mode) {
+                io.github.protohommer.meshpaper.ui.theme.ThemeMode.NIGHT -> "Oscura, tipo HUD. Ahorra batería en pantallas OLED."
+                io.github.protohommer.meshpaper.ui.theme.ThemeMode.DAY -> "Clara y con más contraste, para leer al sol."
+                io.github.protohommer.meshpaper.ui.theme.ThemeMode.AUTO -> "Sigue el tema oscuro del teléfono."
+            },
+            style = MaterialTheme.typography.bodySmall, color = HudTextDim,
+        )
     }
 }
 

@@ -1,6 +1,7 @@
 package io.github.protohommer.meshpaper.ui
 
 import io.github.protohommer.meshpaper.ui.theme.HudBg
+import io.github.protohommer.meshpaper.ui.theme.Appearance
 import dev.chrisbanes.haze.hazeSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -179,7 +180,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
             isTilesScaledToDpi = true
             minZoomLevel = 2.0
             maxZoomLevel = 20.0
-            setBackgroundColor(android.graphics.Color.rgb(5, 9, 13))
+            setBackgroundColor(HudBg.toArgb())
             restoreCamera(context, this, fix?.let { GeoPoint(it.latitude, it.longitude) })
         }
     }
@@ -361,6 +362,8 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                 .then(LocalHaze.current?.let { Modifier.hazeSource(it) } ?: Modifier),
             update = { mv ->
                 scaleBar.setScaleBarOffset(dpPx(mv.context, 12f).toInt(), dpPx(mv.context, 12f + bottomInset.value).toInt())
+                scaleBar.textPaint.color = HudCyan.toArgb(); scaleBar.barPaint.color = HudCyan.toArgb()
+                mv.setBackgroundColor(HudBg.toArgb())
                 mv.overlayManager.tilesOverlay.setColorFilter(if (dark) darkFilter else null)
                 mv.overlays.clear()
                 mv.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
@@ -1154,7 +1157,7 @@ private fun nodeIcon(
     ctx: Context, label: String, color: Int, filled: Boolean, lost: Boolean,
     ring: Int? = null, labelColor: Int = color, compact: Boolean = false, diamond: Boolean = false,
 ): BitmapDrawable =
-    iconCache.getOrPut("n:$label:$color:$filled:$lost:$ring:$labelColor:$compact:$diamond") {
+    iconCache.getOrPut("n:$label:$color:$filled:$lost:$ring:$labelColor:$compact:$diamond:${Appearance.isDay}") {
         // El rombo es un poco más grande: a la altura del texto es más angosto que el círculo.
         val base = if (ring != null) 46f else if (compact) 32f else 40f
         val inner = dpPx(ctx, if (diamond) base + 6f else base)
@@ -1187,7 +1190,7 @@ private fun nodeIcon(
             // borde de señal por fuera, con un borde oscuro para que se separe del principal
             glow(r - dpPx(ctx, 2.5f), ring)
             shape(r - dpPx(ctx, 2.5f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                this.color = android.graphics.Color.argb(200, 5, 9, 13)
+                this.color = markerBg()
                 style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 4.5f)
                 strokeJoin = Paint.Join.ROUND
             })
@@ -1200,7 +1203,7 @@ private fun nodeIcon(
             glow(ringR, color)
         }
         // fondo oscuro, apenas translúcido
-        shape(ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = android.graphics.Color.argb(200, 5, 9, 13) })
+        shape(ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = markerBg() })
         if (filled) shape(ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; this.alpha = if (lost) 25 else 60 })
         // borde
         shape(ringR, Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1214,7 +1217,7 @@ private fun nodeIcon(
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             textAlign = Paint.Align.CENTER
             textSize = dpPx(ctx, if (label.length <= 2) 12f else if (compact) 8.5f else 9.5f)
-            if (!lost) setShadowLayer(dpPx(ctx, 3f), 0f, 0f, labelColor)
+            if (!lost && !Appearance.isDay) setShadowLayer(dpPx(ctx, 3f), 0f, 0f, labelColor)
         }
         c.drawText(label.take(4), m, m - (text.descent() + text.ascent()) / 2, text)
         BitmapDrawable(ctx.resources, bmp)
@@ -1224,7 +1227,11 @@ private fun nodeIcon(
  * El teléfono (y el nodo conectado, que está con él): punto cian con retícula y, abajo, el nombre
  * corto del nodo. El bitmap es simétrico para que el anclaje al centro caiga justo en el punto.
  */
-private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.getOrPut("me:$label") {
+/** Fondo de los íconos del mapa: casi negro de noche, casi blanco de día. */
+private fun markerBg(): Int =
+    if (Appearance.isDay) android.graphics.Color.argb(225, 255, 255, 255) else android.graphics.Color.argb(200, 5, 9, 13)
+
+private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.getOrPut("me:$label:${Appearance.isDay}") {
     val size = dpPx(ctx, 34f).toInt()
     val tag = if (label != null) dpPx(ctx, 16f).toInt() else 0
     val w = max(size, dpPx(ctx, 64f).toInt())
@@ -1254,14 +1261,14 @@ private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.get
         val tw = text.measureText(t) + dpPx(ctx, 8f)
         val top = cy + r + dpPx(ctx, 1f)
         c.drawRect(cx - tw / 2, top, cx + tw / 2, top + dpPx(ctx, 14f),
-            Paint().apply { color = android.graphics.Color.argb(220, 5, 9, 13) })
+            Paint().apply { color = markerBg() })
         c.drawText(t, cx, top + dpPx(ctx, 7f) - (text.descent() + text.ascent()) / 2, text)
     }
     BitmapDrawable(ctx.resources, bmp)
 }
 
 /** Emoji del waypoint sobre una base chica. */
-private fun waypointIcon(ctx: Context, emoji: String): BitmapDrawable = iconCache.getOrPut("w:$emoji") {
+private fun waypointIcon(ctx: Context, emoji: String): BitmapDrawable = iconCache.getOrPut("w:$emoji:${Appearance.isDay}") {
     val w = dpPx(ctx, 34f).toInt()
     val h = dpPx(ctx, 42f).toInt()
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)

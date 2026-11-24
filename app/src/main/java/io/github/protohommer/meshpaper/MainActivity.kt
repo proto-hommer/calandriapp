@@ -122,6 +122,13 @@ class MainActivity : ComponentActivity() {
         val firstLaunch = savedInstanceState == null && intent?.getStringExtra(Notifier.EXTRA_CONV) == null
         setContent {
             MeshPaperTheme {
+                // Íconos de la barra de estado y de navegación: claros de noche, oscuros de día.
+                val day = io.github.protohommer.meshpaper.ui.theme.Appearance.isDay
+                androidx.compose.runtime.LaunchedEffect(day) {
+                    val style = if (day) SystemBarStyle.light(AColor.TRANSPARENT, AColor.TRANSPARENT)
+                    else SystemBarStyle.dark(AColor.TRANSPARENT)
+                    enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                }
                 // La intro solo al abrir la app de cero (no al rotar ni al volver de segundo plano).
                 var intro by rememberSaveable { mutableStateOf(firstLaunch) }
                 Box(Modifier.fillMaxSize()) {
