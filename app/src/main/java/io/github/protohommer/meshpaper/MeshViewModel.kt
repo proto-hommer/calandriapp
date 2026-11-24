@@ -590,6 +590,15 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
 
     fun submitPin(pin: String) = ble.submitPin(pin)
 
+    /**
+     * Para configurar otro nodo: suelta el actual (sin reconectar solo) y empieza a buscar.
+     * El nodo que se suelta vuelve a anunciarse y también aparece en la lista.
+     */
+    fun switchNode() {
+        disconnect()
+        startScan()
+    }
+
     fun disconnect() {
         _keepAlive.value = false
         reconnectJob?.cancel(); reconnectJob = null

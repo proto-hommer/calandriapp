@@ -187,6 +187,16 @@ private fun SettingsContent(
         ) {
             HudHeader("Ajustes del nodo")
 
+            // ---------- Enlace ----------
+            HudPanel(Modifier.fillMaxWidth(), title = "Enlace") {
+                Text(
+                    "Conectado a ${owner.shortName.ifEmpty { owner.id }}" + owner.longName.takeIf { it.isNotEmpty() }?.let { " · $it" }.orEmpty(),
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(6.dp))
+                LinkActions(vm)
+            }
+
             // ---------- Identidad ----------
             HudPanel(Modifier.fillMaxWidth(), title = "Identidad") {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -766,4 +776,18 @@ private fun changedSections(e: NodeEdits): List<String> = buildList {
     if (e.position != null || e.fixed != null || e.removeFixed) add("posición")
     if (e.lora != null) add("radio")
     if (e.channels.isNotEmpty()) add("canales")
+}
+
+/** Soltar el nodo conectado: para configurar otro, o para dejarlo libre para otra app. */
+@Composable
+fun LinkActions(vm: MeshViewModel, onDone: () -> Unit = {}) {
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        HudButton(onClick = { vm.switchNode(); onDone() }) { Text("CAMBIAR DE NODO", softWrap = false) }
+        HudOutlinedButton(onClick = { vm.disconnect(); onDone() }) { Text("DESCONECTAR", softWrap = false) }
+    }
+    Note("Cambiar de nodo lo suelta y busca los que hay cerca. Desconectar lo deja libre (por ejemplo, para la app oficial). El grupo y la configuración quedan guardados en cada nodo.")
 }

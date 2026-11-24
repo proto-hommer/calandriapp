@@ -345,6 +345,21 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
         LinkState.Disconnected -> HudTextDim to "sin enlace"
     }
     val nodeName = if (connected) myNode?.shortName?.ifEmpty { null } ?: myNode?.id ?: "—" else "—"
+    // Tocar el nombre del nodo: cambiar de nodo o desconectar.
+    var showLink by remember { mutableStateOf(false) }
+    if (showLink && connected) {
+        AlertDialog(
+            onDismissRequest = { showLink = false },
+            title = { Text("NODO ${nodeName.uppercase()}") },
+            text = {
+                Column {
+                    myNode?.longName?.takeIf { it.isNotEmpty() }?.let { Text(it, fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(8.dp)) }
+                    io.github.protohommer.meshpaper.ui.LinkActions(vm, onDone = { showLink = false })
+                }
+            },
+            confirmButton = { TextButton(onClick = { showLink = false }) { Text("CERRAR") } },
+        )
+    }
     val haze = LocalHaze.current
     Box(
         modifier.fillMaxWidth()
@@ -370,8 +385,10 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
             // El nodo y el estado del enlace.
             Box(Modifier.width(3.dp).height(30.dp).neonGlow(linkColor, androidx.compose.ui.graphics.RectangleShape, 5.dp, 3.dp).background(linkColor))
             Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                HudValue(nodeName.uppercase(), color = if (connected) MaterialTheme.colorScheme.onSurface else HudTextDim)
+            Column(
+                Modifier.weight(1f).clickable(enabled = connected, onClickLabel = "Cambiar de nodo o desconectar") { showLink = true },
+            ) {
+                HudValue(nodeName.uppercase() + if (connected) " ▾" else "", color = if (connected) MaterialTheme.colorScheme.onSurface else HudTextDim)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StatusDot(linkColor, 6.dp)
                     Spacer(Modifier.width(5.dp))
