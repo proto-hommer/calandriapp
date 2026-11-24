@@ -10,6 +10,8 @@ import io.github.protohommer.meshpaper.ui.theme.SigPoor
 import java.util.Locale
 import org.meshtastic.proto.ConfigProtos.Config.LoRaConfig.ModemPreset
 import org.osmdroid.views.overlay.Polygon
+import org.osmdroid.views.overlay.GroundOverlay
+import io.github.protohommer.meshpaper.mesh.Coverage
 import io.github.protohommer.meshpaper.ui.theme.HudTextDim
 import io.github.protohommer.meshpaper.ui.theme.SigFixed
 import io.github.protohommer.meshpaper.mesh.Range
@@ -38,6 +40,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -169,6 +172,36 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     fun effAntenna(num: Int): Antenna? = antennas[num]?.let { a ->
         val h = gpsHeights[num]?.aboveGround
         if (a.gpsHeight && h != null) a.copy(heightM = h) else a
+    }
+
+    // Cobertura según el relieve del nodo con el alcance abierto. Mientras se calcula, o si falta
+    // el relieve, queda el círculo de antes.
+    var coverage by remember { mutableStateOf<Coverage.Result?>(null) }
+    var coverageMsg by remember { mutableStateOf<String?>(null) }
+    val covNode = rangeNode
+    val covAnt = covNode?.let { effAntenna(it) }
+    val covAt = covNode?.let { num ->
+        if (num == me && fix != null) fix!!.latitude to fix!!.longitude
+        else nodes[num]?.let { n -> if (n.lat != null && n.lon != null) n.lat to n.lon else null }
+    }
+    LaunchedEffect(covNode, covAnt, covAt, lora) {
+        coverage = null
+        val at = covAt; val a = covAnt
+        if (covNode == null || at == null || a == null) { coverageMsg = null; return@LaunchedEffect }
+        coverageMsg = "Calculando la cobertura…"
+        val net = MapTiles.useInternet(context)
+        val out = withContext(Dispatchers.Default) {
+            Coverage.compute(context, at.first, at.second, a, Profile.frequencyMHz(lora), preset, net) { done, total ->
+                if (done < total) coverageMsg = "Relieve: $done de $total…"
+            }
+        }
+        when (out) {
+            is Coverage.Outcome.Done -> { coverage = out.result; coverageMsg = null }
+            is Coverage.Outcome.MissingTerrain -> coverageMsg =
+                if (net) "Faltan ${out.missing} de ${out.total} tiles de relieve y no bajaron: queda el círculo."
+                else "Sin relieve de la zona: prendé \"Usar internet\" (CAPA) o guardalo en Mapas sin conexión."
+            Coverage.Outcome.NoPreset -> coverageMsg = null
+        }
     }
 
     val map = remember {
@@ -395,7 +428,13 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                     })
                 }
                 // Alcance estimado del nodo elegido con toque largo: ciudad (lleno) y campo abierto (punteado).
-                rangeNode?.let { num ->
+                coverage?.takeIf { rangeNode != null }?.let { cv ->
+                    mv.overlays.add(GroundOverlay().apply {
+                        setImage(cv.bitmap)
+                        setPosition(GeoPoint(cv.north, cv.west), GeoPoint(cv.south, cv.east))
+                    })
+                }
+                rangeNode?.takeIf { coverage == null }?.let { num ->
                     val at = nodeCenter(num) ?: return@let
                     val est = effAntenna(num)?.let { Range.estimate(it, preset) } ?: return@let
                     val blue = SigFixed.toArgb()
@@ -529,6 +568,10 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         // Marco tipo visor.
         Box(Modifier.fillMaxSize().padding(start = 6.dp, end = 6.dp, bottom = 6.dp + bottomInset, top = topInset + 2.dp).hudCorners(len = 22.dp))
 
+        coverage?.takeIf { rangeNode != null && nav == null }?.let { cv ->
+            CoverageLegend(cv, Modifier.align(Alignment.TopStart).padding(top = topInset).padding(12.dp))
+        }
+
         nav?.let { s ->
             NavPanel(
                 s, Modifier.align(Alignment.TopStart).padding(top = topInset).padding(12.dp),
@@ -561,6 +604,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                 NodeCard(
                     vm, n, me, isMember(n), fix, now, bottom, onMessage,
                     antenna = effAntenna(n.num), preset = preset, showingRange = rangeNode == n.num,
+                    coverage = coverage.takeIf { rangeNode == n.num }, coverageMsg = coverageMsg.takeIf { rangeNode == n.num },
                     fromGps = antennas[n.num]?.gpsHeight == true && gpsHeights[n.num]?.aboveGround != null,
                     onAntenna = { antennaFor = n.num },
                     onRange = { rangeNode = if (rangeNode == n.num) null else n.num },
@@ -634,6 +678,26 @@ internal val darkFilter = ColorMatrixColorFilter(ColorMatrix().apply {
     set(row(0.33f, 6f) + row(0.55f, 12f) + row(0.78f, 20f) + floatArrayOf(0f, 0f, 0f, 1f, 0f))
 })
 
+/** Escala de la cobertura: CMRmap de "al límite" a "fuerte", en dBm recibidos. */
+@Composable
+private fun CoverageLegend(cv: Coverage.Result, modifier: Modifier) {
+    HudPanel(modifier.width(210.dp), padding = androidx.compose.foundation.layout.PaddingValues(10.dp)) {
+        HudLabel("Cobertura · nodo de mano", color = HudCyan)
+        Spacer(Modifier.padding(2.dp))
+        val stops = (0..8).map { androidx.compose.ui.graphics.Color(Coverage.color(it / 8f, 0xFF)) }
+        Box(
+            Modifier.fillMaxWidth().height(10.dp)
+                .background(androidx.compose.ui.graphics.Brush.horizontalGradient(stops)),
+        )
+        Row(Modifier.fillMaxWidth()) {
+            val lo = cv.sensitivityDbm.roundToInt()
+            HudLabel("$lo dBm", Modifier.weight(1f))
+            HudLabel("${lo + Coverage.FULL_SCALE_DB.toInt()}+")
+        }
+        HudLabel("Al límite → fuerte")
+    }
+}
+
 @Composable
 private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, members: Int, relays: Int) {
     HudPanel(modifier.width(210.dp), padding = androidx.compose.foundation.layout.PaddingValues(10.dp)) {
@@ -666,6 +730,7 @@ private fun NodeCard(
     vm: MeshViewModel, n: MeshNode, me: Int?, member: Boolean, fix: Location?, now: Long, modifier: Modifier,
     onMessage: (Int) -> Unit,
     antenna: Antenna?, preset: ModemPreset, showingRange: Boolean,
+    coverage: Coverage.Result? = null, coverageMsg: String? = null,
     onAntenna: () -> Unit, onRange: () -> Unit, onClose: () -> Unit,
     stack: List<MeshNode> = emptyList(), onPick: (Int) -> Unit = {},
     onProfile: (() -> Unit)? = null,
@@ -751,7 +816,12 @@ private fun NodeCard(
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                "Hacia un nodo de mano (1,5 m). Sin relieve: un cerro en el medio lo corta.",
+                when {
+                    coverageMsg != null -> coverageMsg
+                    coverage != null -> "Con relieve: señal en ${coverage.coveredPct}% del círculo de " +
+                        "${(Coverage.RADIUS_M / 1000).toInt()} km. Sin pintar = sombra o muy lejos."
+                    else -> "Hacia un nodo de mano (1,5 m). Sin relieve: un cerro en el medio lo corta."
+                },
                 style = MaterialTheme.typography.bodySmall, color = HudTextDim,
             )
         }

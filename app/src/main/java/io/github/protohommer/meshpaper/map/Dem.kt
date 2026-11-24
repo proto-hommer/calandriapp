@@ -33,7 +33,9 @@ object Dem {
     const val MAX_DOWNLOAD_TILES = 2_500
     const val ATTRIBUTION = "Relieve: SRTM, cortesía del U.S. Geological Survey (Terrain Tiles, AWS Open Data)"
     private const val URL_TEMPLATE = "https://elevation-tiles-prod.s3.amazonaws.com/terrarium/%d/%d/%d.png"
-    private const val SIZE = 256
+    const val SIZE = 256
+    /** Ancho del mundo en píxeles de relieve. */
+    val worldPx: Double get() = SIZE.toDouble() * (1 shl ZOOM)
 
     /** Tiles ya decodificados, en metros enteros (128 KB cada uno). */
     private val cache = LruCache<Long, ShortArray>(48)
@@ -49,6 +51,13 @@ object Dem {
         val r = Math.toRadians(lat.coerceIn(-85.0, 85.0))
         return (1.0 - ln(tan(r) + 1.0 / cos(r)) / PI) / 2.0 * (1 shl ZOOM)
     }
+
+    /** Posición en píxeles globales del relieve (x, y), con decimales. */
+    fun globalPx(lat: Double, lon: Double): Pair<Double, Double> = tileXf(lon) * SIZE to tileYf(lat) * SIZE
+
+    /** Lo inverso de [globalPx]: (lat, lon) del borde de arriba a la izquierda de ese píxel. */
+    fun latLonOfPx(x: Double, y: Double): Pair<Double, Double> =
+        Math.toDegrees(atan(sinh(PI * (1 - 2.0 * y / worldPx)))) to x / worldPx * 360.0 - 180.0
 
     /** Latitud del borde norte de la fila de tiles [y] (para estimar tamaños). */
     fun tileLat(y: Int): Double = Math.toDegrees(atan(sinh(PI * (1 - 2.0 * y / (1 shl ZOOM)))))
@@ -114,6 +123,13 @@ object Dem {
         val data = runCatching { decode(f.readBytes()) }.getOrNull() ?: return null
         cache.put(key, data)
         return data
+    }
+
+    /** Alturas de un tile entero (256×256, fila por fila), bajándolo si hace falta y se puede. */
+    fun tileData(ctx: Context, x: Int, y: Int, network: Boolean): ShortArray? {
+        val n = 1 shl ZOOM
+        if (x !in 0 until n || y !in 0 until n) return null
+        return tile(ctx, x, y, network)
     }
 
     // ---------- Alturas ----------
