@@ -806,9 +806,10 @@ private fun NodeCard(
             HudLabel(extra.joinToString("  ·  ") { it.replace(' ', '\u00A0') }, color = MaterialTheme.colorScheme.onSurface, maxLines = 3)
         }
         // El modelo en su propia línea: con RSSI, distancia y rastro no entraba y se cortaba.
-        n.hw?.takeIf { it != org.meshtastic.proto.MeshProtos.HardwareModel.UNSET }?.let {
-            HudLabel(io.github.protohommer.meshpaper.mesh.Hardware.name(it), maxLines = 2)
-        }
+        val calandria by vm.calandria.collectAsState()
+        val cal = calandria[n.num]
+        boardName(cal, n.hw)?.let { HudLabel(it, maxLines = 2) }
+        cal?.let { CalandriaFirmware(it, showLink = false) }
         val est = antenna?.let { Range.estimate(it, preset) }
         if (antenna != null && est != null) {
             Spacer(Modifier.padding(2.dp))

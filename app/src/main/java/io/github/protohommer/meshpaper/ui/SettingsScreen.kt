@@ -201,10 +201,13 @@ private fun SettingsContent(
             HudPanel(Modifier.fillMaxWidth(), title = "Identidad") {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     HudStat("Id", owner.id.ifEmpty { me?.let { "!%08x".format(it) } ?: "—" })
-                    HudStat("Placa", Hardware.name(owner.hwModel), Modifier.weight(1f, fill = false))
+                    val calandria by vm.calandria.collectAsState()
+                    val cal = me?.let { calandria[it] }
+                    HudStat("Placa", boardName(cal, owner.hwModel) ?: Hardware.name(owner.hwModel), Modifier.weight(1f, fill = false))
                     meta?.firmwareVersion?.takeIf { it.isNotEmpty() }?.let { HudStat("Firmware", it.substringBeforeLast('.')) }
                 }
                 firmwareWarning(meta?.firmwareVersion)?.let { Warn(it, SigWeak) }
+                me?.let { vm.calandria.collectAsState().value[it] }?.let { CalandriaFirmware(it) }
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = longName,
@@ -237,6 +240,9 @@ private fun SettingsContent(
                     Warn("Un router no puede tener \"Nada\": el nodo lo va a dejar en \"Todo\".")
                 }
             }
+
+            // ---------- Mensajes rápidos ----------
+            CannedPanel(vm)
 
             // ---------- Posición ----------
             HudPanel(Modifier.fillMaxWidth(), title = "Posición") {

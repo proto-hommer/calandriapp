@@ -32,6 +32,7 @@ import io.github.protohommer.meshpaper.mesh.WaypointStore
 import io.github.protohommer.meshpaper.mesh.Wpt
 import android.location.Location
 import io.github.protohommer.meshpaper.mesh.routingErrorText
+import io.github.protohommer.meshpaper.mesh.Calandria
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -65,6 +66,8 @@ data class FoundDevice(val device: BluetoothDevice, val name: String, val rssi: 
 
 /** rssi de un emparejado que no vimos anunciarse. */
 const val NO_RSSI = Int.MIN_VALUE
+/** Lo que entra en set_canned_message_module_messages (char[201] en el firmware). */
+const val CANNED_MAX_BYTES = 200
 private const val SCAN_MS = 30_000L
 /** Nombre BLE por defecto del firmware: "<nombre corto o Meshtastic>_<4 hex del nodo>". */
 private val MESH_NAME = Regex(".*_[0-9a-fA-F]{4}")
@@ -194,6 +197,16 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _apply = MutableStateFlow<ApplyState>(ApplyState.Idle)
     val apply: StateFlow<ApplyState> = _apply
+
+    /** Nodos Calandria que se anunciaron (modelo y firmware), por número. Se guarda entre sesiones. */
+    private val _calandria = MutableStateFlow(loadCalandria())
+    val calandria: StateFlow<Map<Int, Calandria.Info>> = _calandria
+    /** A quién ya le preguntamos "¿qué sos?" en esta conexión (para no repetir). */
+    private val askedIdentity = mutableSetOf<Int>()
+
+    /** Mensajes rápidos del nodo conectado; null = todavía no los leímos. */
+    private val _canned = MutableStateFlow<List<String>?>(null)
+    val canned: StateFlow<List<String>?> = _canned
 
     /** Desde cuándo (epoch s) este nodo está en el grupo actual. Para no contar nodos viejos. */
     private val _groupSince = MutableStateFlow(0L)
@@ -349,6 +362,13 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 if (it == LinkState.Connected) {
                     lastDevice?.let { d -> prefs.edit().putString("lastDevice", d.address).apply() }
                     reconnectJob?.cancel(); reconnectJob = null
+                    askedIdentity.clear()
+                    _canned.value = null
+                    launch {
+                        delay(3_000) // que termine de llegar la config
+                        _myNodeNum.value?.let { me -> askIdentity(me) }
+                        if (Updater.autoCheck(getApplication())) Calandria.checkLatest()
+                    }
                 }
                 // Se cortó estando conectados (nodo fuera de alcance, se apagó…): reintentar solo.
                 if (prev == LinkState.Connected && it is LinkState.Failed && _keepAlive.value && applyJob?.isActive != true) startReconnect()
@@ -1149,7 +1169,8 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             PortNum.TEXT_MESSAGE_APP -> onText(p)
             PortNum.POSITION_APP -> onPosition(p)
             PortNum.WAYPOINT_APP -> onWaypoint(p)
-            else -> Unit
+            PortNum.ADMIN_APP -> onAdmin(p)
+            else -> if (p.decoded.portnumValue == Calandria.PORT) onCalandria(p)
         }
         val from = p.from
         if (from == 0 || from == _myNodeNum.value) return
@@ -1182,6 +1203,101 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 group = from in groupNums,
             ))
         }
+        _nodes.value[from]?.let(::maybeAskIdentity)
+    }
+
+    // ---------- Calandria ----------
+
+    private fun loadCalandria(): Map<Int, Calandria.Info> =
+        prefs.getStringSet("calandria", emptySet()).orEmpty().mapNotNull { e ->
+            val k = e.substringBefore('=').toLongOrNull(16)?.toInt() ?: return@mapNotNull null
+            Calandria.decode(e.substringAfter('='))?.let { k to it }
+        }.toMap()
+
+    private fun saveCalandria(m: Map<Int, Calandria.Info>) {
+        prefs.edit().putStringSet("calandria", m.map { (k, v) -> "%08x=%s".format(k, Calandria.encode(v)) }.toSet()).apply()
+    }
+
+    /** El anuncio de un nodo Calandria (o la respuesta a nuestro pedido). */
+    private fun onCalandria(p: MeshPacket) {
+        val from = if (p.from == 0) _myNodeNum.value ?: return else p.from
+        val info = Calandria.parse(p.decoded.payload.toByteArray(), System.currentTimeMillis() / 1000) ?: return
+        val old = _calandria.value[from]
+        if (old != null && old.model == info.model && old.fw == info.fw && old.env == info.env) return
+        _calandria.update { it + (from to info) }
+        saveCalandria(_calandria.value)
+    }
+
+    /**
+     * "¿Qué sos?" a un nodo con placa propia que todavía no se anunció: el firmware Calandria
+     * contesta directo (los demás lo ignoran). Una vez por nodo y por conexión, y solo a los que
+     * oímos por el canal primario (el anuncio y la respuesta van por ahí).
+     */
+    private fun askIdentity(num: Int) {
+        if (BuildConfig.DEMO || link.value != LinkState.Connected) return
+        val me = _myNodeNum.value
+        val ch = if (num == me) 0 else _nodes.value[num]?.channel ?: return
+        if (ch != 0 || !askedIdentity.add(num)) return
+        val packet = MeshPacket.newBuilder()
+            .setTo(num)
+            .setId(newPacketId())
+            .setChannel(0)
+            .setDecoded(MeshProtos.Data.newBuilder().setPortnumValue(Calandria.PORT).setWantResponse(true))
+            .build()
+        viewModelScope.launch {
+            try { ble.send(ToRadio.newBuilder().setPacket(packet).build()) } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                askedIdentity.remove(num)
+            }
+        }
+    }
+
+    private fun maybeAskIdentity(n: MeshNode) {
+        if (n.hw == MeshProtos.HardwareModel.PRIVATE_HW && n.channel == 0 && n.num !in _calandria.value) askIdentity(n.num)
+    }
+
+    // ---------- Mensajes rápidos (canned messages del nodo) ----------
+
+    /** Respuestas de administración del nodo conectado. */
+    private fun onAdmin(p: MeshPacket) {
+        val a = try { AdminMessage.parseFrom(p.decoded.payload) } catch (e: Exception) { return }
+        if (a.payloadVariantCase == AdminMessage.PayloadVariantCase.GET_CANNED_MESSAGE_MODULE_MESSAGES_RESPONSE) {
+            _canned.value = a.getCannedMessageModuleMessagesResponse.split('|').map { it.trim() }.filter { it.isNotEmpty() }
+        }
+    }
+
+    /** Pide al nodo sus mensajes rápidos (llegan por [canned]). */
+    fun loadCanned() {
+        val me = _myNodeNum.value ?: return
+        if (link.value != LinkState.Connected) return
+        viewModelScope.launch {
+            try { sendAdmin(me, AdminMessage.newBuilder().setGetCannedMessageModuleMessagesRequest(true).build()) }
+            catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e }
+        }
+    }
+
+    /**
+     * Guarda los mensajes rápidos en el nodo. El firmware los guarda sin reiniciar; en el e-paper
+     * aparecen en el menú para mandarlos con el encoder. Máximo [CANNED_MAX_BYTES] en total.
+     * Devuelve null si salió, o el motivo si no se puede.
+     */
+    fun saveCanned(list: List<String>): String? {
+        val me = _myNodeNum.value ?: return "sin conexión con el nodo"
+        if (link.value != LinkState.Connected) return "sin conexión con el nodo"
+        val clean = list.map { it.replace("|", "/").trim() }.filter { it.isNotEmpty() }
+        val joined = clean.joinToString("|")
+        if (joined.toByteArray(Charsets.UTF_8).size > CANNED_MAX_BYTES) return "no entran: hasta $CANNED_MAX_BYTES caracteres en total"
+        viewModelScope.launch {
+            try {
+                sendAdmin(me, AdminMessage.newBuilder().setSetCannedMessageModuleMessages(joined).build())
+                _canned.value = clean
+                _apply.value = ApplyState.Done("Mensajes rápidos guardados en el nodo.")
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _apply.value = ApplyState.Failed("no pude guardar los mensajes rápidos")
+            }
+        }
+        return null
     }
 
     /** Posición que llega por la malla (o la propia que el nodo nos reenvía). */
@@ -1229,6 +1345,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             group = n.num in groupNums,
         )
         _nodes.update { it + (n.num to node) }
+        maybeAskIdentity(node)
         if (node.lat != null && node.lon != null && n.num != _myNodeNum.value &&
             !(n.position.latitudeI == 0 && n.position.longitudeI == 0)) {
             val t = (n.position.time.toLong() and 0xffffffffL).takeIf { it != 0L } ?: node.lastHeard
