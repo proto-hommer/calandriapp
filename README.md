@@ -3,7 +3,7 @@
 **Una app Android chica y propia para usar nodos Meshtastic en el campo: mensajes, mapa offline y
 seguimiento de un grupo cerrado, sin cuentas, sin nube y sin internet.**
 
-Versión **1.6.2** | Android 8 o más nuevo | *powered by Meshtastic®*
+Versión **1.7.0** | Android 8 o más nuevo | *powered by Meshtastic®*
 
 [![Descargar APK](https://img.shields.io/github/v/release/proto-hommer/calandriapp?label=descargar%20APK&color=2ea44f)](https://github.com/proto-hommer/calandriapp/releases/latest)
 
@@ -162,6 +162,10 @@ translúcido y bordes que brillan, para leer al sol) o **AUTO** (según el tema 
 - **Posición del celular** al grupo a través del nodo, para nodos sin GPS.
 - **Ajustes del nodo conectado**: nombre, rol, posición, radio, canales y reinicio. Avisa si algo
   quedó mal configurado (por ejemplo, la radio en modo manual, que deja de ver a los nodos ajenos).
+- **Nodos Calandria**: reconoce los [Calandria MK1 epaper](https://github.com/proto-hommer/calandria-mk1-epaper)
+  y muestra su firmware y si está al día con la última versión publicada.
+- **Mensajes rápidos** del nodo ("OK", "Voy", "Llegué"…): se editan desde la app y se mandan desde la
+  pantalla del nodo con el encoder, sin teclado.
 - **Se actualiza sola** desde los releases de este repo, verificando la firma.
 
 La calandria es un pájaro cantor de acá. En el logo está dibujada como una malla de nodos
@@ -189,7 +193,7 @@ sin cuentas, sin nube ni servicios de Google: todo queda en el teléfono.
 
 <p><img src="docs/img/titulos/descargar-e-instalar.png" alt="Descargar e instalar" width="100%"/></p>
 
-1. Bajá el `CalandriApp-1.6.2.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
+1. Bajá el `CalandriApp-1.7.0.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
 2. Abrilo en el celular. Android va a pedir permiso para **instalar apps de origen desconocido**:
    dáselo al navegador o al gestor de archivos con el que lo abriste.
 3. Abrí CalandriApp, dale los permisos de **Bluetooth** y **ubicación**, tocá **BUSCAR** y
