@@ -870,7 +870,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun sendAdmin(to: Int, msg: AdminMessage) {
+    private suspend fun sendAdmin(to: Int, msg: AdminMessage, wantResponse: Boolean = false) {
         val packet = MeshPacket.newBuilder()
             .setTo(to)
             .setId((1..Int.MAX_VALUE).random())
@@ -879,6 +879,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 MeshProtos.Data.newBuilder()
                     .setPortnum(PortNum.ADMIN_APP)
                     .setPayload(msg.toByteString())
+                    .setWantResponse(wantResponse)
             )
             .build()
         ble.send(ToRadio.newBuilder().setPacket(packet).build())
@@ -1310,7 +1311,9 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         val me = _myNodeNum.value ?: return
         if (link.value != LinkState.Connected) return
         viewModelScope.launch {
-            try { sendAdmin(me, AdminMessage.newBuilder().setGetCannedMessageModuleMessagesRequest(true).build()) }
+            // Sin want_response el firmware arma la respuesta vacía y no manda nada
+            // (CannedMessageModule::handleGetCannedMessageModuleMessages).
+            try { sendAdmin(me, AdminMessage.newBuilder().setGetCannedMessageModuleMessagesRequest(true).build(), wantResponse = true) }
             catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e }
         }
     }

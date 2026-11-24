@@ -19,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
@@ -54,7 +55,11 @@ class MeshService : Service() {
         if (watch == null) watch = scope.launch {
             combine(vm.keepAlive, vm.link, vm.nodes, vm.myNodeNum) { keep, link, nodes, me ->
                 Triple(keep, link, me?.let { nodes[it] }?.let { it.shortName.ifEmpty { it.longName } })
-            }.collect { (keep, link, name) ->
+            }
+                // vm.nodes cambia con cada paquete de la malla: sin esto se republicaba el aviso
+                // varias veces por segundo y Android empezaba a descartarlo ("enqueue rate … shedding").
+                .distinctUntilChanged()
+                .collect { (keep, link, name) ->
                 if (!keep) { stop(); return@collect }
                 val text = when (link) {
                     LinkState.Connected -> "Conectada a ${name ?: "tu nodo"}: recibís mensajes con la pantalla apagada"

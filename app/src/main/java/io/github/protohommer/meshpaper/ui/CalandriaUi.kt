@@ -83,8 +83,15 @@ fun CannedPanel(vm: MeshViewModel) {
 
     HudPanel(Modifier.fillMaxWidth(), title = "Mensajes rápidos") {
         if (stored == null) {
-            HudLabel("Leyendo los del nodo…")
-            TextButton(onClick = { vm.loadCanned() }) { Text("REINTENTAR") }
+            // Un nodo sin el módulo (sin pantalla, o firmware que no lo trae) no contesta nunca.
+            var tries by remember { mutableStateOf(0) }
+            var noAnswer by remember { mutableStateOf(false) }
+            LaunchedEffect(tries) { noAnswer = false; kotlinx.coroutines.delay(10_000); noAnswer = true }
+            if (noAnswer) Text(
+                "El nodo no contestó. Puede que su firmware no tenga mensajes rápidos (pasa en placas sin pantalla).",
+                style = MaterialTheme.typography.bodySmall, color = SigFair,
+            ) else HudLabel("Leyendo los del nodo…")
+            TextButton(onClick = { vm.loadCanned(); tries++ }) { Text("REINTENTAR") }
             return@HudPanel
         }
         Text(
