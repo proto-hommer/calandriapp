@@ -1,13 +1,4 @@
-```
-  ____     _     _         _     _   _  ____   ____   ___     _     ____   ____
- / ___|   / \   | |       / \   | \ | ||  _ \ |  _ \ |_ _|   / \   |  _ \ |  _ \
-| |      / _ \  | |      / _ \  |  \| || | | || |_) | | |   / _ \  | |_) || |_) |
-| |___  / ___ \ | |___  / ___ \ | |\  || |_| ||  _ <  | |  / ___ \ |  __/ |  __/
- \____|/_/   \_\|_____|/_/   \_\|_| \_||____/ |_| \_\|___|/_/   \_\|_|    |_|
-```
-
-CalandriApp
-===========
+<p align="center"><img src="docs/img/banner.png" alt="CalandriApp: mesh, LoRa, offline" width="100%"/></p>
 
 **Una app Android chica y propia para usar nodos Meshtastic en el campo: mensajes, mapa offline y
 seguimiento de un grupo cerrado, sin cuentas, sin nube y sin internet.**
@@ -15,10 +6,6 @@ seguimiento de un grupo cerrado, sin cuentas, sin nube y sin internet.**
 Versión **1.5.2** | Android 8 o más nuevo | *powered by Meshtastic®*
 
 [![Descargar APK](https://img.shields.io/github/v/release/proto-hommer/calandriapp?label=descargar%20APK&color=2ea44f)](https://github.com/proto-hommer/calandriapp/releases/latest)
-
-<p align="center">
-  <img src="assets/brand/png/logo-horizontal-1600.png" alt="CalandriApp" width="70%"/>
-</p>
 
 **Bajás el APK, lo instalás, emparejás tu nodo por Bluetooth y tenés a tu grupo en el mapa.**
 
@@ -35,8 +22,7 @@ Versión **1.5.2** | Android 8 o más nuevo | *powered by Meshtastic®*
 
 * * *
 
-Qué es esto
------------
+<p><img src="docs/img/titulos/que-es-esto.png" alt="Qué es esto" width="100%"/></p>
 
 CalandriApp habla con un nodo [Meshtastic](https://meshtastic.org) por Bluetooth y usa la API pública
 de Meshtastic. **No es un fork de la app oficial**: es una app más simple, hecha para un uso concreto,
@@ -45,7 +31,7 @@ trabajo de campo con un grupo cerrado:
 Las capturas usan un **grupo de ejemplo inventado** (una expedición en el valle de Calamuchita): ni los
 nodos ni las posiciones son de nadie real.
 
-### El mapa y los nodos
+<p><img src="docs/img/titulos/s-el-mapa-y-los-nodos.png" alt="El mapa y los nodos" height="26"/></p>
 
 <p align="center">
   <img src="docs/img/mapa-noche.png" alt="Mapa con el grupo, los repetidores, rastros y waypoints" width="32%"/>
@@ -71,7 +57,7 @@ Cada nodo se lee de un vistazo por su **color**, su **forma** y su **borde**:
 Los ajenos que no se oyen hace más de 30 minutos se ocultan del mapa hasta que vuelven a oírse. La
 leyenda de abajo a la izquierda se puede achicar.
 
-### La ficha de un nodo
+<p><img src="docs/img/titulos/s-la-ficha-de-un-nodo.png" alt="La ficha de un nodo" height="26"/></p>
 
 <p align="center">
   <img src="docs/img/ficha-nodo.png" alt="Ficha de un nodo del grupo" width="32%"/>
@@ -88,7 +74,7 @@ misma información en lista: primero los del grupo y después los repetidores y 
 un nodo de la lista para verlo en el mapa. Los waypoints tienen su propia ficha (quién lo puso, si vence,
 a qué distancia está) y también se puede ir hacia ellos; se crean con un toque largo en el mapa.
 
-### Ir a un nodo o waypoint
+<p><img src="docs/img/titulos/s-ir-a-un-nodo-o-waypoint.png" alt="Ir a un nodo o waypoint" height="26"/></p>
 
 <p align="center">
   <img src="docs/img/ir-a.png" alt="Ruta a pie hasta un nodo, por senderos" width="32%"/>
@@ -107,7 +93,7 @@ o desde Ajustes → Rutas sin conexión. Sin esos datos, muestra la línea recta
 rumbo. **GUARDAR EL CAMINO** baja además el relieve (y el mapa, si la fuente lo permite) de los
 cuadrantes por donde pasa la ruta.
 
-### Alcance y perfil del terreno
+<p><img src="docs/img/titulos/s-alcance-y-perfil-del-terreno.png" alt="Alcance y perfil del terreno" height="26"/></p>
 
 <p align="center">
   <img src="docs/img/alcance.png" alt="Alcance estimado de un nodo fijo" width="32%"/>
@@ -125,7 +111,7 @@ cuadrantes por donde pasa la ruta.
   dB. En el ejemplo, la base pasa con +17 dB aunque un cerro roza la línea de vista; JUAN, del otro lado
   de las sierras, no pasa. Usa el relieve del SRTM (≈30 m), que se baja por zonas y queda guardado.
 
-### Mensajes
+<p><img src="docs/img/titulos/s-mensajes.png" alt="Mensajes" height="26"/></p>
 
 <p align="center">
   <img src="docs/img/chat.png" alt="Chat del grupo con respuestas y saltos" width="32%"/>
@@ -136,7 +122,7 @@ cuántos **saltos** dio ("directo", "2 saltos"…). Mantené apretado un mensaje
 respuesta lleva la cita arriba. Llegan **avisos** dentro de la app y notificaciones con la app cerrada
 o la pantalla apagada: la conexión sigue en segundo plano y se reconecta sola si se corta.
 
-### Grupo cerrado
+<p><img src="docs/img/titulos/s-grupo-cerrado.png" alt="Grupo cerrado" height="26"/></p>
 
 <p align="center">
   <img src="docs/img/grupo.png" alt="Pestaña Grupo con el QR para sumar a otros" width="32%"/>
@@ -146,7 +132,7 @@ En dos toques crea un canal privado con clave AES-256 y lo comparte por **QR**, 
 de Meshtastic (sirve también con la app oficial). El nombre del grupo se puede cambiar después: los
 demás vuelven a escanear el QR. El QR de la captura es del grupo inventado.
 
-### Mapas sin conexión
+<p><img src="docs/img/titulos/s-mapas-sin-conexion.png" alt="Mapas sin conexión" height="26"/></p>
 
 <p align="center">
   <img src="docs/img/cuadricula.png" alt="Cuadrícula de mapas sin conexión" width="32%"/>
@@ -157,7 +143,7 @@ En Ajustes → Mapas sin conexión hay una cuadrícula sobre el mapa (1-A, 2-B�
 los cuadrantes que querés (quedan con borde cian) y se baja todo junto: el relieve y, si la fuente lo
 permite, el mapa.
 
-### Modo día
+<p><img src="docs/img/titulos/s-modo-dia.png" alt="Modo día" height="26"/></p>
 
 <p align="center">
   <img src="docs/img/modo-dia.png" alt="Modo día: mapa" width="32%"/>
@@ -168,7 +154,7 @@ permite, el mapa.
 En Ajustes → Apariencia: **NOCHE** (el HUD oscuro de siempre), **DÍA** ("neón de día": vidrio claro
 translúcido y bordes que brillan, para leer al sol) o **AUTO** (según el tema del teléfono).
 
-### Y además
+<p><img src="docs/img/titulos/s-y-ademas.png" alt="Y además" height="26"/></p>
 
 - **Posición del celular** al grupo a través del nodo, para nodos sin GPS.
 - **Ajustes del nodo conectado**: nombre, rol, posición, radio, canales y reinicio. Avisa si algo
@@ -180,8 +166,7 @@ conectados, y el ojo es el nodo principal.
 
 * * *
 
-Por qué se hizo
----------------
+<p><img src="docs/img/titulos/por-que-se-hizo.png" alt="Por qué se hizo" width="100%"/></p>
 
 Arrancó con el [Mesh Paper 1.54](https://github.com/proto-hommer/mesh-paper-154), un nodo
 Meshtastic de bolsillo con pantalla e-paper. Ese nodo **no tiene GPS**: su posición la tiene que
@@ -199,8 +184,7 @@ sin cuentas, sin nube ni servicios de Google: todo queda en el teléfono.
 
 * * *
 
-Descargar e instalar
---------------------
+<p><img src="docs/img/titulos/descargar-e-instalar.png" alt="Descargar e instalar" width="100%"/></p>
 
 1. Bajá el `CalandriApp-1.5.2.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
 2. Abrilo en el celular. Android va a pedir permiso para **instalar apps de origen desconocido**:
@@ -216,7 +200,7 @@ buscar por Bluetooth (la app avisa). Y el nodo no se anuncia mientras está cone
 la oficial de Meshtastic: cerrala o desconectalo de ahí. Si ya lo emparejaste desde los ajustes de
 Android, aparece igual en la lista con el botón CONECTAR.
 
-### Con qué nodos anda
+<p><img src="docs/img/titulos/s-con-que-nodos-anda.png" alt="Con qué nodos anda" height="26"/></p>
 
 Con **cualquier nodo Meshtastic que tenga Bluetooth**: Heltec, LilyGO (T-Beam, T-Echo, T-Deck),
 RAK, Seeed, ThinkNode, Station G2 y el resto de los 154 modelos que conoce Meshtastic, en
@@ -230,8 +214,7 @@ RP2040 o `meshtasticd` en Linux) todavía no.
 
 * * *
 
-El grupo cerrado
-----------------
+<p><img src="docs/img/titulos/el-grupo-cerrado.png" alt="El grupo cerrado" width="100%"/></p>
 
 La app arma el grupo como lo recomienda la documentación de Meshtastic:
 
@@ -247,8 +230,7 @@ tiene la clave. Los demás se muestran como repetidores.
 
 * * *
 
-Cómo se hizo
-------------
+<p><img src="docs/img/titulos/como-se-hizo.png" alt="Cómo se hizo" width="100%"/></p>
 
 Por etapas, compilando y probando cada una en un teléfono real antes de pasar a la siguiente:
 
@@ -281,8 +263,7 @@ Algunas cosas que salieron en el camino:
 
 * * *
 
-Privacidad
-----------
+<p><img src="docs/img/titulos/privacidad.png" alt="Privacidad" width="100%"/></p>
 
 - Sin cuentas, sin nube, sin Google Play Services, sin analíticas.
 - Los mensajes, rastros, waypoints y datos de antenas quedan **solo en el teléfono**.
@@ -296,8 +277,7 @@ Privacidad
 
 * * *
 
-Lo que viene
-------------
+<p><img src="docs/img/titulos/lo-que-viene.png" alt="Lo que viene" width="100%"/></p>
 
 - Conexión por **WiFi** y por **USB**, para nodos sin Bluetooth.
 - Paleta de la marca (cobre y verde) en toda la interfaz.
@@ -306,8 +286,7 @@ Lo que viene
 
 * * *
 
-Compilar desde el código
-------------------------
+<p><img src="docs/img/titulos/compilar-desde-el-codigo.png" alt="Compilar desde el código" width="100%"/></p>
 
 Hace falta Android Studio, o su JDK, y el submódulo de los protobufs de Meshtastic:
 
@@ -322,8 +301,7 @@ clave, ver el comentario sobre la firma en `app/build.gradle.kts`.
 
 * * *
 
-Créditos, marcas y licencias
-----------------------------
+<p><img src="docs/img/titulos/creditos-marcas-y-licencias.png" alt="Créditos, marcas y licencias" width="100%"/></p>
 
 - **powered by Meshtastic®.** Meshtastic® es una marca registrada de Meshtastic LLC. Los componentes de
   software de Meshtastic se publican bajo distintas licencias; ver [GitHub](https://github.com/meshtastic)
@@ -342,8 +320,7 @@ Créditos, marcas y licencias
   Protocol Buffers (BSD-3-Clause), AndroidX / Jetpack Compose y Kotlin (Apache-2.0). El logo usa
   la tipografía Space Grotesk (OFL-1.1).
 
-Licencia
---------
+<p><img src="docs/img/titulos/licencia.png" alt="Licencia" width="100%"/></p>
 
 CalandriApp es software libre bajo la **[GNU GPL v3](LICENSE)**: la podés usar, estudiar, compartir
 y modificar, siempre que lo que distribuyas también sea libre y con su código.
