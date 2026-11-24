@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,7 +65,10 @@ import java.util.Locale
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
-/** Ajustes del nodo conectado: nombre, rol, posición, radio y canales. */
+/** Secciones de Ajustes. */
+private enum class SettingsTab(val label: String) { NODE("Nodo"), LORA("LoRa"), APP("App"), ABOUT("Acerca de") }
+
+/** Ajustes en pestañas: el nodo (nombre, rol, posición…), su radio LoRa, la app y Acerca de. */
 @Composable
 fun SettingsScreen(vm: MeshViewModel, connected: Boolean = true) {
     val owner by vm.owner.collectAsState()
@@ -75,25 +79,105 @@ fun SettingsScreen(vm: MeshViewModel, connected: Boolean = true) {
     val phoneFix by vm.myFix.collectAsState()
     val here = phoneFix?.let { it.latitude to it.longitude }
     val o = owner; val d = device; val p = pos; val l = lora
-    if (!connected || o == null || d == null || p == null || l == null || channels.isEmpty()) {
-        // Sin nodo (o mientras llega su config) igual se pueden bajar los mapas.
-        Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+    val ready = connected && o != null && d != null && p != null && l != null && channels.isNotEmpty()
+    // Sin nodo arranca en App (mapas sin conexión, etc.): lo del nodo no se puede ver.
+    var tabName by rememberSaveable { mutableStateOf(if (connected) SettingsTab.NODE.name else SettingsTab.APP.name) }
+    val tab = SettingsTab.valueOf(tabName)
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp)) {
             HudHeader("Ajustes")
-            AppearancePanel()
-            OfflineMapsPanel()
-            RoutesPanel(here)
-            UpdatesPanel()
-            Text(
-                if (connected) "Leyendo la configuración del nodo…" else "Conectá un nodo para ver y cambiar sus ajustes.",
-                color = HudTextDim,
-            )
+            SettingsTabs(tab) { tabName = it.name }
         }
-        return
+        when (tab) {
+            SettingsTab.APP -> ScrollPanels {
+                AppearancePanel()
+                OfflineMapsPanel()
+                RoutesPanel(here)
+            }
+            SettingsTab.ABOUT -> ScrollPanels { AboutPanels() }
+            SettingsTab.NODE, SettingsTab.LORA ->
+                if (ready) SettingsContent(vm, o!!, d!!, p!!, l!!, channels, tab)
+                else ScrollPanels {
+                    Text(
+                        if (connected) "Leyendo la configuración del nodo…" else "Conectá un nodo para ver y cambiar sus ajustes.",
+                        color = HudTextDim,
+                    )
+                }
+        }
     }
-    SettingsContent(vm, o, d, p, l, channels)
+}
+
+@Composable
+private fun ScrollPanels(content: @Composable () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        content()
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/** Fila de pestañas, con el estilo de la barra de abajo (texto y raya cian en la elegida). */
+@Composable
+private fun SettingsTabs(tab: SettingsTab, onSelect: (SettingsTab) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        for (t in SettingsTab.entries) {
+            val sel = t == tab
+            Column(
+                Modifier.weight(1f).clickable { onSelect(t) }.padding(vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    t.label.uppercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (sel) HudCyan else HudTextDim,
+                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1, softWrap = false,
+                )
+                Spacer(Modifier.height(4.dp))
+                Box(Modifier.fillMaxWidth(0.7f).height(2.dp).background(if (sel) HudCyan else Color.Transparent))
+            }
+        }
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(HudLine))
+}
+
+/** Versión, actualizaciones, qué es la app y licencias. */
+@Composable
+private fun AboutPanels() {
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("CalandriApp", style = MaterialTheme.typography.titleMedium, color = HudCyan)
+        HudLabel("versión ${appVersion()}")
+        val uri = androidx.compose.ui.platform.LocalUriHandler.current
+        Text(
+            "Software libre (GPL-3.0) · código en github.com/proto-hommer/calandriapp",
+            Modifier.padding(top = 4.dp).clickable { uri.openUri(SOURCE_URL) },
+            style = MaterialTheme.typography.bodySmall, color = HudCyan,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+    }
+    UpdatesPanel()
+    HudPanel(Modifier.fillMaxWidth(), title = "Información") {
+        Text("powered by Meshtastic®", style = MaterialTheme.typography.bodySmall)
+        Text(
+            "Meshtastic® es una marca registrada de Meshtastic LLC. Los componentes de software de " +
+                "Meshtastic se publican bajo distintas licencias; ver GitHub para más detalles. " +
+                "CalandriApp es una app independiente: no es la app oficial ni está patrocinada " +
+                "ni respaldada por el proyecto Meshtastic. Sin garantía: se usa bajo tu propio riesgo.",
+            style = MaterialTheme.typography.bodySmall, color = HudTextDim,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+    HudPanel(Modifier.fillMaxWidth(), title = "Licencias") {
+        for ((what, license) in LICENSES) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Text(what, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                Text(license, style = MaterialTheme.typography.bodySmall, color = HudTextDim)
+            }
+        }
+        Note("Datos del mapa © colaboradores de OpenStreetMap, disponibles bajo la licencia ODbL (openstreetmap.org/copyright).")
+    }
 }
 
 @Composable
@@ -104,6 +188,7 @@ private fun SettingsContent(
     pos: PositionConfig,
     lora: LoRaConfig,
     channels: Map<Int, Channel>,
+    tab: SettingsTab,
 ) {
     val meta by vm.metadata.collectAsState()
     val me by vm.myNodeNum.collectAsState()
@@ -185,8 +270,7 @@ private fun SettingsContent(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            HudHeader("Ajustes del nodo")
-
+            if (tab == SettingsTab.NODE) {
             // ---------- Enlace ----------
             HudPanel(Modifier.fillMaxWidth(), title = "Enlace") {
                 Text(
@@ -304,6 +388,17 @@ private fun SettingsContent(
                 }
             }
 
+            // ---------- Mantenimiento ----------
+            HudPanel(Modifier.fillMaxWidth(), title = "Mantenimiento") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    HudOutlinedButton(onClick = { askReboot = true }) { Text("REINICIAR") }
+                    HudOutlinedButton(onClick = { askForget = true }) { Text("OLVIDAR NODOS") }
+                }
+                Note("Olvidar nodos borra la lista de nodos conocidos (deja los favoritos). Sirve para limpiar nodos fantasma.")
+            }
+            }
+
+            if (tab == SettingsTab.LORA) {
             // ---------- Radio ----------
             HudPanel(Modifier.fillMaxWidth(), title = "Radio") {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -395,58 +490,6 @@ private fun SettingsContent(
                 Note("El nombre y la clave de los canales se cambian en la pestaña Grupo.")
             }
 
-            // ---------- Apariencia ----------
-            AppearancePanel()
-
-            // ---------- Mapas sin conexión ----------
-            OfflineMapsPanel()
-            RoutesPanel(fix?.let { it.latitude to it.longitude })
-
-            // ---------- Mantenimiento ----------
-            HudPanel(Modifier.fillMaxWidth(), title = "Mantenimiento") {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HudOutlinedButton(onClick = { askReboot = true }) { Text("REINICIAR") }
-                    HudOutlinedButton(onClick = { askForget = true }) { Text("OLVIDAR NODOS") }
-                }
-                Note("Olvidar nodos borra la lista de nodos conocidos (deja los favoritos). Sirve para limpiar nodos fantasma.")
-            }
-
-            // ---------- Actualizaciones ----------
-            UpdatesPanel()
-
-            // ---------- Acerca de ----------
-            Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("CalandriApp", style = MaterialTheme.typography.titleMedium, color = HudCyan)
-                HudLabel("versión ${appVersion()}")
-                val uri = androidx.compose.ui.platform.LocalUriHandler.current
-                Text(
-                    "Software libre (GPL-3.0) · código en github.com/proto-hommer/calandriapp",
-                    Modifier.padding(top = 4.dp).clickable { uri.openUri(SOURCE_URL) },
-                    style = MaterialTheme.typography.bodySmall, color = HudCyan,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-                Spacer(Modifier.height(6.dp))
-                Text("powered by Meshtastic®", style = MaterialTheme.typography.bodySmall)
-                Text(
-                    "Meshtastic® es una marca registrada de Meshtastic LLC. Los componentes de software de " +
-                        "Meshtastic se publican bajo distintas licencias; ver GitHub para más detalles. " +
-                        "CalandriApp es una app independiente: no es la app oficial ni está patrocinada " +
-                        "ni respaldada por el proyecto Meshtastic. Sin garantía: se usa bajo tu propio riesgo.",
-                    style = MaterialTheme.typography.bodySmall, color = HudTextDim,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.padding(top = 4.dp, start = 8.dp, end = 8.dp),
-                )
-            }
-
-            // ---------- Licencias ----------
-            HudPanel(Modifier.fillMaxWidth(), title = "Licencias") {
-                for ((what, license) in LICENSES) {
-                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                        Text(what, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                        Text(license, style = MaterialTheme.typography.bodySmall, color = HudTextDim)
-                    }
-                }
-                Note("Datos del mapa © colaboradores de OpenStreetMap, disponibles bajo la licencia ODbL (openstreetmap.org/copyright).")
             }
             Spacer(Modifier.height(8.dp))
         }
