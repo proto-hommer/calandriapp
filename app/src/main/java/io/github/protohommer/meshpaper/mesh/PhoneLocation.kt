@@ -45,11 +45,13 @@ class PhoneLocation(context: Context, private val onFix: (Location) -> Unit) {
     fun start() {
         if (running || lm == null) return
         running = true
-        val providers = buildList {
+        val all = buildList {
             add(LocationManager.GPS_PROVIDER)
             add(LocationManager.NETWORK_PROVIDER)
             if (Build.VERSION.SDK_INT >= 31) add(LocationManager.FUSED_PROVIDER)
         }.filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
+        // Navegando, solo el GPS: mezclado con la red, la posición salta de una a otra.
+        val providers = if (intervalMs < 5_000L && LocationManager.GPS_PROVIDER in all) listOf(LocationManager.GPS_PROVIDER) else all
         for (p in providers) {
             runCatching { lm.requestLocationUpdates(p, intervalMs, 0f, listener, Looper.getMainLooper()) }
         }

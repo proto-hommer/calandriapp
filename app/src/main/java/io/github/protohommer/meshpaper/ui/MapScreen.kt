@@ -63,6 +63,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -330,28 +331,91 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         var downX = 0f
         var downY = 0f
         val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop * 2
+        // Con dos dedos (zoom) sigue siguiendo: solo arrastrar con uno lo suelta.
+        var multi = false
         map.setOnTouchListener { _, e ->
             when (e.actionMasked) {
-                android.view.MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y }
+                android.view.MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; multi = false }
+                android.view.MotionEvent.ACTION_POINTER_DOWN -> multi = true
                 android.view.MotionEvent.ACTION_MOVE ->
-                    if (Nav.state.value?.guided == true && (e.pointerCount > 1 || hypot((e.x - downX).toDouble(), (e.y - downY).toDouble()) > slop)) following = false
+                    if (Nav.state.value?.guided == true && !multi && hypot((e.x - downX).toDouble(), (e.y - downY).toDouble()) > slop) following = false
             }
             false
         }
         onDispose { map.setOnTouchListener(null) }
     }
-    // Rumbo: el del GPS si uno se mueve; quieto, el del tramo de ruta (el GPS da cualquier cosa).
-    LaunchedEffect(fix, guided, following) {
+    // Flecha de la navegación guiada: un solo marcador que se mueve suave de un fix al siguiente
+    // (como Google Maps), en vez de saltar y redibujarse con cada posición del GPS.
+    val navMarker = remember {
+        Marker(map).apply {
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            isFlat = true // gira con el mapa: rotation = -rumbo
+            infoWindow = null
+            setOnMarkerClickListener { _, _ -> true }
+        }
+    }
+    // Brújula: el rumbo cuando uno está quieto o va despacio (ahí el GPS no lo sabe).
+    val compass = remember { io.github.protohommer.meshpaper.mesh.Compass(context) }
+    DisposableEffect(guided) {
+        if (guided) compass.start()
+        onDispose { compass.stop() }
+    }
+    val fixNow by rememberUpdatedState(fix)
+    val navNow by rememberUpdatedState(nav)
+    val followingNow by rememberUpdatedState(following)
+    LaunchedEffect(guided) {
         if (!guided) return@LaunchedEffect
-        val f = fix ?: return@LaunchedEffect
-        val moving = f.hasBearing() && f.hasSpeed() && f.speed > 1.2f
-        heading = (if (moving) f.bearing else null) ?: nav?.routeBearing ?: heading ?: nav?.bearing ?: 0f
-        if (!following) return@LaunchedEffect
-        // Uno queda en el cuarto de abajo de la pantalla, para ver más de lo que viene.
-        map.setMapCenterOffset(0, (map.height * 0.25f).toInt())
-        val zoom = if (!guidedZoomSet) (if (nav?.mode == io.github.protohommer.meshpaper.map.Routing.Mode.CAR) 17.0 else 18.0)
-            .also { guidedZoomSet = true } else map.zoomLevelDouble
-        map.controller.animateTo(GeoPoint(f.latitude, f.longitude), zoom, 900L, -(heading ?: 0f))
+        var from: GeoPoint? = null
+        var to: GeoPoint? = null
+        var shown: GeoPoint? = null
+        var startAt = 0L
+        var dur = 0L
+        var lastTime = 0L
+        var shownHeading = Float.NaN
+        while (true) {
+            val f = fixNow
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (f != null && f.time != lastTime) {
+                // Nuevo fix: se anima desde donde está la flecha hasta el nuevo punto, en lo que
+                // tardó en llegar este fix (así la flecha no se frena entre uno y otro).
+                if (lastTime == 0L) compass.setLocation(f)
+                from = shown ?: GeoPoint(f.latitude, f.longitude)
+                to = GeoPoint(f.latitude, f.longitude)
+                dur = if (lastTime == 0L) 0L else (f.time - lastTime).coerceIn(300L, 6_000L)
+                startAt = now
+                lastTime = f.time
+            }
+            val a = from
+            val b = to
+            if (a != null && b != null) {
+                val t = if (dur == 0L) 1.0 else ((now - startAt).toDouble() / dur).coerceIn(0.0, 1.0)
+                shown = GeoPoint(a.latitude + (b.latitude - a.latitude) * t, a.longitude + (b.longitude - a.longitude) * t)
+                // Rumbo: en movimiento (más de ~9 km/h) el del GPS, que es el de la marcha;
+                // si no, la brújula; sin brújula, el del tramo de ruta.
+                val gps = f?.takeIf { it.hasBearing() && it.hasSpeed() && it.speed > 2.5f }?.bearing
+                val target = gps ?: compass.azimuth ?: navNow?.routeBearing ?: navNow?.bearing ?: 0f
+                shownHeading = if (shownHeading.isNaN()) target else {
+                    // Suavizado por el camino corto (de 350° a 10° son 20°, no 340°).
+                    val d = ((target - shownHeading + 540f) % 360f) - 180f
+                    (shownHeading + d * 0.15f + 360f) % 360f
+                }
+                if (heading == null || kotlin.math.abs((((shownHeading - heading!!) + 540f) % 360f) - 180f) > 4f) heading = shownHeading
+                navMarker.position = shown
+                navMarker.rotation = -shownHeading
+                if (followingNow) {
+                    if (!guidedZoomSet) {
+                        guidedZoomSet = true
+                        map.controller.setZoom(if (navNow?.mode == io.github.protohommer.meshpaper.map.Routing.Mode.CAR) 17.0 else 18.0)
+                    }
+                    // Uno queda en el cuarto de abajo de la pantalla, para ver más de lo que viene.
+                    map.setMapCenterOffset(0, (map.height * 0.25f).toInt())
+                    map.controller.setCenter(shown)
+                    map.mapOrientation = -shownHeading
+                }
+                map.invalidate()
+            }
+            delay(33) // ~30 cuadros por segundo
+        }
     }
 
     fun startNav(t: Nav.Target) {
@@ -597,13 +661,16 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                         setOnMarkerClickListener { _, _ -> selectNode(n.num); true }
                     })
                 }
-                fix?.let { f ->
+                if (guided && fix != null) {
+                    navMarker.icon = navArrowIcon(mv.context)
+                    mv.overlays.add(navMarker)
+                } else fix?.let { f ->
                     // El teléfono y el nodo conectado están en el mismo lugar: un solo marcador
                     // con el nombre del nodo, para no confundirlo con otro nodo parecido.
                     val myLabel = me?.let { nodes[it] }?.let { it.shortName.ifEmpty { it.id.takeLast(4) } }
                     mv.overlays.add(NodeMarker(mv, onLong = { me?.let { longPressNode(it) } }).apply {
                         position = GeoPoint(f.latitude, f.longitude)
-                        icon = if (guided) navArrowIcon(mv.context) else meIcon(mv.context, myLabel)
+                        icon = meIcon(mv.context, myLabel)
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         infoWindow = null
                         setOnMarkerClickListener { _, _ -> me?.let { selectNode(it) }; true }
