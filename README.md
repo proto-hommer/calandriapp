@@ -3,7 +3,7 @@
 **Una app Android chica y propia para usar nodos Meshtastic en el campo: mensajes, mapa offline y
 seguimiento de un grupo cerrado, sin cuentas, sin nube y sin internet.**
 
-Versión **1.9.0** | Android 8 o más nuevo | *powered by Meshtastic®*
+Versión **2.0.0** | Android 8 o más nuevo | *powered by Meshtastic®*
 
 [![Descargar APK](https://img.shields.io/github/v/release/proto-hommer/calandriapp?label=descargar%20APK&color=2ea44f)](https://github.com/proto-hommer/calandriapp/releases/latest)
 
@@ -44,14 +44,11 @@ Cada nodo se lee de un vistazo por su **color**, su **forma** y su **borde**:
 
 | Cómo se ve | Qué es | En el ejemplo |
 |---|---|---|
-| Círculo **verde** | Del grupo, se lo oye directo o a 1 salto | ANA |
-| Círculo **amarillo** | Del grupo, a 2 o 3 saltos | JUAN |
-| Círculo **naranja** | Del grupo, a 4 o 5 saltos | SOFI |
-| Borde **rojo punteado** | Del grupo, perdido: no se lo oye hace rato | TOMI |
-| **Rombo azul** | Fijo del grupo (router, base), con el borde de la señal por fuera | BASE |
-| Nombre **violeta** | Ajeno (no es del grupo): solo sirve de repetidor | SRC2, CHMP |
-| **Rombo** | Nodo fijo (router, base, repetidor), del grupo o ajeno | CHMP, VGB1 |
-| Retícula **cian** | Vos: el teléfono y el nodo conectado | EX1 |
+| **Círculo** blanco, con barras al lado | Del grupo. Tres barras: directo o 1 salto; dos: 2-3 saltos; una: 4-5 | ANA, JUAN, SOFI |
+| **Anillo cortado naranja** | Del grupo, perdido: no se lo oye hace rato (la etiqueta dice hace cuánto) | TOMI |
+| **Rombo** blanco | Fijo del grupo (router, base) | BASE |
+| **Rombo gris chico** | Ajeno (no es del grupo): solo sirve de repetidor; nombre **violeta** si repite | SRC2, CHMP |
+| Retícula **cian** | Vos: el teléfono y el nodo conectado. El cian es solo tuyo | VOS |
 | Emoji con un palito | Waypoint (campamento, peligro, auto…) | ⛺ ⚠️ 🚗 |
 
 Los ajenos que no se oyen hace más de 30 minutos se ocultan del mapa hasta que vuelven a oírse. La
@@ -158,8 +155,10 @@ permite, el mapa.
   <img src="docs/img/modo-dia-nodos.png" alt="Modo día: lista de nodos" width="32%"/>
 </p>
 
-En Ajustes → App → Apariencia: **NOCHE** (el HUD oscuro de siempre), **DÍA** ("neón de día": vidrio claro
-translúcido y bordes que brillan, para leer al sol) o **AUTO** (según el tema del teléfono).
+En Ajustes → App → Apariencia: **Noche** (oscura y sin brillos), **Día** (clara, para leer al sol) o
+**Auto** (según el tema del teléfono). Desde la 2.0 las dos usan la misma lógica: cada color tiene un solo
+trabajo (blanco para leer y tocar, cian para vos, naranja para lo que pide atención) y la forma dice qué
+es cada nodo.
 
 <p><img src="docs/img/titulos/s-y-ademas.png" alt="Y además" height="26"/></p>
 
@@ -197,7 +196,7 @@ sin cuentas, sin nube ni servicios de Google: todo queda en el teléfono.
 
 <p><img src="docs/img/titulos/descargar-e-instalar.png" alt="Descargar e instalar" width="100%"/></p>
 
-1. Bajá el `CalandriApp-1.9.0.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
+1. Bajá el `CalandriApp-2.0.0.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
 2. Abrilo en el celular. Android va a pedir permiso para **instalar apps de origen desconocido**:
    dáselo al navegador o al gestor de archivos con el que lo abriste.
 3. Abrí CalandriApp, dale los permisos de **Bluetooth** y **ubicación**, tocá **BUSCAR** y
@@ -258,7 +257,8 @@ Después vinieron:
 - la pestaña de ajustes del nodo y el estimador de alcance;
 - el soporte de todas las regiones y placas;
 - la marca, con el ícono adaptativo y la intro animada;
-- el aspecto neón, con paneles de vidrio esmerilado sobre el mapa.
+- el aspecto neón, con paneles de vidrio esmerilado sobre el mapa (hasta la 1.9; desde la 2.0, una
+  interfaz más sobria, con la señal en barras y un color para cada cosa).
 
 Algunas cosas que salieron en el camino:
 
@@ -291,7 +291,7 @@ Algunas cosas que salieron en el camino:
 <p><img src="docs/img/titulos/lo-que-viene.png" alt="Lo que viene" width="100%"/></p>
 
 - Conexión por **WiFi** y por **USB**, para nodos sin Bluetooth.
-- Paleta de la marca (cobre y verde) en toda la interfaz.
+- Capturas nuevas con la interfaz 2.0 (las de este README todavía son de la 1.x).
 
 * * *
 
