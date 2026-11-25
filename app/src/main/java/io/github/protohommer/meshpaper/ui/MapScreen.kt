@@ -994,7 +994,8 @@ private fun NodeCard(
             } else "—"
             StatTile("Oído", if (n.num == me) "ahora" else agoText(now, n.lastHeard).removePrefix("hace "), Modifier.weight(1f), warn = lostNow)
             StatTile(
-                "Enlace", Signal.describe(n)?.substringBefore(" · ")?.substringBefore(" salto")?.let { if (it == "directo") "dir." else it } ?: "—",
+                // Directo: "dir."; si no, la cantidad de saltos (las barras dicen la calidad).
+                "Enlace", when (val h = n.hopsAway) { null -> "—"; 0 -> "dir."; else -> "$h" },
                 Modifier.weight(1f), bars = if (n.num != me && !lostNow) signalBars(Signal.quality(n, now)) else null,
             )
             StatTile("Bat", n.battery?.let { if (it > 100) "USB" else "$it %" } ?: "—", Modifier.weight(1f))
