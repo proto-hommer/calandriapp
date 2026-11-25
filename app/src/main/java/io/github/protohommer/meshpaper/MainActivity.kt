@@ -65,6 +65,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -339,7 +342,7 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
         if (hasGroup && myNode != null) 1 else 0
     val connected = link == LinkState.Connected
     val (linkColor, state) = when (link) {
-        LinkState.Connected -> SigGood to "enlazado"
+        LinkState.Connected -> io.github.protohommer.meshpaper.ui.theme.SigMe to "enlazado"
         is LinkState.Connecting, LinkState.NeedPin -> SigFair to "conectando"
         is LinkState.Failed -> SigWeak to "sin enlace"
         LinkState.Disconnected -> HudTextDim to "sin enlace"
@@ -382,17 +385,19 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
                 .height(TopBarHeight + 16.dp).padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // El nodo y el estado del enlace.
-            Box(Modifier.width(3.dp).height(30.dp).neonGlow(linkColor, androidx.compose.ui.graphics.RectangleShape, 5.dp, 3.dp).background(linkColor))
-            Spacer(Modifier.width(10.dp))
+            // El nodo y el estado del enlace (el punto cian: estás enlazado, sos vos).
             Column(
                 Modifier.weight(1f).clickable(enabled = connected, onClickLabel = "Cambiar de nodo o desconectar") { showLink = true },
             ) {
-                HudValue(nodeName.uppercase() + if (connected) " ▾" else "", color = if (connected) MaterialTheme.colorScheme.onSurface else HudTextDim)
+                Text(
+                    nodeName.uppercase() + if (connected) " ▾" else "",
+                    style = io.github.protohommer.meshpaper.ui.theme.MonoValue.copy(fontSize = 20.sp, lineHeight = 24.sp),
+                    color = if (connected) MaterialTheme.colorScheme.onSurface else HudTextDim, maxLines = 1,
+                )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StatusDot(linkColor, 6.dp)
-                    Spacer(Modifier.width(5.dp))
-                    HudLabel("CalandriApp · $state", color = linkColor.copy(alpha = 0.85f))
+                    Spacer(Modifier.width(6.dp))
+                    HudLabel(state, color = linkColor)
                 }
             }
             TopReadout(
@@ -404,24 +409,25 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
                 },
                 when {
                     channels.isEmpty() -> HudTextDim
-                    hasGroup -> HudCyan
+                    hasGroup -> MaterialTheme.colorScheme.onSurface
                     else -> SigWeak
                 },
-                Modifier.widthIn(max = 92.dp),
+                Modifier.widthIn(max = 104.dp), sans = true,
             )
-            TopDivider()
+            Spacer(Modifier.width(16.dp))
             TopReadout("Miemb.", "$members", MaterialTheme.colorScheme.onSurface)
-            TopDivider()
-            TopReadout("GPS", fix?.let { "±${it.accuracy.toInt()}m" } ?: "—", if (fix != null) SigGood else HudTextDim)
+            Spacer(Modifier.width(16.dp))
+            TopReadout("GPS", fix?.let { "±${it.accuracy.toInt()} m" } ?: "—", if (fix != null) MaterialTheme.colorScheme.onSurface else HudTextDim)
         }
     }
 }
 
 @Composable
-private fun TopReadout(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+private fun TopReadout(label: String, value: String, color: Color, modifier: Modifier = Modifier, sans: Boolean = false) {
+    Column(modifier, horizontalAlignment = Alignment.End) {
         HudLabel(label)
-        HudValue(value, color = color)
+        if (sans) Text(value, style = MaterialTheme.typography.titleMedium, color = color, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        else HudValue(value, color = color)
     }
 }
 
@@ -434,45 +440,35 @@ private fun TopDivider() {
 
 @Composable
 private fun NavBar(tab: Tab, unread: Int, onSelect: (Tab) -> Unit, modifier: Modifier = Modifier) {
-    val haze = LocalHaze.current
     Column(
         modifier.fillMaxWidth()
-            .then(
-                if (haze != null) Modifier.hazeEffect(haze, GlassStyle) else Modifier
-            )
-            .background(HudSurface.copy(alpha = if (haze != null) 0.35f else 0.96f))
+            .background(HudBg)
             .windowInsetsPadding(WindowInsets.navigationBars),
     ) {
-        // Filo de neón arriba.
-        Box(
-            Modifier.fillMaxWidth().height(1.dp)
-                .background(Brush.horizontalGradient(listOf(Color.Transparent, HudCyan.copy(alpha = 0.8f), Color.Transparent)))
-        )
-        Row(Modifier.fillMaxWidth().height(50.dp)) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(HudLine))
+        Row(Modifier.fillMaxWidth().height(62.dp)) {
             for (t in Tab.entries) {
                 val active = t == tab
+                val color = if (active) MaterialTheme.colorScheme.onSurface else HudTextDim
                 Column(
-                    Modifier.weight(1f).fillMaxSize().clickable { onSelect(t) },
+                    Modifier.weight(1f).fillMaxSize().clickable(onClickLabel = t.label) { onSelect(t) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Box(
-                        Modifier.width(28.dp).height(2.dp)
-                            .then(if (active) Modifier.neonGlow(HudCyan, androidx.compose.ui.graphics.RectangleShape, 5.dp, 2.dp) else Modifier)
-                            .background(if (active) HudCyan else Color.Transparent)
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    val color = when {
-                        active -> HudCyan
-                        t == Tab.CHATS && unread > 0 -> SigFair
-                        else -> HudTextDim
+                    Box {
+                        TabIcon(t, color)
+                        if (t == Tab.CHATS && unread > 0) {
+                            Box(
+                                Modifier.align(Alignment.TopEnd).offset(x = 10.dp, y = (-4).dp)
+                                    .background(SigWeak, androidx.compose.foundation.shape.CircleShape)
+                                    .padding(horizontal = 5.dp, vertical = 1.dp),
+                            ) { Text("$unread", style = MaterialTheme.typography.labelSmall, color = HudBg) }
+                        }
                     }
-                    val style = MaterialTheme.typography.labelMedium
-                    Text(
-                        t.label.uppercase() + if (t == Tab.CHATS && unread > 0) " ·$unread" else "",
-                        style = if (color != HudTextDim) style.neon(color, 12f) else style,
-                        color = color,
-                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(t.label, style = MaterialTheme.typography.bodySmall, color = color, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+                    Spacer(Modifier.height(3.dp))
+                    Box(Modifier.width(18.dp).height(2.dp).background(if (active) color else Color.Transparent))
                 }
             }
         }
@@ -484,6 +480,52 @@ private fun NavBar(tab: Tab, unread: Int, onSelect: (Tab) -> Unit, modifier: Mod
             color = HudTextDim.copy(alpha = 0.7f),
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
+    }
+}
+
+/** Íconos de línea de la barra de abajo, dibujados (24 dp, trazo fino). */
+@Composable
+private fun TabIcon(t: Tab, color: Color) {
+    androidx.compose.foundation.Canvas(Modifier.size(24.dp)) {
+        val u = size.width / 24f
+        val st = androidx.compose.ui.graphics.drawscope.Stroke(1.7f * u, join = androidx.compose.ui.graphics.StrokeJoin.Round, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        fun p(vararg xy: Float) = androidx.compose.ui.graphics.Path().apply {
+            moveTo(xy[0] * u, xy[1] * u)
+            var k = 2
+            while (k < xy.size) { lineTo(xy[k] * u, xy[k + 1] * u); k += 2 }
+        }
+        fun o(x: Float, y: Float) = androidx.compose.ui.geometry.Offset(x * u, y * u)
+        when (t) {
+            Tab.MAP -> {
+                drawPath(p(3f, 6f, 9f, 4f, 15f, 6f, 21f, 4f, 21f, 18f, 15f, 20f, 9f, 18f, 3f, 20f).apply { close() }, color, style = st)
+                drawLine(color, o(9f, 4f), o(9f, 18f), st.width)
+                drawLine(color, o(15f, 6f), o(15f, 20f), st.width)
+            }
+            Tab.NODES -> {
+                drawCircle(color, 2.5f * u, o(6f, 6f), style = st)
+                drawCircle(color, 2.5f * u, o(18f, 6f), style = st)
+                drawCircle(color, 2.5f * u, o(12f, 18f), style = st)
+                drawLine(color, o(8f, 7.5f), o(11f, 16f), st.width)
+                drawLine(color, o(16f, 7.5f), o(13f, 16f), st.width)
+                drawLine(color, o(8.5f, 6f), o(15.5f, 6f), st.width)
+            }
+            Tab.CHATS -> drawPath(p(4f, 5f, 20f, 5f, 20f, 16f, 10f, 16f, 5f, 20f, 5f, 16f, 4f, 16f).apply { close() }, color, style = st)
+            Tab.GROUP -> {
+                drawCircle(color, 3.2f * u, o(9f, 9f), style = st)
+                drawCircle(color, 2.5f * u, o(17f, 10f), style = st)
+                drawArc(color, 180f, 180f, false, o(3f, 13.5f), androidx.compose.ui.geometry.Size(12f * u, 11f * u), style = st)
+                drawArc(color, 200f, 140f, false, o(14f, 14f), androidx.compose.ui.geometry.Size(8f * u, 9f * u), style = st)
+            }
+            Tab.SETTINGS -> {
+                drawCircle(color, 3f * u, o(12f, 12f), style = st)
+                for (k in 0 until 8) {
+                    val a = Math.toRadians(k * 45.0)
+                    val c = kotlin.math.cos(a).toFloat()
+                    val s = kotlin.math.sin(a).toFloat()
+                    drawLine(color, o(12f + 6f * c, 12f + 6f * s), o(12f + 9f * c, 12f + 9f * s), st.width, androidx.compose.ui.graphics.StrokeCap.Round)
+                }
+            }
+        }
     }
 }
 
@@ -643,20 +685,20 @@ private fun NodesScreen(vm: MeshViewModel, onAskLocation: () -> Unit, onNode: (I
     val members = nodes.values.filter(::isMember).sortedWith(byRecent)
     val others = nodes.values.filterNot(::isMember).sortedWith(byRecent)
 
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         item {
             Spacer(Modifier.height(12.dp))
             PositionPanel(vm, onAskLocation)
             Spacer(Modifier.height(12.dp))
         }
-        item { SectionTitle("Grupo · ${members.size}", HudCyan) }
+        item { SectionTitle("Grupo · ${members.size}", HudTextDim) }
         if (members.isEmpty()) item {
             HudLabel(if (hasGroup) "Todavía no se oyó a nadie del grupo" else "Sin grupo privado: armalo en GRUPO")
             Spacer(Modifier.height(8.dp))
         }
         items(members, key = { it.num }) { n -> NodeRow(n, me, true, fix, now, onNode, onShowOnMap) }
         if (others.isNotEmpty()) {
-            item { Spacer(Modifier.height(12.dp)); SectionTitle("Repetidores y otros · ${others.size}", MaterialTheme.colorScheme.tertiary) }
+            item { Spacer(Modifier.height(16.dp)); SectionTitle("Repetidores y otros · ${others.size}", HudTextDim) }
             items(others, key = { it.num }) { n -> NodeRow(n, me, false, fix, now, onNode, onShowOnMap) }
         }
         item {
@@ -671,9 +713,7 @@ private fun NodesScreen(vm: MeshViewModel, onAskLocation: () -> Unit, onNode: (I
 
 @Composable
 private fun SectionTitle(text: String, color: Color) {
-    Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(3.dp).height(12.dp).background(color))
-        Spacer(Modifier.width(8.dp))
+    Row(Modifier.padding(top = 10.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         HudLabel(text, color = color)
     }
 }
@@ -696,44 +736,70 @@ private fun NodeRow(
                 onClick = { if (n.num != me) onClick(n.num) else menu = true },
                 onLongClick = { menu = true },
             )
-            .padding(vertical = 10.dp),
+            .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier.width(44.dp).height(30.dp)
-                .background(tone.color().copy(alpha = if (lost) 0.08f else 0.16f), io.github.protohommer.meshpaper.ui.HudButtonShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                n.shortName.ifEmpty { "?" }.take(4), style = MaterialTheme.typography.labelLarge,
-                color = tone.color().copy(alpha = if (lost) 0.6f else 1f),
-            )
-        }
-        Spacer(Modifier.width(12.dp))
+        // La forma dice qué es: círculo del grupo, rombo fijo, rombo gris ajeno, anillo cortado perdido, retícula vos.
+        io.github.protohommer.meshpaper.ui.NodeGlyph(
+            when {
+                n.num == me -> io.github.protohommer.meshpaper.ui.Glyph.ME
+                lost -> io.github.protohommer.meshpaper.ui.Glyph.LOST
+                !member -> io.github.protohommer.meshpaper.ui.Glyph.FOREIGN
+                Signal.isFixedRole(n) -> io.github.protohommer.meshpaper.ui.Glyph.FIXED
+                else -> io.github.protohommer.meshpaper.ui.Glyph.MEMBER
+            },
+        )
+        Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(n.longName.ifEmpty { n.id }, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
-                if (n.num == me) { Spacer(Modifier.width(6.dp)); HudLabel("este nodo", color = HudCyan) }
+                val nameColor = when {
+                    lost -> SigWeak
+                    !member && !n.mute -> io.github.protohommer.meshpaper.ui.theme.SigRelay
+                    !member -> HudTextDim
+                    else -> MaterialTheme.colorScheme.onSurface
+                }
+                Text(
+                    n.shortName.ifEmpty { n.id.takeLast(4) }.uppercase(),
+                    style = io.github.protohommer.meshpaper.ui.theme.MonoValue.copy(fontSize = 16.sp), color = nameColor, maxLines = 1,
+                )
+                if (member && n.num != me && !lost) {
+                    Spacer(Modifier.width(8.dp))
+                    io.github.protohommer.meshpaper.ui.SignalBars(io.github.protohommer.meshpaper.ui.signalBars(Signal.quality(n, now)), false)
+                }
+                if (n.num == me) { Spacer(Modifier.width(8.dp)); HudLabel("este nodo", color = io.github.protohommer.meshpaper.ui.theme.SigMe) }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    n.longName.ifEmpty { n.id }, style = MaterialTheme.typography.bodyMedium, color = HudTextDim,
+                    maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+                )
             }
             val parts = buildList {
-                if (n.num != me) add(agoText(now, n.lastHeard))
+                if (lost) add("perdido")
+                if (!member) add(if (n.mute) "no repite" else "repite")
+                if (member && Signal.isFixedRole(n)) add("fijo")
                 Signal.describe(n)?.let { add(it) }
-                n.battery?.let { add(if (it > 100) "USB" else "bat $it%") }
-                if (fix != null && n.num != me && n.lat != null && n.lon != null) {
-                    val (d, b) = PhoneLocation.distanceAndBearing(fix.latitude, fix.longitude, n.lat, n.lon)
-                    add("${PhoneLocation.formatDistance(d)} ${PhoneLocation.cardinal(b)}")
-                }
-                if (!member && n.mute) add("no repite")
+                if (n.num != me) add(agoText(now, n.lastHeard))
             }
-            HudLabel(parts.joinToString(" · ") { it.replace(' ', '\u00A0') }, maxLines = 2)
+            Text(
+                parts.joinToString(" · "), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.2.sp, fontSize = 12.sp),
+                color = if (lost) SigWeak else HudTextDim, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
         }
-        if (n.num != me) {
-            Spacer(Modifier.width(8.dp))
-            // El punto es la señal (saltos); el color del nombre corto dice qué es el nodo.
-            if (io.github.protohommer.meshpaper.ui.theme.Appearance.isNocturne) {
-                io.github.protohommer.meshpaper.ui.SignalBars(io.github.protohommer.meshpaper.ui.signalBars(Signal.quality(n, now)), lost)
-            } else {
-                StatusDot(Signal.linkTone(tone, n, now).color().copy(alpha = if (lost) 0.4f else 1f), 10.dp)
+        Spacer(Modifier.width(8.dp))
+        Column(horizontalAlignment = Alignment.End) {
+            val dist = if (fix != null && n.num != me && n.lat != null && n.lon != null) {
+                val (d, b) = PhoneLocation.distanceAndBearing(fix.latitude, fix.longitude, n.lat, n.lon)
+                "${PhoneLocation.formatDistance(d)} ${PhoneLocation.cardinal(b)}"
+            } else null
+            Text(
+                dist ?: "—", style = io.github.protohommer.meshpaper.ui.theme.MonoValue.copy(fontWeight = FontWeight.Normal),
+                color = if (lost) SigWeak else MaterialTheme.colorScheme.onSurface,
+            )
+            n.battery?.let {
+                Text(
+                    if (it > 100) "USB" else "bat $it %", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.2.sp, fontSize = 12.sp),
+                    color = HudTextDim,
+                )
             }
         }
     }

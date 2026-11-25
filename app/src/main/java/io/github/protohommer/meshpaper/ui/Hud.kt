@@ -413,3 +413,43 @@ fun LegendItem(color: Color, text: String) {
 
 /** Rota el contenido (la flecha de "volver" es el chevron girado). */
 fun Modifier.graphicsLayerRotate(degrees: Float): Modifier = this.graphicsLayer { rotationZ = degrees }
+
+/** Qué es un nodo, por su forma (2.0). */
+enum class Glyph { MEMBER, FIXED, FOREIGN, LOST, ME }
+
+/** La forma de un nodo: círculo del grupo, rombo fijo, rombo gris ajeno, anillo cortado perdido, retícula vos. */
+@Composable
+fun NodeGlyph(g: Glyph, modifier: Modifier = Modifier, size: Dp = 26.dp) {
+    val ink = HudText
+    val warn = io.github.protohommer.meshpaper.ui.theme.SigWeak
+    val me = io.github.protohommer.meshpaper.ui.theme.SigMe
+    val mute = io.github.protohommer.meshpaper.ui.theme.SigMute
+    androidx.compose.foundation.Canvas(modifier.size(size)) {
+        val c = Offset(this.size.width / 2, this.size.height / 2)
+        val r = this.size.width * 0.34f
+        val sw = 2.dp.toPx()
+        fun diamond(rr: Float) = androidx.compose.ui.graphics.Path().apply {
+            moveTo(c.x, c.y - rr); lineTo(c.x + rr, c.y); lineTo(c.x, c.y + rr); lineTo(c.x - rr, c.y); close()
+        }
+        when (g) {
+            Glyph.MEMBER -> drawCircle(ink, r, c, style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
+            Glyph.FIXED -> drawPath(diamond(r * 1.15f), ink, style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
+            Glyph.FOREIGN -> drawPath(diamond(r * 0.62f), mute)
+            Glyph.LOST -> drawCircle(
+                warn, r, c,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    sw, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())),
+                ),
+            )
+            Glyph.ME -> {
+                drawCircle(me, r * 0.32f, c)
+                val a = r * 0.6f
+                val b = r * 1.25f
+                drawLine(me, Offset(c.x, c.y - b), Offset(c.x, c.y - a), sw)
+                drawLine(me, Offset(c.x, c.y + a), Offset(c.x, c.y + b), sw)
+                drawLine(me, Offset(c.x - b, c.y), Offset(c.x - a, c.y), sw)
+                drawLine(me, Offset(c.x + a, c.y), Offset(c.x + b, c.y), sw)
+            }
+        }
+    }
+}
