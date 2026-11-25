@@ -43,11 +43,12 @@ fun boardName(info: Calandria.Info?, hw: HardwareModel?): String? =
 fun CalandriaFirmware(info: Calandria.Info, showLink: Boolean = true) {
     val latest by Calandria.latest.collectAsState()
     val upToDate = Calandria.upToDate(info, latest)
-    val fw = info.fw.ifEmpty { "?" }
+    // "Calandria 0.6.0 · Meshtastic 2.8.3"; los firmwares de antes de la 0.6.0 no mandan su versión.
+    val fw = if (info.ver.isNotEmpty()) "Calandria ${info.ver} · Meshtastic ${info.base}" else "Firmware ${info.fw.ifEmpty { "?" }}"
     when (upToDate) {
-        true -> HudLabel("Firmware $fw · al día", color = SigGood, maxLines = 2)
+        true -> HudLabel("$fw · al día", color = SigGood, maxLines = 2)
         false -> {
-            HudLabel("Firmware $fw · el último publicado es ${latest?.tag}", color = SigFair, maxLines = 2)
+            HudLabel("$fw · hay una nueva: ${latest?.tag?.let { Calandria.shortTag(it) }}", color = SigFair, maxLines = 2)
             val uri = LocalUriHandler.current
             if (showLink) latest?.url?.takeIf { it.isNotEmpty() }?.let { url ->
                 TextButton(onClick = { uri.openUri(url) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
@@ -55,7 +56,7 @@ fun CalandriaFirmware(info: Calandria.Info, showLink: Boolean = true) {
                 }
             }
         }
-        null -> HudLabel("Firmware $fw", maxLines = 2)
+        null -> HudLabel(fw, maxLines = 2)
     }
 }
 

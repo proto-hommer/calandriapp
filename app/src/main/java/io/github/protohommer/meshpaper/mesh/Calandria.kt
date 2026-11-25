@@ -24,7 +24,11 @@ import java.net.URL
 object Calandria {
     const val PORT = 323
 
-    data class Info(val model: String, val fw: String, val env: String, val seen: Long) {
+    /**
+     * [ver] = versión propia del Calandria ("0.6.0"), desde la 0.6.0; vacía en firmwares anteriores.
+     * [fw] = la de Meshtastic sobre la que está hecho, con el commit ("2.8.3.edc1ef7").
+     */
+    data class Info(val model: String, val fw: String, val env: String, val seen: Long, val ver: String = "") {
         /** El hash de git del build ("de48e4f"), si el fw lo trae. */
         val commit: String? get() = fw.split('.').getOrNull(3)?.takeIf { h -> h.length >= 7 && h.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' } }
         /** "2.8.3" */
@@ -37,11 +41,17 @@ object Calandria {
         if (parts.isEmpty() || !parts[0].startsWith("CALANDRIA/")) return null
         val kv = parts.drop(1).mapNotNull { p -> p.indexOf('=').takeIf { it > 0 }?.let { p.substring(0, it) to p.substring(it + 1) } }.toMap()
         val model = kv["model"]?.takeIf { it.isNotBlank() } ?: return null
-        return Info(model.take(40), kv["fw"].orEmpty().take(40), kv["env"].orEmpty().take(40), now)
+        val ver = kv["ver"].orEmpty().take(20).takeIf { v -> v.all { it.isDigit() || it == '.' } }.orEmpty()
+        return Info(model.take(40), kv["fw"].orEmpty().take(40), kv["env"].orEmpty().take(40), now, ver)
     }
 
-    fun encode(i: Info) = listOf(i.model, i.fw, i.env, i.seen.toString()).joinToString("\u001f")
-    fun decode(s: String): Info? = s.split('\u001f').takeIf { it.size == 4 }?.let { Info(it[0], it[1], it[2], it[3].toLongOrNull() ?: 0) }
+    fun encode(i: Info) = listOf(i.model, i.fw, i.env, i.seen.toString(), i.ver).joinToString("\u001f")
+    fun decode(s: String): Info? = s.split('\u001f').takeIf { it.size == 4 || it.size == 5 }
+        ?.let { Info(it[0], it[1], it[2], it[3].toLongOrNull() ?: 0, it.getOrElse(4) { "" }) }
+
+    /** Nombre corto de un release: "calandria-0.6.0" → "0.6.0"; los viejos "v2.8.3-ws154.5" → "ws154.5". */
+    fun shortTag(tag: String): String =
+        if (tag.startsWith("calandria-")) tag.removePrefix("calandria-") else tag.substringAfterLast('-')
 
     // ---------- Última versión publicada del firmware ----------
 

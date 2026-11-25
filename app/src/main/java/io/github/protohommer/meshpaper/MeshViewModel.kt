@@ -1328,7 +1328,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         val from = if (p.from == 0) _myNodeNum.value ?: return else p.from
         val info = Calandria.parse(p.decoded.payload.toByteArray(), System.currentTimeMillis() / 1000) ?: return
         val old = _calandria.value[from]
-        if (old != null && old.model == info.model && old.fw == info.fw && old.env == info.env) return
+        if (old != null && old.model == info.model && old.fw == info.fw && old.env == info.env && old.ver == info.ver) return
         _calandria.update { it + (from to info) }
         saveCalandria(_calandria.value)
     }
