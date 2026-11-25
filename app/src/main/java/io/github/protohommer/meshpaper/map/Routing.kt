@@ -44,7 +44,16 @@ object Routing {
         val seconds: Int,
         val ascendM: Int,
         val mode: Mode,
+        /** Giros en orden, para la navegación guiada. */
+        val turns: List<Turn> = emptyList(),
     )
+
+    /**
+     * Un giro de la ruta: en [index] (punto de [Route.points]) hay que hacer [cmd], un comando de
+     * BRouter (VoiceHint: 1 = derecho, 2 = izquierda, 5 = derecha, 13 = rotonda…), y en las
+     * rotondas salir por la [exit].
+     */
+    data class Turn(val index: Int, val cmd: Int, val exit: Int)
 
     class MissingData(val tiles: List<String>) : Exception("faltan datos de rutas: ${tiles.joinToString()}")
 
@@ -168,6 +177,9 @@ object Routing {
                 if (need.isNotEmpty()) throw MissingData(need)
                 val rc = RoutingContext()
                 rc.localFunction = File(ensureProfiles(ctx), "${mode.profile}.brf").path
+                // Indicaciones de giro (VoiceHint). Los perfiles traen "1 = elegir solo", que deja
+                // este valor como está; 3 = estilo OsmAnd, con rotondas y "mantenerse a la izquierda".
+                rc.turnInstructionMode = 3
                 val wps = listOf(node("from", fromLat, fromLon), node("to", toLat, toLon))
                 val engine = RoutingEngine(null, null, segmentDir(ctx), wps, rc)
                 engine.quite = true
@@ -178,7 +190,12 @@ object Routing {
                 val pts = track.nodes.map { (it.getILat() / 1_000_000.0 - 90.0) to (it.getILon() / 1_000_000.0 - 180.0) }
                 val secs = track.getTotalSeconds().takeIf { it > 0 } ?: (track.distance / (mode.kmh / 3.6)).toInt()
                 Log.i(TAG, "ruta ${mode.name}: ${track.distance} m, ${pts.size} pts en ${System.currentTimeMillis() - t0} ms")
-                Route(pts, track.distance, secs, track.ascend, mode)
+                val turns = runCatching { btools.router.CalandriaHints.of(track) }
+                    .onFailure { Log.w(TAG, "giros", it) }.getOrDefault(emptyArray())
+                    .map { Turn(it[0], it[1], it[2]) }
+                    .filter { it.index in pts.indices }
+                Log.i(TAG, "giros: ${turns.size}")
+                Route(pts, track.distance, secs, track.ascend, mode, turns)
             }
         }
 

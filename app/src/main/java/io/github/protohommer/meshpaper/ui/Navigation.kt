@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.FilterChip
@@ -68,6 +69,8 @@ fun NavPanel(
             HudStat("Tiempo", s.remainingS?.let { "≈ " + Routing.formatTime(it) } ?: "—")
             HudStat("Rumbo", s.bearing?.let { "${PhoneLocation.cardinal(it)} ${it.toInt()}°" } ?: "—")
         }
+        // Como "Iniciar" de Google Maps: el mapa sigue al teléfono, con el próximo giro arriba.
+        HudButton(onClick = { Nav.setGuided(true) }, Modifier.fillMaxWidth().padding(vertical = 4.dp)) { Text("INICIAR NAVEGACIÓN") }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for (m in Routing.Mode.entries) {
                 FilterChip(selected = s.mode == m, onClick = { if (s.mode != m) Nav.setMode(m) }, label = { Text(m.label) })
@@ -160,6 +163,138 @@ fun RoutesPanel(here: Pair<Double, Double>?, modifier: Modifier = Modifier) {
             }, enabled = busy == null) { Text("BAJAR ZONA DE ACÁ ($hereTile)") }
         } else if (hereTile == null) {
             HudLabel("Sin ubicación del teléfono: \"Ir a\" ofrece bajar la zona cuando haga falta.", maxLines = 2)
+        }
+    }
+}
+
+/** Qué hacer en un giro de BRouter (VoiceHint.cmd): texto y ángulo de la flecha (0 = derecho, + = derecha). */
+private fun turnInfo(t: Routing.Turn?): Pair<String, Float> = when (t?.cmd) {
+    2 -> "Girá a la izquierda" to -90f
+    3 -> "Doblá levemente a la izquierda" to -45f
+    4 -> "Girá cerrado a la izquierda" to -135f
+    5 -> "Girá a la derecha" to 90f
+    6 -> "Doblá levemente a la derecha" to 45f
+    7 -> "Girá cerrado a la derecha" to 135f
+    8 -> "Mantenete a la izquierda" to -20f
+    9 -> "Mantenete a la derecha" to 20f
+    10, 11, 15 -> "Pegá la vuelta en U" to 180f
+    13, 14 -> (if (t.exit > 0) "En la rotonda, tomá la ${t.exit}ª salida" else "Entrá en la rotonda") to 0f
+    16 -> "Seguí en línea recta" to 0f
+    17 -> "Salí por la izquierda" to -45f
+    18 -> "Salí por la derecha" to 45f
+    100 -> "Llegás al destino" to 0f
+    else -> "Seguí por el camino" to 0f
+}
+
+/** Flecha de giro dibujada (las fuentes del teléfono no traen todas las flechas). */
+@Composable
+private fun TurnArrow(angle: Float, roundabout: Boolean, color: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier.size(56.dp)) {
+        val w = size.width
+        val h = size.height
+        val sw = w * 0.11f
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+            width = sw, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round,
+        )
+        if (roundabout) drawCircle(color, radius = w * 0.2f, center = androidx.compose.ui.geometry.Offset(w / 2, h * 0.62f), style = stroke)
+        // Tallo desde abajo hasta el centro, y desde ahí el brazo hacia donde hay que ir.
+        val c = androidx.compose.ui.geometry.Offset(w / 2, h * 0.55f)
+        val rad = Math.toRadians(angle.toDouble())
+        val len = w * 0.36f
+        val tip = androidx.compose.ui.geometry.Offset(c.x + (len * kotlin.math.sin(rad)).toFloat(), c.y - (len * kotlin.math.cos(rad)).toFloat())
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w / 2, h * 0.95f); lineTo(c.x, c.y); lineTo(tip.x, tip.y)
+        }
+        drawPath(path, color, style = stroke)
+        // Punta.
+        val head = w * 0.17f
+        for (side in listOf(-1, 1)) {
+            val a = rad + Math.PI + side * Math.PI / 4
+            drawLine(
+                color, tip,
+                androidx.compose.ui.geometry.Offset(tip.x + (head * kotlin.math.sin(a)).toFloat(), tip.y - (head * kotlin.math.cos(a)).toFloat()),
+                strokeWidth = sw, cap = androidx.compose.ui.graphics.StrokeCap.Round,
+            )
+        }
+    }
+}
+
+/** Distancia al giro redondeada como en los navegadores: 50 m, 100 m, 1,2 km. */
+private fun turnDistance(m: Double): String = when {
+    m < 20 -> "Ahora"
+    m < 100 -> "${(m / 10).toInt() * 10} m"
+    m < 1000 -> "${(m / 50).toInt() * 50} m"
+    else -> PhoneLocation.formatDistance(m.toFloat())
+}
+
+/** Navegación guiada: cartel de arriba con el próximo giro. [heading]: hacia dónde mira el mapa. */
+@Composable
+fun TurnBanner(s: Nav.State, heading: Float?, modifier: Modifier = Modifier) {
+    HudPanel(modifier.fillMaxWidth(), accent = RouteColor, padding = PaddingValues(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            when {
+                s.status == Nav.Status.Arrived -> {
+                    TurnArrow(0f, roundabout = false, color = SigGood)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("Llegaste", style = MaterialTheme.typography.headlineSmall, color = SigGood, fontWeight = FontWeight.SemiBold)
+                        HudLabel(s.target.name)
+                    }
+                }
+                s.route == null -> {
+                    // Sin ruta (sin datos de la zona o calculando): flecha al destino en línea recta.
+                    TurnArrow((s.bearing ?: 0f) - (heading ?: 0f), roundabout = false, color = RouteColor)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            s.straightM?.let { PhoneLocation.formatDistance(it.toFloat()) } ?: "—",
+                            style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold,
+                        )
+                        HudLabel("En línea recta al ${s.bearing?.let { PhoneLocation.cardinal(it) } ?: "—"} · ${s.target.name}", maxLines = 2)
+                    }
+                }
+                else -> {
+                    val t = s.nextTurn
+                    val (text, angle) = if (t == null) "Seguí hasta ${s.target.name}" to 0f else turnInfo(t)
+                    TurnArrow(angle, roundabout = t?.cmd == 13 || t?.cmd == 14, color = RouteColor)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            (if (t == null) s.remainingM else s.nextTurnM)?.let { turnDistance(it) } ?: "—",
+                            style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(text, style = MaterialTheme.typography.titleMedium, maxLines = 2)
+                        if (s.offRoute) HudLabel("Fuera de la ruta: recalculando…", color = SigFair)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Navegación guiada: abajo, lo que falta y la hora de llegada, con volver a centrar, resumen y salir. */
+@Composable
+fun GuidedBottom(s: Nav.State, following: Boolean, onRecenter: () -> Unit, onOverview: () -> Unit, modifier: Modifier = Modifier) {
+    val tight = PaddingValues(horizontal = 8.dp)
+    HudPanel(modifier.fillMaxWidth(), accent = RouteColor, padding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                val secs = s.remainingS
+                Text(
+                    secs?.let { Routing.formatTime(it) } ?: "—",
+                    style = MaterialTheme.typography.titleLarge, color = RouteColor, fontWeight = FontWeight.SemiBold,
+                )
+                val eta = secs?.let {
+                    java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(System.currentTimeMillis() + it * 1000L))
+                }
+                HudLabel(
+                    listOfNotNull(s.remainingM?.let { PhoneLocation.formatDistance(it.toFloat()) }, eta?.let { "llega $it" })
+                        .joinToString(" · "),
+                )
+            }
+            if (!following) TextButton(onClick = onRecenter, contentPadding = tight) { Text("SEGUIR", color = HudCyan, softWrap = false) }
+            TextButton(onClick = onOverview, contentPadding = tight) { Text("RESUMEN", softWrap = false) }
+            TextButton(onClick = { Nav.stop() }, contentPadding = tight) { Text("SALIR", color = MaterialTheme.colorScheme.error, softWrap = false) }
         }
     }
 }

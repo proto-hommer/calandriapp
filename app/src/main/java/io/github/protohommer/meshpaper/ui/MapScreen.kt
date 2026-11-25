@@ -151,6 +151,12 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     var profileFor by remember { mutableStateOf<Int?>(null) }  // nodo con el perfil de terreno abierto
     val nav by Nav.state.collectAsState()
     LaunchedEffect(fix) { Nav.onFix(fix) }
+    // Navegación guiada: el mapa sigue al teléfono, girado hacia donde va. Si uno arrastra el mapa
+    // deja de seguir (como Google Maps) hasta tocar SEGUIR.
+    val guided = nav?.guided == true
+    var following by remember { mutableStateOf(true) }
+    var heading by remember { mutableStateOf<Float?>(null) }
+    var guidedZoomSet by remember { mutableStateOf(false) }
     // Si el destino es un nodo y manda otra posición, el destino se mueve con él.
     val navNode = nav?.target?.nodeNum?.let { nodes[it] }
     LaunchedEffect(navNode?.lat, navNode?.lon) {
@@ -305,6 +311,48 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         }
     }
     LaunchedEffect(nav?.target, nav?.route == null) { if (saving?.startsWith("Guardando") != true) saving = null }
+
+    // GPS cada segundo y pantalla prendida mientras se navega guiado.
+    val view = androidx.compose.ui.platform.LocalView.current
+    DisposableEffect(guided) {
+        vm.setGuidedLocation(guided)
+        view.keepScreenOn = guided
+        following = true
+        guidedZoomSet = false
+        if (!guided) {
+            map.setMapCenterOffset(0, 0)
+            map.mapOrientation = 0f
+        }
+        onDispose { vm.setGuidedLocation(false); view.keepScreenOn = false }
+    }
+    // Arrastrar el mapa con el dedo deja de seguir.
+    DisposableEffect(map) {
+        var downX = 0f
+        var downY = 0f
+        val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop * 2
+        map.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y }
+                android.view.MotionEvent.ACTION_MOVE ->
+                    if (Nav.state.value?.guided == true && (e.pointerCount > 1 || hypot((e.x - downX).toDouble(), (e.y - downY).toDouble()) > slop)) following = false
+            }
+            false
+        }
+        onDispose { map.setOnTouchListener(null) }
+    }
+    // Rumbo: el del GPS si uno se mueve; quieto, el del tramo de ruta (el GPS da cualquier cosa).
+    LaunchedEffect(fix, guided, following) {
+        if (!guided) return@LaunchedEffect
+        val f = fix ?: return@LaunchedEffect
+        val moving = f.hasBearing() && f.hasSpeed() && f.speed > 1.2f
+        heading = (if (moving) f.bearing else null) ?: nav?.routeBearing ?: heading ?: nav?.bearing ?: 0f
+        if (!following) return@LaunchedEffect
+        // Uno queda en el cuarto de abajo de la pantalla, para ver más de lo que viene.
+        map.setMapCenterOffset(0, (map.height * 0.25f).toInt())
+        val zoom = if (!guidedZoomSet) (if (nav?.mode == io.github.protohommer.meshpaper.map.Routing.Mode.CAR) 17.0 else 18.0)
+            .also { guidedZoomSet = true } else map.zoomLevelDouble
+        map.controller.animateTo(GeoPoint(f.latitude, f.longitude), zoom, 900L, -(heading ?: 0f))
+    }
 
     fun startNav(t: Nav.Target) {
         fittedFor = null
@@ -555,7 +603,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                     val myLabel = me?.let { nodes[it] }?.let { it.shortName.ifEmpty { it.id.takeLast(4) } }
                     mv.overlays.add(NodeMarker(mv, onLong = { me?.let { longPressNode(it) } }).apply {
                         position = GeoPoint(f.latitude, f.longitude)
-                        icon = meIcon(mv.context, myLabel)
+                        icon = if (guided) navArrowIcon(mv.context) else meIcon(mv.context, myLabel)
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         infoWindow = null
                         setOnMarkerClickListener { _, _ -> me?.let { selectNode(it) }; true }
@@ -588,7 +636,9 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
             )
         }
 
-        nav?.let { s ->
+        if (guided) nav?.let { s ->
+            TurnBanner(s, heading, Modifier.align(Alignment.TopStart).padding(top = topInset).padding(12.dp))
+        } else nav?.let { s ->
             NavPanel(
                 s, Modifier.align(Alignment.TopStart).padding(top = topInset).padding(12.dp),
                 onCenter = { fitNav() },
@@ -602,15 +652,15 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
             Modifier.align(Alignment.CenterEnd).padding(end = 12.dp, top = topInset, bottom = bottomInset),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            HudIconButton("+", onClick = { map.controller.zoomIn() })
-            HudIconButton("−", onClick = { map.controller.zoomOut() })
-            HudIconButton("YO", enabled = fix != null, onClick = {
+            if (!guided) HudIconButton("+", onClick = { map.controller.zoomIn() })
+            if (!guided) HudIconButton("−", onClick = { map.controller.zoomOut() })
+            if (!guided) HudIconButton("YO", enabled = fix != null, onClick = {
                 fix?.let { map.controller.animateTo(GeoPoint(it.latitude, it.longitude), max(map.zoomLevelDouble, 16.0), 600L) }
             })
-            HudIconButton("TODO", enabled = visibleNodes.isNotEmpty(), onClick = { fitAll(map, visibleNodes, fix) })
-            HudIconButton("RAS", active = showTracks, onClick = { showTracks = !showTracks })
-            HudIconButton("REP", active = showOthers, onClick = { showOthers = !showOthers })
-            HudIconButton("CAPA", onClick = { showLayers = true })
+            if (!guided) HudIconButton("TODO", enabled = visibleNodes.isNotEmpty(), onClick = { fitAll(map, visibleNodes, fix) })
+            if (!guided) HudIconButton("RAS", active = showTracks, onClick = { showTracks = !showTracks })
+            if (!guided) HudIconButton("REP", active = showOthers, onClick = { showOthers = !showOthers })
+            if (!guided) HudIconButton("CAPA", onClick = { showLayers = true })
         }
 
         val bottom = Modifier.align(Alignment.BottomStart).padding(bottom = bottomInset).padding(12.dp)
@@ -642,6 +692,12 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                     collapsed = cardMin, onToggle = { cardMin = !cardMin; mapPrefs.edit().putBoolean("card_min", cardMin).apply() },
                     onGo = { w -> startNav(Nav.Target(null, w.id, "${w.iconText} ${w.name}".trim(), w.lat, w.lon)) },
                 )
+            guided -> nav?.let { s ->
+                GuidedBottom(
+                    s, following, onRecenter = { following = true; guidedZoomSet = false },
+                    onOverview = { Nav.setGuided(false); fitNav() }, modifier = bottom,
+                )
+            }
             // Navegando, la leyenda taparía la ruta.
             nav != null -> Unit
             else -> Legend(
@@ -1361,6 +1417,29 @@ private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.get
             Paint().apply { color = markerBg() })
         c.drawText(t, cx, top + dpPx(ctx, 7f) - (text.descent() + text.ascent()) / 2, text)
     }
+    BitmapDrawable(ctx.resources, bmp)
+}
+
+/** Navegación guiada: flecha del teléfono, apuntando hacia arriba (el mapa gira hacia donde uno va). */
+private fun navArrowIcon(ctx: Context): BitmapDrawable = iconCache.getOrPut("nav:${Appearance.isDay}") {
+    val s = dpPx(ctx, 44f).toInt()
+    val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+    val c = Canvas(bmp)
+    val cyan = HudCyan.toArgb()
+    val cx = s / 2f
+    val path = android.graphics.Path().apply {
+        moveTo(cx, s * 0.12f)
+        lineTo(s * 0.82f, s * 0.86f)
+        lineTo(cx, s * 0.68f)
+        lineTo(s * 0.18f, s * 0.86f)
+        close()
+    }
+    c.drawCircle(cx, s / 2f, s * 0.46f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; alpha = 45 })
+    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; setShadowLayer(dpPx(ctx, 4f), 0f, 0f, cyan) })
+    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 2f); color = android.graphics.Color.WHITE
+        strokeJoin = Paint.Join.ROUND
+    })
     BitmapDrawable(ctx.resources, bmp)
 }
 

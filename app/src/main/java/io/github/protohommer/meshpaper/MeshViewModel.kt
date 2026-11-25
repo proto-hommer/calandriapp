@@ -456,8 +456,19 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         updateLocationUpdates()
     }
 
+    /** Navegación guiada en pantalla: GPS cada segundo, aunque no haya nodo ni se comparta la posición. */
+    private var guidedLocation = false
+
+    fun setGuidedLocation(on: Boolean) {
+        if (on == guidedLocation) return
+        guidedLocation = on
+        phoneLocation.setFast(on)
+        updateLocationUpdates()
+    }
+
     private fun updateLocationUpdates() {
-        if (locationPermitted && _sharePosition.value && link.value == LinkState.Connected) phoneLocation.start()
+        val forNode = _sharePosition.value && link.value == LinkState.Connected
+        if (locationPermitted && (forNode || guidedLocation)) phoneLocation.start()
         else phoneLocation.stop()
     }
 

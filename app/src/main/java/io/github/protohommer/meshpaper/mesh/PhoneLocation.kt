@@ -22,6 +22,16 @@ class PhoneLocation(context: Context, private val onFix: (Location) -> Unit) {
     private val lm = context.getSystemService(LocationManager::class.java)
     private var best: Location? = null
     private var running = false
+    /** Cada cuánto pedir posición: 5 s normalmente, 1 s mientras se navega guiado. */
+    private var intervalMs = 5_000L
+
+    /** Posición cada segundo (navegación guiada) o cada 5 s. Si ya estaba escuchando, se re-registra. */
+    fun setFast(fast: Boolean) {
+        val ms = if (fast) 1_000L else 5_000L
+        if (ms == intervalMs) return
+        intervalMs = ms
+        if (running) { stop(); start() }
+    }
 
     private val listener = LocationListener { loc ->
         val b = best
@@ -41,7 +51,7 @@ class PhoneLocation(context: Context, private val onFix: (Location) -> Unit) {
             if (Build.VERSION.SDK_INT >= 31) add(LocationManager.FUSED_PROVIDER)
         }.filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
         for (p in providers) {
-            runCatching { lm.requestLocationUpdates(p, 5_000L, 0f, listener, Looper.getMainLooper()) }
+            runCatching { lm.requestLocationUpdates(p, intervalMs, 0f, listener, Looper.getMainLooper()) }
         }
         // Arrancar con lo último conocido para no esperar el primer fix.
         providers.mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }

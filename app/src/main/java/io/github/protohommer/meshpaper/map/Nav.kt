@@ -49,6 +49,13 @@ object Nav {
         val bearing: Float? = null,
         val straightM: Double? = null,
         val offRoute: Boolean = false,
+        /** Próximo giro de la ruta y los metros que faltan hasta él (por la ruta). */
+        val nextTurn: Routing.Turn? = null,
+        val nextTurnM: Double? = null,
+        /** Rumbo del tramo de ruta en el que está uno: sirve de rumbo si el GPS no lo da (quieto). */
+        val routeBearing: Float? = null,
+        /** Navegación guiada: el mapa sigue al teléfono, girado hacia donde va, con el próximo giro. */
+        val guided: Boolean = false,
     )
 
     private val _state = MutableStateFlow<State?>(null)
@@ -70,6 +77,10 @@ object Nav {
         _state.value = State(target, lastMode(app), Status.Routing)
         update()
         reroute()
+    }
+
+    fun setGuided(on: Boolean) {
+        _state.value = _state.value?.copy(guided = on)
     }
 
     fun stop() {
@@ -171,6 +182,9 @@ object Nav {
         var remaining = straight
         var remainingS: Int? = null
         var off = false
+        var nextTurn: Routing.Turn? = null
+        var nextTurnM: Double? = null
+        var routeBearing: Float? = null
         if (r != null && r.points.size >= 2) {
             // Punto de la ruta más cercano y lo que falta desde ahí.
             var best = Double.MAX_VALUE
@@ -186,10 +200,31 @@ object Nav {
             remaining = best + along + tail
             off = best > OFF_ROUTE_M
             remainingS = if (r.distanceM > 0) (r.seconds * (remaining / r.distanceM)).toInt() else null
+            // Tramo en el que estoy: del punto más cercano al siguiente (o del anterior, al final).
+            val a = if (bi < r.points.size - 1) bi else bi - 1
+            routeBearing = bearing(r.points[a].first, r.points[a].second, r.points[a + 1].first, r.points[a + 1].second)
+            // Próximo giro: el primero más adelante del punto más cercano; "derecho" no se anuncia.
+            nextTurn = r.turns.firstOrNull { it.index > bi && it.cmd != CMD_STRAIGHT }
+            nextTurn?.let { t ->
+                var m = dist(f.latitude, f.longitude, r.points[bi + 1].first, r.points[bi + 1].second)
+                for (i in bi + 1 until t.index) m += dist(r.points[i].first, r.points[i].second, r.points[i + 1].first, r.points[i + 1].second)
+                nextTurnM = m
+            }
         } else {
             remainingS = (straight / (s.mode.kmh / 3.6)).toInt()
         }
-        _state.value = s.copy(remainingM = remaining, remainingS = remainingS, bearing = bearing, straightM = straight, offRoute = off)
+        _state.value = s.copy(
+            remainingM = remaining, remainingS = remainingS, bearing = bearing, straightM = straight, offRoute = off,
+            nextTurn = nextTurn, nextTurnM = nextTurnM, routeBearing = routeBearing,
+        )
+    }
+
+    private const val CMD_STRAIGHT = 1
+
+    private fun bearing(aLat: Double, aLon: Double, bLat: Double, bLon: Double): Float {
+        val r = FloatArray(2)
+        Location.distanceBetween(aLat, aLon, bLat, bLon, r)
+        return (r[1] + 360f) % 360f
     }
 
     private fun dist(aLat: Double, aLon: Double, bLat: Double, bLon: Double): Double {
