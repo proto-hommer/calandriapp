@@ -192,6 +192,9 @@ fun HudPanel(
     title: String? = null,
     accent: Color = HudCyan,
     padding: PaddingValues = PaddingValues(12.dp),
+    collapsed: Boolean = false,
+    onToggle: (() -> Unit)? = null,
+    onClose: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
@@ -200,12 +203,26 @@ fun HudPanel(
             .padding(padding),
     ) {
         if (title != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Con [onToggle], la barra del título minimiza o abre el panel (y muestra "–" / "+").
+            Row(
+                if (onToggle != null) Modifier.fillMaxWidth().clickable(onClick = onToggle) else Modifier,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Box(Modifier.size(width = 3.dp, height = 12.dp).neonGlow(accent, HudButtonShape, 4.dp, 3.dp).background(accent))
                 Spacer(Modifier.width(8.dp))
-                HudLabel(title, color = accent)
+                HudLabel(title, if (onToggle != null) Modifier.weight(1f) else Modifier, color = accent)
+                if (onToggle != null) {
+                    val tight = PaddingValues(horizontal = 8.dp)
+                    TextButton(onClick = onToggle, contentPadding = tight, modifier = Modifier.height(28.dp)) {
+                        Text(if (collapsed) "+" else "–", color = accent)
+                    }
+                    if (collapsed && onClose != null) {
+                        TextButton(onClick = onClose, contentPadding = tight, modifier = Modifier.height(28.dp)) { Text("✕") }
+                    }
+                }
             }
-            Spacer(Modifier.height(8.dp))
+            if (collapsed) return@Column
+            Spacer(Modifier.height(if (onToggle != null) 2.dp else 8.dp))
         }
         content()
     }

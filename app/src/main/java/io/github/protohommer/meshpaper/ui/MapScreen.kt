@@ -131,6 +131,9 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     var showTracks by remember { mutableStateOf(true) }
     val mapPrefs = remember { context.getSharedPreferences("map", Context.MODE_PRIVATE) }
     var showLegend by remember { mutableStateOf(mapPrefs.getBoolean("legend", true)) }
+    // Fichas y escala de cobertura minimizadas (quedan así hasta que se vuelvan a abrir).
+    var cardMin by remember { mutableStateOf(mapPrefs.getBoolean("card_min", false)) }
+    var coverageMin by remember { mutableStateOf(mapPrefs.getBoolean("coverage_min", false)) }
     var selectedNode by remember { mutableStateOf<Int?>(null) }
     // Nodo pedido desde la lista ("Ver en el mapa"): se dibuja aunque esté oculto (ajeno sin oír
     // o REP apagado) mientras su ficha siga abierta.
@@ -579,7 +582,10 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
         Box(Modifier.fillMaxSize().padding(start = 6.dp, end = 6.dp, bottom = 6.dp + bottomInset, top = topInset + 2.dp).hudCorners(len = 22.dp))
 
         coverage?.takeIf { rangeNode != null && nav == null }?.let { cv ->
-            CoverageLegend(cv, Modifier.align(Alignment.TopStart).padding(top = topInset).padding(12.dp))
+            CoverageLegend(
+                cv, Modifier.align(Alignment.TopStart).padding(top = topInset).padding(12.dp), coverageMin,
+                onToggle = { coverageMin = !coverageMin; mapPrefs.edit().putBoolean("coverage_min", coverageMin).apply() },
+            )
         }
 
         nav?.let { s ->
@@ -613,6 +619,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                 val n = nodes.getValue(selectedNode!!)
                 NodeCard(
                     vm, n, me, isMember(n), fix, now, bottom, onMessage,
+                    collapsed = cardMin, onToggle = { cardMin = !cardMin; mapPrefs.edit().putBoolean("card_min", cardMin).apply() },
                     antenna = effAntenna(n.num), preset = preset, showingRange = rangeNode == n.num,
                     coverage = coverage.takeIf { rangeNode == n.num }, coverageMsg = coverageMsg.takeIf { rangeNode == n.num },
                     fromGps = antennas[n.num]?.gpsHeight == true && gpsHeights[n.num]?.aboveGround != null,
@@ -632,6 +639,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
             selectedWpt != null && waypoints[selectedWpt] != null ->
                 WaypointCard(
                     vm, waypoints.getValue(selectedWpt!!), nodes, fix, now, bottom, onClose = { selectedWpt = null },
+                    collapsed = cardMin, onToggle = { cardMin = !cardMin; mapPrefs.edit().putBoolean("card_min", cardMin).apply() },
                     onGo = { w -> startNav(Nav.Target(null, w.id, "${w.iconText} ${w.name}".trim(), w.lat, w.lon)) },
                 )
             // Navegando, la leyenda taparía la ruta.
@@ -690,10 +698,11 @@ internal val darkFilter = ColorMatrixColorFilter(ColorMatrix().apply {
 
 /** Escala de la cobertura: CMRmap de "al límite" a "fuerte", en dBm recibidos. */
 @Composable
-private fun CoverageLegend(cv: Coverage.Result, modifier: Modifier) {
-    HudPanel(modifier.width(210.dp), padding = androidx.compose.foundation.layout.PaddingValues(10.dp)) {
-        HudLabel("Cobertura · nodo de mano", color = HudCyan)
-        Spacer(Modifier.padding(2.dp))
+private fun CoverageLegend(cv: Coverage.Result, modifier: Modifier, collapsed: Boolean, onToggle: () -> Unit) {
+    HudPanel(
+        modifier.width(210.dp), title = "Cobertura · nodo de mano",
+        padding = androidx.compose.foundation.layout.PaddingValues(10.dp), collapsed = collapsed, onToggle = onToggle,
+    ) {
         val stops = (0..8).map { androidx.compose.ui.graphics.Color(Coverage.color(it / 8f, 0xFF)) }
         Box(
             Modifier.fillMaxWidth().height(10.dp)
@@ -739,6 +748,7 @@ private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, 
 private fun NodeCard(
     vm: MeshViewModel, n: MeshNode, me: Int?, member: Boolean, fix: Location?, now: Long, modifier: Modifier,
     onMessage: (Int) -> Unit,
+    collapsed: Boolean, onToggle: () -> Unit,
     antenna: Antenna?, preset: ModemPreset, showingRange: Boolean,
     coverage: Coverage.Result? = null, coverageMsg: String? = null,
     onAntenna: () -> Unit, onRange: () -> Unit, onClose: () -> Unit,
@@ -764,7 +774,9 @@ private fun NodeCard(
         Tone.FIXED -> if (Signal.isLost(n, now)) "Grupo · fijo · sin noticias" else "Grupo · fijo"
         else -> if (Signal.isLost(n, now)) "Grupo · sin noticias" else "Grupo"
     }
-    HudPanel(modifier.width(280.dp), title = kind, accent = tone.color()) {
+    // Minimizada queda la barra con el nombre, para ver el mapa (o la cobertura) de abajo.
+    val title = if (collapsed) "$kind · ${n.shortName.ifEmpty { n.longName.ifEmpty { n.id } }}" else kind
+    HudPanel(modifier.width(280.dp), title = title, accent = tone.color(), collapsed = collapsed, onToggle = onToggle, onClose = onClose) {
         if (stack.size > 1) {
             // Varios nodos en el mismo lugar: se elige cuál ver.
             HudLabel("${stack.size} nodos en este lugar")
@@ -853,9 +865,11 @@ private fun NodeCard(
 private fun WaypointCard(
     vm: MeshViewModel, w: Wpt, nodes: Map<Int, MeshNode>, fix: Location?, now: Long,
     modifier: Modifier, onClose: () -> Unit, onGo: (Wpt) -> Unit,
+    collapsed: Boolean, onToggle: () -> Unit,
 ) {
     var confirm by remember { mutableStateOf(false) }
-    HudPanel(modifier.width(280.dp), title = "Waypoint") {
+    val title = if (collapsed) "Waypoint · ${w.iconText} ${w.name}".trim() else "Waypoint"
+    HudPanel(modifier.width(280.dp), title = title, collapsed = collapsed, onToggle = onToggle, onClose = onClose) {
         Text("${w.iconText}  ${w.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         if (w.description.isNotEmpty()) Text(w.description, style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.padding(3.dp))
