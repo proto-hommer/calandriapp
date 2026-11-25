@@ -1,5 +1,7 @@
 package io.github.protohommer.meshpaper
 
+import com.google.protobuf.ByteString
+
 import android.annotation.SuppressLint
 import android.app.Application
 import android.bluetooth.BluetoothDevice
@@ -376,7 +378,11 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                     launch {
                         delay(3_000) // que termine de llegar la config
                         _myNodeNum.value?.let { me -> askIdentity(me) }
+                        syncTimezone()
                         if (Updater.autoCheck(getApplication())) Calandria.checkLatest()
+                        // Al Calandria conectado, cuál es su último firmware (él no tiene internet).
+                        delay(5_000) // la identidad del nodo llega en ~1 s
+                        tellLatestFirmware()
                     }
                 }
                 // Se cortó estando conectados (nodo fuera de alcance, se apagó…): reintentar solo.
@@ -1348,6 +1354,45 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 askedIdentity.remove(num)
             }
+        }
+    }
+
+    /**
+     * Le pasa al nodo conectado la zona horaria del teléfono (config.device.tzdef, formato POSIX),
+     * si la que tiene es otra: si no, la pantalla del nodo muestra la hora UTC. Cambiar solo tzdef
+     * no reinicia el nodo (AdminModule); el firmware estándar la aplica en el próximo arranque.
+     */
+    private suspend fun syncTimezone() {
+        if (BuildConfig.DEMO || link.value != LinkState.Connected) return
+        val me = _myNodeNum.value ?: return
+        val dev = _device.value ?: return
+        val tz = runCatching { io.github.protohommer.meshpaper.mesh.PosixTz.of() }.getOrNull() ?: return
+        if (dev.tzdef == tz) return
+        Log.i(TAG, "zona horaria del nodo: '${dev.tzdef}' -> '$tz'")
+        val next = dev.toBuilder().setTzdef(tz).build()
+        sendAdmin(me, AdminMessage.newBuilder().setSetConfig(Config.newBuilder().setDevice(next)).build())
+        _device.value = next
+    }
+
+    /**
+     * Al Calandria conectado le cuenta cuál es el último firmware publicado, para que lo muestre en
+     * su pantalla. Va solo al nodo local (no se retransmite), por el puerto Calandria:
+     *   CALANDRIA/1;latest=v2.8.3-ws154.5;commit=37413903f…
+     */
+    private fun tellLatestFirmware() {
+        if (BuildConfig.DEMO || link.value != LinkState.Connected) return
+        val me = _myNodeNum.value ?: return
+        if (me !in _calandria.value) return
+        val r = Calandria.latest.value ?: return
+        val text = "CALANDRIA/1;latest=${r.tag};commit=${r.commit}"
+        val packet = MeshPacket.newBuilder()
+            .setTo(me)
+            .setId(newPacketId())
+            .setChannel(0)
+            .setDecoded(MeshProtos.Data.newBuilder().setPortnumValue(Calandria.PORT).setPayload(ByteString.copyFromUtf8(text)))
+            .build()
+        viewModelScope.launch {
+            runCatching { ble.send(ToRadio.newBuilder().setPacket(packet).build()) }
         }
     }
 
