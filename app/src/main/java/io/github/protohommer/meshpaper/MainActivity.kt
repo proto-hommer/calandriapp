@@ -321,7 +321,7 @@ fun App(vm: MeshViewModel) {
 // ---------- Barra de estado superior ----------
 
 /** Alto de la barra de arriba, sin contar la barra del sistema. */
-private val TopBarHeight = 54.dp
+private val TopBarHeight = 58.dp
 
 /**
  * Estado arriba: sin franja ni línea, flota con un degradado del fondo hacia transparente,
@@ -364,25 +364,12 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
         )
     }
     val haze = LocalHaze.current
-    Box(
-        modifier.fillMaxWidth()
-            // Vidrio que se desvanece hacia abajo: arriba desenfoca el mapa, abajo ya no.
-            .then(
-                if (haze != null) Modifier.hazeEffect(haze, GlassStyle) {
-                    mask = Brush.verticalGradient(0f to Color.Black, 0.6f to Color.Black, 1f to Color.Transparent)
-                } else Modifier
-            )
-            .background(
-                Brush.verticalGradient(
-                    0f to HudBg.copy(alpha = if (haze != null) 0.55f else 0.97f),
-                    0.7f to HudBg.copy(alpha = if (haze != null) 0.35f else 0.82f),
-                    1f to Color.Transparent,
-                )
-            )
-    ) {
+    @Suppress("UNUSED_VARIABLE") val unusedHaze = haze
+    // 2.0: una franja propia (superficie y línea abajo), para que no se pierda con el resto.
+    Column(modifier.fillMaxWidth().background(HudSurface)) {
         Row(
             Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)
-                .height(TopBarHeight + 16.dp).padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                .height(TopBarHeight).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // El nodo y el estado del enlace (el punto cian: estás enlazado, sos vos).
@@ -392,7 +379,8 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
                 Text(
                     nodeName.uppercase() + if (connected) " ▾" else "",
                     style = io.github.protohommer.meshpaper.ui.theme.MonoValue.copy(fontSize = 20.sp, lineHeight = 24.sp),
-                    color = if (connected) MaterialTheme.colorScheme.onSurface else HudTextDim, maxLines = 1,
+                    // Tu nodo: en cian, como todo lo tuyo.
+                    color = if (connected) io.github.protohommer.meshpaper.ui.theme.SigMe else HudTextDim, maxLines = 1,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StatusDot(linkColor, 6.dp)
@@ -417,8 +405,19 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
             Spacer(Modifier.width(16.dp))
             TopReadout("Miemb.", "$members", MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.width(16.dp))
-            TopReadout("GPS", fix?.let { "±${it.accuracy.toInt()} m" } ?: "—", if (fix != null) MaterialTheme.colorScheme.onSurface else HudTextDim)
+            // GPS con semáforo: verde hasta 10 m, amarillo hasta 30, rojo más (o sin fix).
+            val acc = fix?.accuracy
+            TopReadout(
+                "GPS", acc?.let { "±${it.toInt()} m" } ?: "—",
+                when {
+                    acc == null -> HudTextDim
+                    acc <= 10f -> io.github.protohommer.meshpaper.ui.theme.StatusOk
+                    acc <= 30f -> io.github.protohommer.meshpaper.ui.theme.StatusBusy
+                    else -> io.github.protohommer.meshpaper.ui.theme.StatusBad
+                },
+            )
         }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(HudLine))
     }
 }
 

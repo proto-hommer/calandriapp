@@ -203,10 +203,10 @@ private fun OfflineMapsScreen(onClose: () -> Unit) {
             }
             Column(Modifier.fillMaxWidth().background(HudSurface).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    LegendItem(SigGood, "Bajado")
-                    LegendItem(SigFair, "Bajando")
-                    LegendItem(SigPoor, "A medias")
-                    LegendItem(SigWeak, "Sin bajar")
+                    LegendItem(io.github.protohommer.meshpaper.ui.theme.StatusOk, "Bajado")
+                    LegendItem(io.github.protohommer.meshpaper.ui.theme.StatusBusy, "Bajando")
+                    LegendItem(io.github.protohommer.meshpaper.ui.theme.StatusPartial, "A medias")
+                    LegendItem(io.github.protohommer.meshpaper.ui.theme.StatusBad, "Sin bajar")
                 }
                 if (canMap) {
                     HudLabel("Detalle del mapa (hasta zoom $maxZoom)")
@@ -329,12 +329,13 @@ private class GridOverlay(
                 val t = min(p1.y, p2.y).toFloat(); val bt = max(p1.y, p2.y).toFloat()
                 val st = cache.getOrPut(cell) { status(cell) }
                 fill.color = when {
-                    isBusy(cell) -> SigFair
-                    st == Status.DONE -> SigGood
-                    st == Status.PARTIAL -> SigPoor
-                    else -> SigWeak
+                    isBusy(cell) -> io.github.protohommer.meshpaper.ui.theme.StatusBusy
+                    st == Status.DONE -> io.github.protohommer.meshpaper.ui.theme.StatusOk
+                    st == Status.PARTIAL -> io.github.protohommer.meshpaper.ui.theme.StatusPartial
+                    else -> io.github.protohommer.meshpaper.ui.theme.StatusBad
                 }.toArgb()
-                fill.alpha = if (isSelected(cell)) 110 else 60
+                // Bien visible: el color es el dato (bajado / bajando / a medias / sin bajar).
+                fill.alpha = if (isSelected(cell)) 140 else 90
                 c.drawRect(l, t, rr, bt, fill)
                 c.drawRect(l, t, rr, bt, line)
                 if (isSelected(cell)) c.drawRect(l + sel.strokeWidth / 2, t + sel.strokeWidth / 2, rr - sel.strokeWidth / 2, bt - sel.strokeWidth / 2, sel)

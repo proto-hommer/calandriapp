@@ -114,3 +114,13 @@ val SigMe: Color get() = p.me          // este teléfono / nodo propio: el únic
 
 /** Borde de controles: campos y botones con borde. */
 val HudControl: Color get() = p.control
+
+/**
+ * Semáforo de estado (verde bien, amarillo en curso o regular, naranja a medias, rojo mal). Solo
+ * donde el color ES el dato y en gris se confunde: la cuadrícula de mapas sin conexión y el GPS
+ * de la barra de arriba. El resto de la interfaz sigue la regla de un color por trabajo.
+ */
+val StatusOk: Color get() = if (Appearance.isDay) Color(0xFF15803D) else Color(0xFF3DDC84)
+val StatusBusy: Color get() = if (Appearance.isDay) Color(0xFFB7791F) else Color(0xFFF5C542)
+val StatusPartial: Color get() = if (Appearance.isDay) Color(0xFFC2410C) else Color(0xFFFF8A3D)
+val StatusBad: Color get() = if (Appearance.isDay) Color(0xFFC81E3A) else Color(0xFFFF4D5E)
