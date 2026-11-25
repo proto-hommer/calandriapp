@@ -747,6 +747,7 @@ private fun NodeRow(
                 Signal.isFixedRole(n) -> io.github.protohommer.meshpaper.ui.Glyph.FIXED
                 else -> io.github.protohommer.meshpaper.ui.Glyph.MEMBER
             },
+            tint = if (member && !lost && n.num != me) io.github.protohommer.meshpaper.ui.theme.memberColor(n.num) else null,
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
@@ -755,7 +756,8 @@ private fun NodeRow(
                     lost -> SigWeak
                     !member && !n.mute -> io.github.protohommer.meshpaper.ui.theme.SigRelay
                     !member -> HudTextDim
-                    else -> MaterialTheme.colorScheme.onSurface
+                    n.num == me -> io.github.protohommer.meshpaper.ui.theme.SigMe
+                    else -> io.github.protohommer.meshpaper.ui.theme.memberColor(n.num)
                 }
                 Text(
                     n.shortName.ifEmpty { n.id.takeLast(4) }.uppercase(),

@@ -194,8 +194,11 @@ fun HudPanel(
                 if (onToggle != null) Modifier.fillMaxWidth().clickable(onClick = onToggle) else Modifier,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val titleColor = if (accent == HudCyan) HudTextDim else accent
-                HudLabel(title, if (onToggle != null) Modifier.weight(1f) else Modifier, color = titleColor)
+                val titleColor = if (accent == HudCyan) HudText else accent
+                Text(
+                    title, if (onToggle != null) Modifier.weight(1f) else Modifier,
+                    style = MaterialTheme.typography.titleMedium, color = titleColor, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
                 if (onToggle != null) {
                     val tight = PaddingValues(horizontal = 10.dp)
                     TextButton(onClick = onToggle, contentPadding = tight, modifier = Modifier.height(36.dp)) {
@@ -207,7 +210,7 @@ fun HudPanel(
                 }
             }
             if (collapsed) return@Column
-            Spacer(Modifier.height(if (onToggle != null) 4.dp else 10.dp))
+            Spacer(Modifier.height(if (onToggle != null) 4.dp else 12.dp))
         }
         content()
     }
@@ -419,8 +422,8 @@ enum class Glyph { MEMBER, FIXED, FOREIGN, LOST, ME }
 
 /** La forma de un nodo: círculo del grupo, rombo fijo, rombo gris ajeno, anillo cortado perdido, retícula vos. */
 @Composable
-fun NodeGlyph(g: Glyph, modifier: Modifier = Modifier, size: Dp = 26.dp) {
-    val ink = HudText
+fun NodeGlyph(g: Glyph, modifier: Modifier = Modifier, size: Dp = 26.dp, tint: Color? = null) {
+    val ink = tint ?: HudText
     val warn = io.github.protohommer.meshpaper.ui.theme.SigWeak
     val me = io.github.protohommer.meshpaper.ui.theme.SigMe
     val mute = io.github.protohommer.meshpaper.ui.theme.SigMute

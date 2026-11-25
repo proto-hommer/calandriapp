@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import io.github.protohommer.meshpaper.ui.theme.HudBg
 import io.github.protohommer.meshpaper.ui.theme.HudTextDim
 import io.github.protohommer.meshpaper.ui.theme.HudText
@@ -156,6 +157,7 @@ fun ChatScreen(vm: MeshViewModel, conv: String, onBack: () -> Unit) {
                 val quoted = m.replyTo?.let { r -> msgs.firstOrNull { it.id == r } }
                 Bubble(
                     m, if (isChannel) sender else null, onRetry = { vm.retry(m) },
+                    senderColor = if (m.mine) null else io.github.protohommer.meshpaper.ui.theme.memberColor(m.from),
                     onReply = { replying = m },
                     quote = m.replyTo?.let { quoted?.let { q -> nameOf(q) to q.text } ?: (null to "un mensaje que no está acá") },
                     onQuote = quoted?.let { q -> { scope.launch { list.animateScrollToItem(msgs.indexOf(q).coerceAtLeast(0)) } } },
@@ -244,17 +246,32 @@ private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
 private fun Bubble(
     m: ChatMsg, sender: String?, onRetry: () -> Unit,
     onReply: () -> Unit, quote: Pair<String?, String>?, onQuote: (() -> Unit)?,
+    senderColor: Color? = null,
 ) {
     val me = io.github.protohommer.meshpaper.ui.theme.SigMe
     val bg = if (m.mine) me.copy(alpha = 0.07f) else MaterialTheme.colorScheme.surfaceVariant
     val fg = MaterialTheme.colorScheme.onSurface
     val edge = when (m.status) {
         MsgStatus.FAILED -> MaterialTheme.colorScheme.error
-        else -> if (m.mine) me else HudLine
+        else -> if (m.mine) me else senderColor?.copy(alpha = 0.55f) ?: HudLine
     }
     val shape = if (m.mine) androidx.compose.foundation.shape.RoundedCornerShape(14.dp, 4.dp, 14.dp, 14.dp)
     else androidx.compose.foundation.shape.RoundedCornerShape(4.dp, 14.dp, 14.dp, 14.dp)
-    Box(Modifier.fillMaxWidth(), contentAlignment = if (m.mine) Alignment.CenterEnd else Alignment.CenterStart) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = if (m.mine) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Top,
+    ) {
+        // En el chat del grupo, la inicial de quien escribe en su color: se distingue a cada uno de un vistazo.
+        if (!m.mine && sender != null) {
+            val c = senderColor ?: HudText
+            Box(
+                Modifier.padding(top = 2.dp, end = 8.dp).size(32.dp)
+                    .background(c.copy(alpha = 0.16f), androidx.compose.foundation.shape.CircleShape)
+                    .border(1.5.dp, c, androidx.compose.foundation.shape.CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { Text(sender.take(2).uppercase(), style = MaterialTheme.typography.labelMedium, color = c, fontWeight = FontWeight.Bold) }
+        }
         Column(
             Modifier.widthIn(max = 300.dp)
                 .background(bg, shape)
@@ -266,7 +283,7 @@ private fun Bubble(
                 )
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
-            sender?.let { Text(it.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = fg) }
+            sender?.let { Text(it.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = senderColor ?: fg) }
             quote?.let { (who, what) ->
                 // Cita del mensaje al que responde; tocarla lleva hasta él.
                 Row(

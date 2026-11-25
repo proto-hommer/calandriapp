@@ -124,3 +124,27 @@ val StatusOk: Color get() = if (Appearance.isDay) Color(0xFF15803D) else Color(0
 val StatusBusy: Color get() = if (Appearance.isDay) Color(0xFFB7791F) else Color(0xFFF5C542)
 val StatusPartial: Color get() = if (Appearance.isDay) Color(0xFFC2410C) else Color(0xFFFF8A3D)
 val StatusBad: Color get() = if (Appearance.isDay) Color(0xFFC81E3A) else Color(0xFFFF4D5E)
+
+/**
+ * Color de identidad de cada nodo del grupo: siempre el mismo para el mismo nodo (sale de su
+ * número), en el mapa, la lista y el chat, para distinguir a cada uno de un vistazo. La paleta deja
+ * afuera el cian (vos), el naranja (atención) y el violeta (ajenos que repiten).
+ */
+private val IdentityNight = listOf(
+    Color(0xFF6EA8FE), Color(0xFF7BD88F), Color(0xFFF78FB3), Color(0xFFF2D06B),
+    Color(0xFFC5E478), Color(0xFFE8C4A0), Color(0xFF9CC3FF), Color(0xFFFFB3C7),
+)
+private val IdentityDay = listOf(
+    Color(0xFF1F5FBF), Color(0xFF1E7B3A), Color(0xFFB83280), Color(0xFF8A6D0B),
+    Color(0xFF5F7A12), Color(0xFF8A5A2B), Color(0xFF2F6FA8), Color(0xFFA8325A),
+)
+
+fun memberColor(num: Int): Color {
+    val list = if (Appearance.isDay) IdentityDay else IdentityNight
+    // Mezcla los bits (los números de nodo vienen de la MAC y se parecen entre sí).
+    var h = num.toLong() and 0xffffffffL
+    h = (h xor (h ushr 16)) * 0x45d9f3b
+    h = (h xor (h ushr 16)) * 0x45d9f3b
+    h = h xor (h ushr 16)
+    return list[((h and 0x7fffffff) % list.size).toInt()]
+}

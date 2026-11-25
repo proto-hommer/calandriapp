@@ -659,6 +659,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                             bars = if (member && !lost) signalBars(Signal.quality(n, now)) else null,
                             suffix = if (lost && member) agoText(now, n.lastHeard).removePrefix("hace ") else null,
                             repeats = !member && !n.mute,
+                            tint = if (member && !lost) io.github.protohommer.meshpaper.ui.theme.memberColor(n.num).toArgb() else null,
                         )
                         icon = ni.first
                         setAnchor(ni.second, 0.5f)
@@ -966,7 +967,12 @@ private fun NodeCard(
             Text(
                 n.shortName.ifEmpty { "?" }.uppercase(),
                 style = io.github.protohommer.meshpaper.ui.theme.MonoValue.copy(fontSize = 24.sp, lineHeight = 28.sp),
-                color = if (lostNow) SigWeak else MaterialTheme.colorScheme.onSurface,
+                color = when {
+                    lostNow -> SigWeak
+                    n.num == me -> SigMe
+                    member -> io.github.protohommer.meshpaper.ui.theme.memberColor(n.num)
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
             )
             Spacer(Modifier.width(10.dp))
             Text(
@@ -1631,8 +1637,10 @@ private fun navArrowIcon(ctx: Context): BitmapDrawable = iconCache.getOrPut("nav
  */
 private fun chipIcon(
     ctx: Context, label: String, glyph: Glyph, bars: Int? = null, suffix: String? = null, repeats: Boolean = false,
+    /** Color de identidad del nodo (los del grupo): la forma y el nombre van de ese color. */
+    tint: Int? = null,
 ): Pair<BitmapDrawable, Float> {
-    val key = "c:$label:$glyph:$bars:$suffix:$repeats:${Appearance.isDay}"
+    val key = "c:$label:$glyph:$bars:$suffix:$repeats:$tint:${Appearance.isDay}"
     val shapeW = dpPx(ctx, 30f)
     val gap = dpPx(ctx, 4f)
     val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1653,7 +1661,8 @@ private fun chipIcon(
     val c = Canvas(bmp)
     val cx = shapeW / 2
     val cy = h / 2f
-    val ink = HudText.toArgb()
+    val ink = tint ?: HudText.toArgb()
+    val barInk = HudText.toArgb()
     val warn = SigWeak.toArgb()
     val me = SigMe.toArgb()
     val bg = markerBg()
@@ -1695,7 +1704,7 @@ private fun chipIcon(
         val by = cy + bh / 2
         for (k in 0 until 3) {
             val hh = bh * (0.45f + 0.275f * k)
-            c.drawRect(bx + k * (bw + bgap), by - hh, bx + k * (bw + bgap) + bw, by, fill(if (k < bars) ink else HudLine.toArgb()))
+            c.drawRect(bx + k * (bw + bgap), by - hh, bx + k * (bw + bgap) + bw, by, fill(if (k < bars) barInk else HudLine.toArgb()))
         }
     }
     val d = BitmapDrawable(ctx.resources, bmp)
