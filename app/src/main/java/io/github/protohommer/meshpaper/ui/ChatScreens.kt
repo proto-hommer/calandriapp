@@ -190,7 +190,7 @@ fun ChatScreen(vm: MeshViewModel, conv: String, onBack: () -> Unit) {
                     if (why == null) { text = ""; replying = null } else error = why
                 },
                 enabled = text.isNotBlank() && bytes <= MAX_TEXT_BYTES,
-            ) { Text("ENVIAR") }
+            ) { Text("Enviar") }
         }
     }
 }

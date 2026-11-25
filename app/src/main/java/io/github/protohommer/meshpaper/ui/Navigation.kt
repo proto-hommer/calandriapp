@@ -55,7 +55,7 @@ fun NavPanel(
                 s.target.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold, maxLines = 1,
             )
-            TextButton(onClick = onCenter, contentPadding = tight) { Text("VER") }
+            TextButton(onClick = onCenter, contentPadding = tight) { Text("Ver") }
             TextButton(onClick = { Nav.stop() }, contentPadding = tight) { Text("✕") }
         }
         if (s.status == Nav.Status.Arrived) {
@@ -70,7 +70,7 @@ fun NavPanel(
             HudStat("Rumbo", s.bearing?.let { "${PhoneLocation.cardinal(it)} ${it.toInt()}°" } ?: "—")
         }
         // Como "Iniciar" de Google Maps: el mapa sigue al teléfono, con el próximo giro arriba.
-        HudButton(onClick = { Nav.setGuided(true) }, Modifier.fillMaxWidth().padding(vertical = 4.dp)) { Text("INICIAR NAVEGACIÓN") }
+        HudButton(onClick = { Nav.setGuided(true) }, Modifier.fillMaxWidth().padding(vertical = 4.dp)) { Text("Iniciar navegación") }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for (m in Routing.Mode.entries) {
                 FilterChip(selected = s.mode == m, onClick = { if (s.mode != m) Nav.setMode(m) }, label = { Text(m.label) })
@@ -87,7 +87,7 @@ fun NavPanel(
                 )
                 if (saving != null) Text(saving, style = MaterialTheme.typography.bodySmall, color = HudTextDim)
                 val busyOrDone = saving?.let { it.startsWith("Guardando") || it.startsWith("Camino guardado") } == true
-                if (onSave != null && !busyOrDone) TextButton(onClick = onSave, contentPadding = tight) { Text("GUARDAR EL CAMINO") }
+                if (onSave != null && !busyOrDone) TextButton(onClick = onSave, contentPadding = tight) { Text("Guardar el camino") }
             }
             is Nav.Status.NeedData -> NeedData(st.tiles)
             is Nav.Status.Downloading -> {
@@ -96,7 +96,7 @@ fun NavPanel(
             }
             is Nav.Status.Failed -> {
                 Text(st.message + " · se muestra la línea recta.", style = MaterialTheme.typography.bodySmall, color = SigFair)
-                TextButton(onClick = { Nav.retry() }, contentPadding = tight) { Text("REINTENTAR") }
+                TextButton(onClick = { Nav.retry() }, contentPadding = tight) { Text("Reintentar") }
             }
             Nav.Status.Arrived -> Unit
         }
@@ -115,7 +115,7 @@ private fun NeedData(tiles: List<String>) {
             "). Se bajan una vez y después andan sin señal. Mientras, la línea recta.",
         style = MaterialTheme.typography.bodySmall,
     )
-    TextButton(onClick = { Nav.download(tiles) }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("BAJAR RUTAS") }
+    TextButton(onClick = { Nav.download(tiles) }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("Bajar rutas") }
 }
 
 /** Ajustes → Rutas sin conexión: qué zonas hay, bajar la de donde estás, borrar. */
@@ -140,7 +140,7 @@ fun RoutesPanel(here: Pair<Double, Double>?, modifier: Modifier = Modifier) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 HudLabel("${z.tile} · ${MapTiles.formatSize(z.bytes)}" + if (z.tile == hereTile) " · acá" else "", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
                 TextButton(onClick = { Routing.delete(ctx, z.tile); stored = Routing.stored(ctx) }, enabled = busy == null) {
-                    Text("BORRAR", color = MaterialTheme.colorScheme.error)
+                    Text("Borrar", color = MaterialTheme.colorScheme.error)
                 }
             }
         }
@@ -292,9 +292,9 @@ fun GuidedBottom(s: Nav.State, following: Boolean, onRecenter: () -> Unit, onOve
                         .joinToString(" · "),
                 )
             }
-            if (!following) TextButton(onClick = onRecenter, contentPadding = tight) { Text("SEGUIR", color = HudCyan, softWrap = false) }
-            TextButton(onClick = onOverview, contentPadding = tight) { Text("RESUMEN", softWrap = false) }
-            TextButton(onClick = { Nav.stop() }, contentPadding = tight) { Text("SALIR", color = MaterialTheme.colorScheme.error, softWrap = false) }
+            if (!following) TextButton(onClick = onRecenter, contentPadding = tight) { Text("Seguir", color = HudCyan, softWrap = false) }
+            TextButton(onClick = onOverview, contentPadding = tight) { Text("Resumen", softWrap = false) }
+            TextButton(onClick = { Nav.stop() }, contentPadding = tight) { Text("Salir", color = MaterialTheme.colorScheme.error, softWrap = false) }
         }
     }
 }

@@ -257,7 +257,7 @@ fun App(vm: MeshViewModel) {
                     CenterPanel("Permisos") {
                         Text("La app necesita Bluetooth para hablar con el nodo y ubicación para compartir tu posición con el grupo.")
                         Spacer(Modifier.height(12.dp))
-                        HudButton(onClick = { launcher.launch(blePermissions + locationPermissions) }) { Text("DAR PERMISO") }
+                        HudButton(onClick = { launcher.launch(blePermissions + locationPermissions) }) { Text("Dar permiso") }
                     }
                 }
                 !vm.bluetoothOn -> Box(Modifier.fillMaxSize().padding(top = topPad)) {
@@ -357,7 +357,7 @@ private fun TopStatus(vm: MeshViewModel, modifier: Modifier = Modifier) {
                     io.github.protohommer.meshpaper.ui.LinkActions(vm, onDone = { showLink = false })
                 }
             },
-            confirmButton = { TextButton(onClick = { showLink = false }) { Text("CERRAR") } },
+            confirmButton = { TextButton(onClick = { showLink = false }) { Text("Cerrar") } },
         )
     }
     val haze = LocalHaze.current
@@ -502,7 +502,7 @@ private fun LinkPanel(vm: MeshViewModel, link: LinkState, modifier: Modifier = M
             is LinkState.Connecting -> Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.padding(end = 10.dp).height(22.dp).width(22.dp), strokeWidth = 2.dp)
                 Text(link.step, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = vm::disconnect) { Text("CANCELAR") }
+                TextButton(onClick = vm::disconnect) { Text("Cancelar") }
             }
             LinkState.NeedPin -> Text("Esperando el PIN…", style = MaterialTheme.typography.bodySmall)
             else -> {
@@ -542,8 +542,8 @@ private fun LinkPanel(vm: MeshViewModel, link: LinkState, modifier: Modifier = M
                                         else "${d.rssi} dBm · " + if (d.bonded) "emparejado" else "sin emparejar"
                                     )
                                 }
-                                if (d.bonded) HudButton(onClick = { vm.connect(d) }) { Text("CONECTAR") }
-                                else HudOutlinedButton(onClick = { vm.pairAndConnect(d) }) { Text("EMPAREJAR") }
+                                if (d.bonded) HudButton(onClick = { vm.connect(d) }) { Text("Conectar") }
+                                else HudOutlinedButton(onClick = { vm.pairAndConnect(d) }) { Text("Emparejar") }
                             }
                         }
                         if (scanning && found.isEmpty()) item { HudLabel("Buscando nodos Meshtastic…") }
@@ -559,7 +559,7 @@ private fun PinDialog(vm: MeshViewModel) {
     var pin by remember { mutableStateOf("123456") }
     AlertDialog(
         onDismissRequest = {},
-        title = { Text("PIN DEL NODO") },
+        title = { Text("PIN del nodo") },
         text = {
             Column {
                 Text("Poné el que muestra la pantalla del nodo (por defecto 123456).")
@@ -573,8 +573,8 @@ private fun PinDialog(vm: MeshViewModel) {
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { vm.submitPin(pin) }, enabled = pin.length == 6) { Text("EMPAREJAR") } },
-        dismissButton = { TextButton(onClick = vm::disconnect) { Text("CANCELAR") } },
+        confirmButton = { TextButton(onClick = { vm.submitPin(pin) }, enabled = pin.length == 6) { Text("Emparejar") } },
+        dismissButton = { TextButton(onClick = vm::disconnect) { Text("Cancelar") } },
     )
 }
 
@@ -609,7 +609,7 @@ private fun BoxScope.WorkingOverlay(step: String, onCancel: () -> Unit) {
             }
             if (canCancel) {
                 Spacer(Modifier.height(8.dp))
-                TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.End)) { Text("CANCELAR") }
+                TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.End)) { Text("Cancelar") }
             }
         }
     }
@@ -662,7 +662,7 @@ private fun NodesScreen(vm: MeshViewModel, onAskLocation: () -> Unit, onNode: (I
         item {
             Spacer(Modifier.height(16.dp))
             if (link == LinkState.Connected) {
-                HudOutlinedButton(onClick = vm::disconnect, Modifier.fillMaxWidth()) { Text("DESCONECTAR DEL NODO") }
+                HudOutlinedButton(onClick = vm::disconnect, Modifier.fillMaxWidth()) { Text("Desconectar del nodo") }
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -777,7 +777,7 @@ private fun PositionPanel(vm: MeshViewModel, onAskLocation: () -> Unit) {
     HudPanel(Modifier.fillMaxWidth(), title = "Tu posición al grupo") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(status, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            if (share && !permitted) TextButton(onClick = onAskLocation) { Text("PERMITIR") }
+            if (share && !permitted) TextButton(onClick = onAskLocation) { Text("Permitir") }
             else Switch(checked = share, onCheckedChange = vm::setSharePosition)
         }
     }

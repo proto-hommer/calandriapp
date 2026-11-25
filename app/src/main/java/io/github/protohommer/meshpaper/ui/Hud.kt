@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +37,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.PaintingStyle
@@ -74,8 +76,8 @@ import io.github.protohommer.meshpaper.ui.theme.SigPoor
 import io.github.protohommer.meshpaper.ui.theme.SigRelay
 import io.github.protohommer.meshpaper.ui.theme.SigWeak
 
-val HudButtonShape = CutCornerShape(topStart = 8.dp, bottomEnd = 8.dp)
-val HudPanelShape = CutCornerShape(topStart = 12.dp, bottomEnd = 12.dp)
+val HudButtonShape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+val HudPanelShape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
 
 fun Tone.color(): Color = when (this) {
     Tone.ME -> SigMe
@@ -133,38 +135,18 @@ fun Modifier.neonGlow(color: Color, shape: Shape, radius: Dp = 8.dp, width: Dp =
  * reflejo suave arriba y un borde de neón en [accent] con su halo.
  * [blur] = false para cosas chicas y numerosas (botones): solo tinte, que es más liviano.
  */
-@OptIn(ExperimentalHazeApi::class)
+/**
+ * Panel de la 2.0: plano, del color de la superficie, con un borde fino y quieto (la línea, o el
+ * color de [accent] apenas marcado si no es el acento de la interfaz). Sin vidrio ni neón: se lee
+ * igual sobre el mapa y al sol. [blur] y [glow] quedan por compatibilidad y no hacen nada.
+ */
+@Suppress("UNUSED_PARAMETER")
 @Composable
-fun Modifier.glass(shape: Shape, accent: Color = HudCyan, blur: Boolean = true, glow: Boolean = true): Modifier {
-    val haze = LocalHaze.current.takeIf { blur }
-    return this
-        // De día el borde cian de los paneles es el neón brillante, con un halo más ancho.
-        .then(if (glow && Appearance.neon) Modifier.neonGlow(dayNeon(accent).copy(alpha = if (Appearance.isDay) 0.85f else 0.55f), shape, if (Appearance.isDay) 9.dp else 7.dp) else Modifier)
+fun Modifier.glass(shape: Shape, accent: Color = HudCyan, blur: Boolean = true, glow: Boolean = true): Modifier =
+    this
         .clip(shape)
-        .then(
-            if (haze != null) Modifier.hazeEffect(haze, GlassStyle).background(HudSurface.copy(alpha = 0.18f))
-            // De día, vidrio claro translúcido (sin desenfoque: botones, o Android 11 o anterior).
-            else Modifier.background(HudSurface.copy(alpha = if (Appearance.isDay) 0.7f else if (blur) 0.62f else 0.55f))
-        )
-        .background(
-            Brush.verticalGradient(
-                0f to Color.White.copy(alpha = 0.07f),
-                0.35f to Color.Transparent,
-                1f to accent.copy(alpha = 0.06f),
-            )
-        )
-        .border(
-            1.dp,
-            // Nocturno: borde fino y quieto (la línea, o el color del panel apenas marcado).
-            if (!Appearance.neon) androidx.compose.ui.graphics.SolidColor(if (accent == HudCyan) HudLine else accent.copy(alpha = 0.55f))
-            else dayNeon(accent).let { a -> Brush.linearGradient(listOf(a.copy(alpha = 0.95f), a.copy(alpha = 0.25f), a.copy(alpha = 0.75f))) },
-            shape,
-        )
-}
-
-/** De día, el acento cian de los bordes pasa al neón brillante (los demás colores quedan igual). */
-private fun dayNeon(accent: Color): Color =
-    if (Appearance.isDay && accent == HudCyan) io.github.protohommer.meshpaper.ui.theme.DayNeon else accent
+        .background(HudSurface)
+        .border(1.dp, if (accent == HudCyan || accent == HudLine) HudLine else accent.copy(alpha = 0.7f), shape)
 
 /** Texto con brillo de neón (sombra difusa del mismo color). */
 fun TextStyle.neon(color: Color, radius: Float = 14f): TextStyle =
@@ -195,7 +177,7 @@ fun HudPanel(
     modifier: Modifier = Modifier,
     title: String? = null,
     accent: Color = HudCyan,
-    padding: PaddingValues = PaddingValues(12.dp),
+    padding: PaddingValues = PaddingValues(16.dp),
     collapsed: Boolean = false,
     onToggle: (() -> Unit)? = null,
     onClose: (() -> Unit)? = null,
@@ -212,27 +194,35 @@ fun HudPanel(
                 if (onToggle != null) Modifier.fillMaxWidth().clickable(onClick = onToggle) else Modifier,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    Modifier.size(width = 3.dp, height = 12.dp)
-                        .then(if (Appearance.neon) Modifier.neonGlow(accent, HudButtonShape, 4.dp, 3.dp) else Modifier)
-                        .background(accent)
-                )
-                Spacer(Modifier.width(8.dp))
-                HudLabel(title, if (onToggle != null) Modifier.weight(1f) else Modifier, color = accent)
+                val titleColor = if (accent == HudCyan) HudTextDim else accent
+                HudLabel(title, if (onToggle != null) Modifier.weight(1f) else Modifier, color = titleColor)
                 if (onToggle != null) {
-                    val tight = PaddingValues(horizontal = 8.dp)
-                    TextButton(onClick = onToggle, contentPadding = tight, modifier = Modifier.height(28.dp)) {
-                        Text(if (collapsed) "+" else "–", color = accent)
+                    val tight = PaddingValues(horizontal = 10.dp)
+                    TextButton(onClick = onToggle, contentPadding = tight, modifier = Modifier.height(36.dp)) {
+                        Chevron(up = collapsed, color = HudText)
                     }
                     if (collapsed && onClose != null) {
-                        TextButton(onClick = onClose, contentPadding = tight, modifier = Modifier.height(28.dp)) { Text("✕") }
+                        TextButton(onClick = onClose, contentPadding = tight, modifier = Modifier.height(36.dp)) { Text("✕", color = HudText) }
                     }
                 }
             }
             if (collapsed) return@Column
-            Spacer(Modifier.height(if (onToggle != null) 2.dp else 8.dp))
+            Spacer(Modifier.height(if (onToggle != null) 4.dp else 10.dp))
         }
         content()
+    }
+}
+
+/** Flechita para abrir (arriba) o minimizar (abajo) un panel. */
+@Composable
+fun Chevron(up: Boolean, color: Color, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier.size(14.dp)) {
+        val w = size.width
+        val h = size.height
+        val y0 = if (up) h * 0.68f else h * 0.32f
+        val y1 = if (up) h * 0.32f else h * 0.68f
+        val path = androidx.compose.ui.graphics.Path().apply { moveTo(w * 0.15f, y0); lineTo(w / 2, y1); lineTo(w * 0.85f, y0) }
+        drawPath(path, color, style = androidx.compose.ui.graphics.drawscope.Stroke(1.8.dp.toPx(), cap = StrokeCap.Round))
     }
 }
 
@@ -249,8 +239,7 @@ fun HudLabel(text: String, modifier: Modifier = Modifier, color: Color = HudText
 /** Dato destacado monoespaciado. */
 @Composable
 fun HudValue(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurface) {
-    val style = MaterialTheme.typography.labelLarge
-    Text(text, modifier, style = if (glows(color)) style.neon(color) else style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Text(text, modifier, style = io.github.protohommer.meshpaper.ui.theme.MonoValue, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 /** Par rótulo / valor en columna. */
@@ -314,10 +303,12 @@ fun HudHeader(title: String, onBack: (() -> Unit)? = null, trailing: @Composable
         Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (onBack != null) TextButton(onClick = onBack) { Text("‹") }
+        if (onBack != null) TextButton(onClick = onBack, modifier = Modifier.size(44.dp), contentPadding = PaddingValues(0.dp)) {
+            Chevron(up = false, color = HudText, modifier = Modifier.graphicsLayerRotate(90f))
+        }
         Text(
-            title.uppercase(), Modifier.weight(1f).padding(start = if (onBack == null) 8.dp else 0.dp),
-            style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            title, Modifier.weight(1f).padding(start = if (onBack == null) 8.dp else 0.dp),
+            style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
         trailing()
     }
@@ -332,13 +323,13 @@ fun HudButton(
 ) {
     Button(
         onClick = onClick, enabled = enabled, shape = HudButtonShape,
-        modifier = if (enabled) modifier.neonGlow(HudCyan.copy(alpha = 0.6f), HudButtonShape, 6.dp) else modifier,
+        modifier = modifier.heightIn(min = 48.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = HudCyan.copy(alpha = 0.16f),
-            contentColor = HudCyan,
-            disabledContainerColor = HudLine.copy(alpha = 0.4f),
+            containerColor = HudText,
+            contentColor = HudBg,
+            disabledContainerColor = HudLine,
+            disabledContentColor = HudTextDim,
         ),
-        border = BorderStroke(1.dp, if (enabled) HudCyan.copy(alpha = 0.8f) else HudLine),
         content = content,
     )
 }
@@ -351,8 +342,8 @@ fun HudOutlinedButton(
     content: @Composable RowScope.() -> Unit,
 ) {
     OutlinedButton(
-        onClick = onClick, modifier = modifier, enabled = enabled, shape = HudButtonShape,
-        border = BorderStroke(1.dp, HudLine),
+        onClick = onClick, modifier = modifier.heightIn(min = 48.dp), enabled = enabled, shape = HudButtonShape,
+        border = BorderStroke(1.dp, io.github.protohommer.meshpaper.ui.theme.HudControl),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
         content = content,
     )
@@ -367,13 +358,47 @@ fun HudIconButton(label: String, onClick: () -> Unit, active: Boolean = false, e
         else -> MaterialTheme.colorScheme.onSurface
     }
     Box(
-        Modifier.size(46.dp)
-            .glass(HudButtonShape, accent = if (active) HudCyan else HudLine.copy(alpha = 1f), blur = false, glow = active)
-            .clickable(enabled = enabled, onClick = onClick),
+        Modifier.size(48.dp)
+            .clip(HudButtonShape)
+            .background(if (active) HudText else HudSurface)
+            .border(1.dp, if (active) HudText else HudLine, HudButtonShape)
+            .clickable(enabled = enabled, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        val style = MaterialTheme.typography.labelMedium
-        Text(label, style = if (active) style.neon(c) else style, color = c)
+        val ink = when {
+            !enabled -> HudLine
+            active -> HudBg
+            else -> HudText
+        }
+        val me = io.github.protohommer.meshpaper.ui.theme.SigMe
+        when (label) {
+            "+", "−" -> androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
+                val s = 1.9.dp.toPx()
+                drawLine(ink, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), s, StrokeCap.Round)
+                if (label == "+") drawLine(ink, Offset(size.width / 2, 0f), Offset(size.width / 2, size.height), s, StrokeCap.Round)
+            }
+            "YO" -> androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
+                val col = if (enabled) me else HudLine
+                val s = 1.8.dp.toPx()
+                val m = size.width / 2
+                drawCircle(col, size.width * 0.27f, style = androidx.compose.ui.graphics.drawscope.Stroke(s))
+                drawCircle(col, size.width * 0.09f)
+                drawLine(col, Offset(m, 0f), Offset(m, size.height * 0.16f), s)
+                drawLine(col, Offset(m, size.height * 0.84f), Offset(m, size.height), s)
+                drawLine(col, Offset(0f, m), Offset(size.width * 0.16f, m), s)
+                drawLine(col, Offset(size.width * 0.84f, m), Offset(size.width, m), s)
+            }
+            "CAPA" -> androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
+                val st = androidx.compose.ui.graphics.drawscope.Stroke(1.6.dp.toPx(), join = androidx.compose.ui.graphics.StrokeJoin.Round)
+                val w = size.width
+                val h = size.height
+                val top = androidx.compose.ui.graphics.Path().apply { moveTo(w / 2, h * 0.14f); lineTo(w * 0.92f, h * 0.36f); lineTo(w / 2, h * 0.58f); lineTo(w * 0.08f, h * 0.36f); close() }
+                val low = androidx.compose.ui.graphics.Path().apply { moveTo(w * 0.08f, h * 0.55f); lineTo(w / 2, h * 0.78f); lineTo(w * 0.92f, h * 0.55f) }
+                drawPath(top, ink, style = st)
+                drawPath(low, ink, style = st)
+            }
+            else -> Text(label, style = MaterialTheme.typography.labelMedium, color = ink)
+        }
     }
 }
 
@@ -385,3 +410,6 @@ fun LegendItem(color: Color, text: String) {
         HudLabel(text, color = MaterialTheme.colorScheme.onSurface)
     }
 }
+
+/** Rota el contenido (la flecha de "volver" es el chevron girado). */
+fun Modifier.graphicsLayerRotate(degrees: Float): Modifier = this.graphicsLayer { rotationZ = degrees }

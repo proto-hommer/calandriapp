@@ -85,7 +85,7 @@ fun OfflineMapsPanel(modifier: Modifier = Modifier) {
         Spacer(Modifier.height(4.dp))
         HudLabel("Relieve guardado: ${stored.tiles} tiles · ${MapTiles.formatSize(stored.bytes)}")
         Spacer(Modifier.height(6.dp))
-        HudButton(onClick = { open = true }) { Text("ABRIR CUADRÍCULA") }
+        HudButton(onClick = { open = true }) { Text("Abrir cuadrícula") }
     }
     if (open) OfflineMapsScreen(onClose = { open = false; stored = Dem.stored(ctx) })
 }
@@ -192,7 +192,7 @@ private fun OfflineMapsScreen(onClose: () -> Unit) {
     ) {
         Column(Modifier.fillMaxSize().background(HudBg).statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("MAPAS SIN CONEXIÓN", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = HudCyan)
+                Text("Mapas sin conexión", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = HudCyan)
                 TextButton(onClick = { running?.cancel(); running = null; busyCells = emptySet(); onClose() }) {
                     Text(if (running != null) "CANCELAR" else "CERRAR")
                 }
@@ -244,9 +244,9 @@ private fun OfflineMapsScreen(onClose: () -> Unit) {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     HudButton(onClick = { job = DownloadState.Idle; start() }, enabled = online && selected.isNotEmpty() && running == null) {
-                        Text("DESCARGAR")
+                        Text("Descargar")
                     }
-                    if (selected.isNotEmpty() && running == null) TextButton(onClick = { selected = emptyList() }) { Text("LIMPIAR") }
+                    if (selected.isNotEmpty() && running == null) TextButton(onClick = { selected = emptyList() }) { Text("Limpiar") }
                 }
                 if (!online) Text("Prendé \"Usar internet\" (en el mapa, CAPA) para descargar.", style = MaterialTheme.typography.bodySmall, color = SigWeak)
                 Text(Dem.ATTRIBUTION, style = MaterialTheme.typography.labelSmall, color = HudTextDim)

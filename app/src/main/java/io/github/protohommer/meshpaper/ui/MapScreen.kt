@@ -998,12 +998,12 @@ private fun NodeCard(
         // Si no entran en una línea, siguen en la de abajo (antes "ANTENA" se partía en dos).
         @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
         androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.Center) {
-            if (n.num != me) TextButton(onClick = { onMessage(n.num) }, contentPadding = tight) { Text("MENSAJE", softWrap = false) }
-            onGo?.let { TextButton(onClick = it, contentPadding = tight) { Text("IR", color = RouteColor, softWrap = false) } }
-            onProfile?.let { TextButton(onClick = it, contentPadding = tight) { Text("PERFIL", softWrap = false) } }
-            TextButton(onClick = onAntenna, contentPadding = tight) { Text("ANTENA", softWrap = false) }
+            if (n.num != me) TextButton(onClick = { onMessage(n.num) }, contentPadding = tight) { Text("Mensaje", softWrap = false) }
+            onGo?.let { TextButton(onClick = it, contentPadding = tight) { Text("Ir", color = RouteColor, softWrap = false) } }
+            onProfile?.let { TextButton(onClick = it, contentPadding = tight) { Text("Perfil", softWrap = false) } }
+            TextButton(onClick = onAntenna, contentPadding = tight) { Text("Antena", softWrap = false) }
             if (n.num != me) TextButton(onClick = { askForget = true }, contentPadding = tight) {
-                Text("OLVIDAR", color = MaterialTheme.colorScheme.error, softWrap = false)
+                Text("Olvidar", color = MaterialTheme.colorScheme.error, softWrap = false)
             }
             TextButton(onClick = onClose, contentPadding = tight) { Text("✕", softWrap = false) }
         }
@@ -1019,9 +1019,9 @@ private fun NodeCard(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { askForget = false; if (vm.forgetSome(listOf(n.num)) > 0) onClose() }) { Text("OLVIDAR") }
+                TextButton(onClick = { askForget = false; if (vm.forgetSome(listOf(n.num)) > 0) onClose() }) { Text("Olvidar") }
             },
-            dismissButton = { TextButton(onClick = { askForget = false }) { Text("CANCELAR") } },
+            dismissButton = { TextButton(onClick = { askForget = false }) { Text("Cancelar") } },
         )
     }
 }
@@ -1055,8 +1055,8 @@ private fun WaypointCard(
             TextButton(onClick = { confirm = true }) {
                 Text(if (vm.canDeleteForAll(w)) "BORRAR" else "OCULTAR", color = MaterialTheme.colorScheme.error, softWrap = false)
             }
-            TextButton(onClick = { onGo(w) }) { Text("IR", color = RouteColor, softWrap = false) }
-            TextButton(onClick = onClose) { Text("CERRAR", softWrap = false) }
+            TextButton(onClick = { onGo(w) }) { Text("Ir", color = RouteColor, softWrap = false) }
+            TextButton(onClick = onClose) { Text("Cerrar", softWrap = false) }
         }
     }
     if (confirm) {
@@ -1178,12 +1178,12 @@ private fun AntennaDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(Antenna(g!!, h!!, c!!, p!!, gpsHeight = useGps)) }, enabled = ok) { Text("GUARDAR") }
+            TextButton(onClick = { onSave(Antenna(g!!, h!!, c!!, p!!, gpsHeight = useGps)) }, enabled = ok) { Text("Guardar") }
         },
         dismissButton = {
             Row {
-                if (current != null) TextButton(onClick = { onSave(null) }) { Text("BORRAR") }
-                TextButton(onClick = onDismiss) { Text("CANCELAR") }
+                if (current != null) TextButton(onClick = { onSave(null) }) { Text("Borrar") }
+                TextButton(onClick = onDismiss) { Text("Cancelar") }
             }
         },
     )
@@ -1201,7 +1201,7 @@ private fun NewWaypointDialog(vm: MeshViewModel, at: GeoPoint, onDone: () -> Uni
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDone,
-        title = { Text("NUEVO WAYPOINT") },
+        title = { Text("Nuevo waypoint") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 HudLabel("%.5f, %.5f".format(at.latitude, at.longitude))
@@ -1237,9 +1237,9 @@ private fun NewWaypointDialog(vm: MeshViewModel, at: GeoPoint, onDone: () -> Uni
                 val exp = if (secs == 0L) 0L else System.currentTimeMillis() / 1000 + secs
                 error = vm.sendWaypoint(at.latitude, at.longitude, name, desc, icon, exp)
                 if (error == null) onDone()
-            }) { Text("MANDAR") }
+            }) { Text("Mandar") }
         },
-        dismissButton = { TextButton(onClick = onDone) { Text("CANCELAR") } },
+        dismissButton = { TextButton(onClick = onDone) { Text("Cancelar") } },
     )
 }
 
@@ -1282,7 +1282,7 @@ private fun LayersDialog(map: MapView, dark: Boolean, onDark: (Boolean) -> Unit,
 
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text("CAPAS Y MAPAS OFFLINE") },
+        title = { Text("Capas y mapas offline") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 SwitchRow("Mapa oscuro", if (dark) "Estilo HUD" else "Colores normales (mejor a pleno sol)", dark, onDark)
@@ -1305,11 +1305,11 @@ private fun LayersDialog(map: MapView, dark: Boolean, onDark: (Boolean) -> Unit,
                 for (f in files) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("${f.name} (${MapTiles.formatSize(f.length())})", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { MapTiles.delete(f); reload() }) { Text("QUITAR", color = MaterialTheme.colorScheme.error) }
+                        TextButton(onClick = { MapTiles.delete(f); reload() }) { Text("Quitar", color = MaterialTheme.colorScheme.error) }
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    HudOutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !busy) { Text("IMPORTAR .MBTILES") }
+                    HudOutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !busy) { Text("Importar .mbtiles") }
                     if (busy) { Spacer(Modifier.width(8.dp)); CircularProgressIndicator(Modifier.padding(4.dp)) }
                 }
                 msg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
@@ -1327,7 +1327,7 @@ private fun LayersDialog(map: MapView, dark: Boolean, onDark: (Boolean) -> Unit,
                 TextButton(
                     onClick = { MapTiles.setCustomUrl(context, url); reload() },
                     enabled = urlOk && url.trim() != MapTiles.customUrl(context),
-                ) { Text("USAR ESTE SERVIDOR") }
+                ) { Text("Usar este servidor") }
                 HorizontalDivider(Modifier.padding(vertical = 10.dp))
 
                 HudLabel("Bajar zonas para usar sin señal", color = HudCyan)
@@ -1339,7 +1339,7 @@ private fun LayersDialog(map: MapView, dark: Boolean, onDark: (Boolean) -> Unit,
                 )
             }
         },
-        confirmButton = { TextButton(onClick = onClose) { Text("LISTO") } },
+        confirmButton = { TextButton(onClick = onClose) { Text("Listo") } },
     )
 }
 

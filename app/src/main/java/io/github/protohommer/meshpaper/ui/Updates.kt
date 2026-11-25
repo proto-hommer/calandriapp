@@ -49,8 +49,8 @@ fun UpdateDialog() {
                     Text(s.r.notes.ifEmpty { "Las novedades están en la página del release, en GitHub." }, style = MaterialTheme.typography.bodySmall)
                 }
             },
-            confirmButton = { TextButton(onClick = { scope.launch { Updater.download(ctx, s.r) } }) { Text("ACTUALIZAR") } },
-            dismissButton = { TextButton(onClick = { Updater.snooze(ctx, s.r.version) }) { Text("MÁS TARDE") } },
+            confirmButton = { TextButton(onClick = { scope.launch { Updater.download(ctx, s.r) } }) { Text("Actualizar") } },
+            dismissButton = { TextButton(onClick = { Updater.snooze(ctx, s.r.version) }) { Text("Más tarde") } },
         )
         is Updater.State.Downloading -> AlertDialog(
             onDismissRequest = {},
@@ -107,14 +107,14 @@ fun UpdateDialog() {
                         else { needPerm = true; Updater.openInstallPermission(ctx) }
                     }) { Text(if (needPerm) "PERMITIR" else "INSTALAR") }
                 },
-                dismissButton = { TextButton(onClick = { Updater.dismiss() }) { Text("DESPUÉS") } },
+                dismissButton = { TextButton(onClick = { Updater.dismiss() }) { Text("Después") } },
             )
         }
         is Updater.State.Error -> AlertDialog(
             onDismissRequest = { Updater.dismiss() },
             title = { Text("Actualización") },
             text = { Text(s.message, style = MaterialTheme.typography.bodySmall) },
-            confirmButton = { TextButton(onClick = { Updater.dismiss() }) { Text("CERRAR") } },
+            confirmButton = { TextButton(onClick = { Updater.dismiss() }) { Text("Cerrar") } },
         )
         else -> Unit
     }
@@ -144,7 +144,7 @@ fun UpdatesPanel() {
             HudOutlinedButton(
                 onClick = { scope.launch { Updater.check(ctx, manual = true) } },
                 enabled = st !is Updater.State.Checking && st !is Updater.State.Downloading,
-            ) { Text("BUSCAR AHORA") }
+            ) { Text("Buscar ahora") }
             Spacer(Modifier.width(12.dp))
             HudLabel(
                 when (st) {

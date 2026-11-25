@@ -115,7 +115,7 @@ fun ProfileDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("CERRAR") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },
     )
 }
 

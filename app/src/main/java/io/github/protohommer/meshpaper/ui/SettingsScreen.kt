@@ -392,8 +392,8 @@ private fun SettingsContent(
             // ---------- Mantenimiento ----------
             HudPanel(Modifier.fillMaxWidth(), title = "Mantenimiento") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HudOutlinedButton(onClick = { askReboot = true }) { Text("REINICIAR") }
-                    HudOutlinedButton(onClick = { askForget = true }) { Text("OLVIDAR NODOS") }
+                    HudOutlinedButton(onClick = { askReboot = true }) { Text("Reiniciar") }
+                    HudOutlinedButton(onClick = { askForget = true }) { Text("Olvidar nodos") }
                 }
                 Note("Olvidar nodos borra la lista de nodos conocidos (deja los favoritos) y reinicia el nodo.")
                 val ghosts = remember(nodes) { vm.ghostNodes() }
@@ -486,9 +486,9 @@ private fun SettingsContent(
                             )
                         }
                         if (i != 0 && shownIndex != 0) {
-                            TextButton(onClick = { primary = i }) { Text("HACER PRINCIPAL") }
+                            TextButton(onClick = { primary = i }) { Text("Hacer principal") }
                         } else if (i != 0) {
-                            TextButton(onClick = { primary = 0 }) { Text("DESHACER") }
+                            TextButton(onClick = { primary = 0 }) { Text("Deshacer") }
                         }
                     }
                     val prec = precision[i] ?: 0
@@ -525,7 +525,7 @@ private fun SettingsContent(
                     color = if (!valid) SigWeak else HudTextDim,
                     maxLines = 2,
                 )
-                HudButton(onClick = { confirm = edits }, enabled = valid && !edits.isEmpty) { Text("GUARDAR") }
+                HudButton(onClick = { confirm = edits }, enabled = valid && !edits.isEmpty) { Text("Guardar") }
             }
         }
     }
@@ -533,26 +533,26 @@ private fun SettingsContent(
     confirm?.let { e ->
         AlertDialog(
             onDismissRequest = { confirm = null },
-            title = { Text("GUARDAR EN EL NODO") },
+            title = { Text("Guardar en el nodo") },
             text = { Text("Se cambia: ${changedSections(e).joinToString(", ")}.\n\nEl nodo guarda y se reinicia; la app se vuelve a conectar sola.") },
-            confirmButton = { TextButton(onClick = { vm.saveNodeSettings(e); confirm = null }) { Text("GUARDAR") } },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text("CANCELAR") } },
+            confirmButton = { TextButton(onClick = { vm.saveNodeSettings(e); confirm = null }) { Text("Guardar") } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancelar") } },
         )
     }
     if (askReboot) {
         AlertDialog(
             onDismissRequest = { askReboot = false },
-            title = { Text("REINICIAR EL NODO") },
+            title = { Text("Reiniciar el nodo") },
             text = { Text("Se corta el Bluetooth unos segundos y la app se vuelve a conectar sola.") },
-            confirmButton = { TextButton(onClick = { vm.rebootNode(); askReboot = false }) { Text("REINICIAR") } },
-            dismissButton = { TextButton(onClick = { askReboot = false }) { Text("CANCELAR") } },
+            confirmButton = { TextButton(onClick = { vm.rebootNode(); askReboot = false }) { Text("Reiniciar") } },
+            dismissButton = { TextButton(onClick = { askReboot = false }) { Text("Cancelar") } },
         )
     }
     if (askGhosts) {
         val ghosts = vm.ghostNodes()
         AlertDialog(
             onDismissRequest = { askGhosts = false },
-            title = { Text("LIMPIAR FANTASMAS") },
+            title = { Text("Limpiar fantasmas") },
             text = {
                 Text(
                     "Se olvidan ${ghosts.size} nodos: " +
@@ -560,17 +560,17 @@ private fun SettingsContent(
                         ". Si alguno sigue activo, vuelve a aparecer cuando transmita."
                 )
             },
-            confirmButton = { TextButton(onClick = { vm.forgetSome(ghosts.map { it.num }); askGhosts = false }) { Text("LIMPIAR") } },
-            dismissButton = { TextButton(onClick = { askGhosts = false }) { Text("CANCELAR") } },
+            confirmButton = { TextButton(onClick = { vm.forgetSome(ghosts.map { it.num }); askGhosts = false }) { Text("Limpiar") } },
+            dismissButton = { TextButton(onClick = { askGhosts = false }) { Text("Cancelar") } },
         )
     }
     if (askForget) {
         AlertDialog(
             onDismissRequest = { askForget = false },
-            title = { Text("OLVIDAR NODOS") },
+            title = { Text("Olvidar nodos") },
             text = { Text("El nodo borra su lista de nodos conocidos (menos los favoritos) y se reinicia. Los va a ir conociendo de nuevo a medida que los oiga.") },
-            confirmButton = { TextButton(onClick = { vm.forgetNodes(); askForget = false }) { Text("OLVIDAR") } },
-            dismissButton = { TextButton(onClick = { askForget = false }) { Text("CANCELAR") } },
+            confirmButton = { TextButton(onClick = { vm.forgetNodes(); askForget = false }) { Text("Olvidar") } },
+            dismissButton = { TextButton(onClick = { askForget = false }) { Text("Cancelar") } },
         )
     }
 }
@@ -653,8 +653,7 @@ private fun AppearancePanel() {
                         io.github.protohommer.meshpaper.ui.theme.Appearance.set(ctx, m)
                         // El mapa acompaña: oscuro de noche, normal de día (se puede cambiar en CAPA).
                         val night = when (m) {
-                            io.github.protohommer.meshpaper.ui.theme.ThemeMode.NIGHT,
-                            io.github.protohommer.meshpaper.ui.theme.ThemeMode.NOCTURNE -> true
+                            io.github.protohommer.meshpaper.ui.theme.ThemeMode.NIGHT -> true
                             io.github.protohommer.meshpaper.ui.theme.ThemeMode.DAY -> false
                             io.github.protohommer.meshpaper.ui.theme.ThemeMode.AUTO -> system
                         }
@@ -666,10 +665,9 @@ private fun AppearancePanel() {
         }
         Text(
             when (mode) {
-                io.github.protohommer.meshpaper.ui.theme.ThemeMode.NIGHT -> "HUD oscuro, la de siempre. Ahorra batería en pantallas OLED."
-                io.github.protohommer.meshpaper.ui.theme.ThemeMode.DAY -> "Neón sobre luz: vidrio claro translúcido y bordes que brillan. Para leer al sol."
+                io.github.protohommer.meshpaper.ui.theme.ThemeMode.NIGHT -> "Oscuro y sin brillos: ahorra batería en pantallas OLED. El cian sos vos, el naranja lo que pide atención."
+                io.github.protohommer.meshpaper.ui.theme.ThemeMode.DAY -> "Claro, para leer al sol. Los mismos colores con el mismo significado."
                 io.github.protohommer.meshpaper.ui.theme.ThemeMode.AUTO -> "Noche o día según el tema oscuro del teléfono."
-                io.github.protohommer.meshpaper.ui.theme.ThemeMode.NOCTURNE -> "En prueba: oscuro y sin neón. El cian es solo tu posición, el naranja lo que pide atención y la señal va en barras."
             },
             style = MaterialTheme.typography.bodySmall, color = HudTextDim,
         )
@@ -872,8 +870,8 @@ fun LinkActions(vm: MeshViewModel, onDone: () -> Unit = {}) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        HudButton(onClick = { vm.switchNode(); onDone() }) { Text("CAMBIAR DE NODO", softWrap = false) }
-        HudOutlinedButton(onClick = { vm.disconnect(); onDone() }) { Text("DESCONECTAR", softWrap = false) }
+        HudButton(onClick = { vm.switchNode(); onDone() }) { Text("Cambiar de nodo", softWrap = false) }
+        HudOutlinedButton(onClick = { vm.disconnect(); onDone() }) { Text("Desconectar", softWrap = false) }
     }
     Note("Cambiar de nodo lo suelta y busca los que hay cerca. Desconectar lo deja libre (por ejemplo, para la app oficial). El grupo y la configuración quedan guardados en cada nodo.")
 }

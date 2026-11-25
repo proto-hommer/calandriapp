@@ -72,8 +72,8 @@ private fun ease(x: Float) = FastOutSlowInEasing.transform(x)
 
 // Paleta de la intro (la del fondo "Topografía"): siempre oscura, aunque la app esté en modo día.
 // En el tema nocturno: sin neón, la malla en gris, los nodos en naranja y el ojo en cian ("vos").
-private val nocturne get() = io.github.protohommer.meshpaper.ui.theme.Appearance.mode ==
-    io.github.protohommer.meshpaper.ui.theme.ThemeMode.NOCTURNE
+// 2.0: el estilo nuevo es el único (la intro es siempre oscura, aunque la app esté de día).
+private const val nocturne = true
 private val BgTop get() = if (nocturne) Color(0xFF07090C) else Color(0xFF060A10)
 private val BgBottom get() = if (nocturne) Color(0xFF0A0D11) else Color(0xFF090E16)
 private val Contour get() = if (nocturne) Color(0xFF1C232C) else Color(0xFF1C3140)

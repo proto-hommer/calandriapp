@@ -52,7 +52,7 @@ fun CalandriaFirmware(info: Calandria.Info, showLink: Boolean = true) {
             val uri = LocalUriHandler.current
             if (showLink) latest?.url?.takeIf { it.isNotEmpty() }?.let { url ->
                 TextButton(onClick = { uri.openUri(url) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                    Text("VER LA VERSIÓN NUEVA", softWrap = false)
+                    Text("Ver la versión nueva", softWrap = false)
                 }
             }
         }
@@ -92,7 +92,7 @@ fun CannedPanel(vm: MeshViewModel) {
                 "El nodo no contestó. Puede que su firmware no tenga mensajes rápidos (pasa en placas sin pantalla).",
                 style = MaterialTheme.typography.bodySmall, color = SigFair,
             ) else HudLabel("Leyendo los del nodo…")
-            TextButton(onClick = { vm.loadCanned(); tries++ }) { Text("REINTENTAR") }
+            TextButton(onClick = { vm.loadCanned(); tries++ }) { Text("Reintentar") }
             return@HudPanel
         }
         Text(
@@ -115,7 +115,7 @@ fun CannedPanel(vm: MeshViewModel) {
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { items.add(""); error = null }) { Text("+ AGREGAR") }
-            if (items.isEmpty()) TextButton(onClick = { items.addAll(CANNED_EXAMPLES) }) { Text("USAR EJEMPLOS") }
+            if (items.isEmpty()) TextButton(onClick = { items.addAll(CANNED_EXAMPLES) }) { Text("Usar ejemplos") }
             Spacer(Modifier.weight(1f))
             HudLabel("$used/${CANNED_MAX_BYTES}", color = if (over) SigWeak else HudTextDim)
         }
@@ -125,6 +125,6 @@ fun CannedPanel(vm: MeshViewModel) {
             onClick = { error = vm.saveCanned(items.toList()) },
             Modifier.fillMaxWidth().padding(top = 4.dp),
             enabled = dirty && !over,
-        ) { Text("GUARDAR EN EL NODO") }
+        ) { Text("Guardar en el nodo") }
     }
 }
