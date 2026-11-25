@@ -74,6 +74,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.github.protohommer.meshpaper.ui.theme.SigMute
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -642,28 +646,22 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                     mv.overlays.add(NodeMarker(mv, onLong = { longPressNode(n.num) }).apply {
                         position = GeoPoint(n.lat!!, n.lon!!)
                         val label = n.shortName.ifEmpty { n.id.takeLast(4) }
-                        val link = Signal.quality(n, now).color().toArgb()
                         val lost = Signal.isLost(n, now)
-                        icon = when {
-                            // Ajeno: compacto, un solo borde con la señal y el nombre en violeta.
-                            // Rombo si es fijo (router, base, repetidor).
-                            Signal.isForeign(tone) -> nodeIcon(
-                                mv.context, label, link, filled = false, lost = lost,
-                                labelColor = tone.color().toArgb(), compact = true,
-                                diamond = Signal.isFixedRole(n),
-                            )
-                            // Fijo del grupo: rombo azul, con la señal en un rombo de afuera.
-                            tone == Tone.FIXED -> nodeIcon(
-                                mv.context, label, tone.color().toArgb(), filled = true, lost = lost,
-                                ring = if (Appearance.isNocturne) null else link, diamond = true,
-                                bars = if (Appearance.isNocturne) signalBars(Signal.quality(n, now)) else null,
-                            )
-                            else -> nodeIcon(
-                                mv.context, label, tone.color().toArgb(), filled = true, lost = lost,
-                                bars = if (Appearance.isNocturne && n.num != me) signalBars(Signal.quality(n, now)) else null,
-                            )
+                        val member = isMember(n)
+                        val glyph = when {
+                            lost -> Glyph.LOST
+                            !member -> Glyph.FOREIGN
+                            Signal.isFixedRole(n) -> Glyph.FIXED
+                            else -> Glyph.MEMBER
                         }
-                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        val ni = chipIcon(
+                            mv.context, label.uppercase(), glyph,
+                            bars = if (member && !lost) signalBars(Signal.quality(n, now)) else null,
+                            suffix = if (lost && member) agoText(now, n.lastHeard).removePrefix("hace ") else null,
+                            repeats = !member && !n.mute,
+                        )
+                        icon = ni.first
+                        setAnchor(ni.second, 0.5f)
                         infoWindow = null
                         setOnMarkerClickListener { _, _ -> selectNode(n.num); true }
                     })
@@ -677,8 +675,9 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                     val myLabel = me?.let { nodes[it] }?.let { it.shortName.ifEmpty { it.id.takeLast(4) } }
                     mv.overlays.add(NodeMarker(mv, onLong = { me?.let { longPressNode(it) } }).apply {
                         position = GeoPoint(f.latitude, f.longitude)
-                        icon = meIcon(mv.context, myLabel)
-                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        val ni = chipIcon(mv.context, "VOS", Glyph.ME)
+                        icon = ni.first
+                        setAnchor(ni.second, 0.5f)
                         infoWindow = null
                         setOnMarkerClickListener { _, _ -> me?.let { selectNode(it) }; true }
                     })
@@ -858,27 +857,47 @@ private fun CoverageLegend(cv: Coverage.Result, modifier: Modifier, collapsed: B
 
 @Composable
 private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, members: Int, relays: Int) {
-    HudPanel(modifier.width(210.dp), padding = androidx.compose.foundation.layout.PaddingValues(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            HudLabel("Grupo $members · Rep $relays", Modifier.weight(1f), color = HudCyan)
-            TextButton(onClick = onToggle, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                Text(if (expanded) "–" else "+")
+    HudPanel(
+        modifier.width(220.dp), title = "Grupo $members · Rep $relays", collapsed = !expanded, onToggle = onToggle,
+        padding = androidx.compose.foundation.layout.PaddingValues(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 10.dp),
+    ) {
+        Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            GlyphRow(Glyph.MEMBER, "Del grupo")
+            GlyphRow(Glyph.FIXED, "Fijo del grupo (base)")
+            GlyphRow(Glyph.FOREIGN, "Ajeno (violeta: repite)")
+            GlyphRow(Glyph.LOST, "Perdido")
+            GlyphRow(Glyph.ME, "Vos")
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SignalBars(3, false); HudLabel("directo", color = HudText)
+                SignalBars(2, false); HudLabel("2-3", color = HudText)
+                SignalBars(1, false); HudLabel("4-5", color = HudText)
             }
+            HudLabel("Ajeno sin oír 30 min = oculto", maxLines = 2)
+            HudLabel("Largo en el mapa = waypoint", maxLines = 2)
+            HudLabel("Largo en un nodo = alcance", maxLines = 2)
         }
-        if (expanded) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                LegendItem(SigGood, "Directo o 1 salto")
-                LegendItem(SigFair, "2 a 3 saltos")
-                LegendItem(SigPoor, "4 a 5 saltos")
-                LegendItem(SigWeak, "6 o más / perdido")
-                LegendItem(SigFixed, "Azul = fijo del grupo")
-                LegendItem(SigRelay, "Nombre violeta = ajeno")
-                HudLabel("◇ Rombo = nodo fijo")
-                HudLabel("Ajeno sin oír 30' = oculto")
-            }
-            Spacer(Modifier.padding(2.dp))
-            HudLabel("Largo en el mapa = waypoint")
-            HudLabel("Largo en un nodo = alcance")
+    }
+}
+
+@Composable
+private fun GlyphRow(g: Glyph, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        NodeGlyph(g, size = 20.dp)
+        Text(text, style = MaterialTheme.typography.bodySmall, color = HudText)
+    }
+}
+
+/** Un dato de la ficha en su tarjetita: rótulo arriba, valor (y barras de señal) abajo. */
+@Composable
+private fun StatTile(label: String, value: String, modifier: Modifier = Modifier, bars: Int? = null, warn: Boolean = false) {
+    Column(
+        modifier.background(HudBg, HudButtonShape).border(1.dp, HudLine, HudButtonShape).padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        HudLabel(label)
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            bars?.let { SignalBars(it, false); Spacer(Modifier.width(5.dp)) }
+            Text(value, style = io.github.protohommer.meshpaper.ui.theme.MonoValue.copy(fontWeight = FontWeight.Medium), color = if (warn) SigWeak else HudText, maxLines = 1)
         }
     }
 }
@@ -916,7 +935,17 @@ private fun NodeCard(
     }
     // Minimizada queda la barra con el nombre, para ver el mapa (o la cobertura) de abajo.
     val title = if (collapsed) "$kind · ${n.shortName.ifEmpty { n.longName.ifEmpty { n.id } }}" else kind
-    HudPanel(modifier.width(280.dp), title = title, accent = tone.color(), collapsed = collapsed, onToggle = onToggle, onClose = onClose) {
+    val lostNow = n.num != me && Signal.isLost(n, now)
+    val accent = when {
+        lostNow -> SigWeak
+        n.num == me -> SigMe
+        else -> HudCyan
+    }
+    HudPanel(
+        modifier.fillMaxWidth(), title = title, accent = accent, collapsed = collapsed, onToggle = onToggle, onClose = onClose,
+        padding = androidx.compose.foundation.layout.PaddingValues(start = 18.dp, end = 10.dp, top = 12.dp, bottom = 14.dp),
+    ) {
+        Column(Modifier.padding(end = 8.dp)) {
         if (stack.size > 1) {
             // Varios nodos en el mismo lugar: se elige cuál ver.
             HudLabel("${stack.size} nodos en este lugar")
@@ -925,43 +954,57 @@ private fun NodeCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 for (o in stack) {
-                    val c = Signal.tone(o, me, isGroupMember(o, me, vm.hasPrivateGroup(), vm.groupSince.value), now).color()
                     FilterChip(
                         selected = o.num == n.num, onClick = { onPick(o.num) },
-                        label = { Text(o.shortName.ifEmpty { o.id.takeLast(4) }, color = c, fontWeight = FontWeight.SemiBold) },
+                        label = { Text(o.shortName.ifEmpty { o.id.takeLast(4) }, style = io.github.protohommer.meshpaper.ui.theme.MonoValue) },
                     )
                 }
             }
-            Spacer(Modifier.padding(2.dp))
+            Spacer(Modifier.height(6.dp))
         }
-        Text(
-            "${n.shortName.ifEmpty { "?" }}  ${n.longName.ifEmpty { n.id }}",
-            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-        )
-        if (n.num != me) vm.duplicateOf(n)?.let { newer ->
+        Row(verticalAlignment = Alignment.Bottom) {
             Text(
-                "Hay otro \"${n.longName}\" oído ${agoText(now, newer.lastHeard)}: este parece un fantasma (OLVIDAR).",
-                style = MaterialTheme.typography.bodySmall, color = SigFair,
+                n.shortName.ifEmpty { "?" }.uppercase(),
+                style = io.github.protohommer.meshpaper.ui.theme.MonoValue.copy(fontSize = 24.sp, lineHeight = 28.sp),
+                color = if (lostNow) SigWeak else MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                n.longName.ifEmpty { n.id }, style = MaterialTheme.typography.bodyLarge, color = HudTextDim, maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 2.dp),
             )
         }
-        Spacer(Modifier.padding(3.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (n.num != me) HudStat("Oído", agoText(now, n.lastHeard).removePrefix("hace "))
-            HudStat("Enlace", Signal.describe(n)?.substringBefore(" · ") ?: "—", color = Signal.linkTone(tone, n, now).color())
-            n.battery?.let { HudStat("Bat", if (it > 100) "USB" else "$it%") }
+        if (n.num != me) vm.duplicateOf(n)?.let { newer ->
+            Text(
+                "Hay otro \"${n.longName}\" oído ${agoText(now, newer.lastHeard)}: este parece un fantasma (Olvidar).",
+                style = MaterialTheme.typography.bodySmall, color = SigWeak,
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        // Cuatro datos en tarjetas: oído, enlace (en barras), batería y distancia.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val dist = if (fix != null && n.num != me && n.lat != null && n.lon != null) {
+                PhoneLocation.formatDistance(PhoneLocation.distanceAndBearing(fix.latitude, fix.longitude, n.lat, n.lon).first)
+            } else "—"
+            StatTile("Oído", if (n.num == me) "ahora" else agoText(now, n.lastHeard).removePrefix("hace "), Modifier.weight(1f), warn = lostNow)
+            StatTile(
+                "Enlace", Signal.describe(n)?.substringBefore(" · ")?.substringBefore(" salto")?.let { if (it == "directo") "dir." else it } ?: "—",
+                Modifier.weight(1f), bars = if (n.num != me && !lostNow) signalBars(Signal.quality(n, now)) else null,
+            )
+            StatTile("Bat", n.battery?.let { if (it > 100) "USB" else "$it %" } ?: "—", Modifier.weight(1f))
+            StatTile("Dist.", dist, Modifier.weight(1f))
         }
         val extra = buildList {
-            if (n.hopsAway == 0) n.rssi?.let { add("RSSI $it dBm") }
             if (fix != null && n.num != me && n.lat != null && n.lon != null) {
-                val (d, b) = PhoneLocation.distanceAndBearing(fix.latitude, fix.longitude, n.lat, n.lon)
-                add("${PhoneLocation.formatDistance(d)} al ${PhoneLocation.cardinal(b)}")
+                add("al " + PhoneLocation.cardinal(PhoneLocation.distanceAndBearing(fix.latitude, fix.longitude, n.lat, n.lon).second))
             }
-            tracks[n.num]?.size?.takeIf { it > 1 }?.let { add("rastro $it pts") }
+            if (n.hopsAway == 0) n.rssi?.let { add("RSSI $it dBm") }
             groundM?.let { add("terreno ${it.roundToInt()} m") }
+            tracks[n.num]?.size?.takeIf { it > 1 }?.let { add("rastro $it pts") }
         }
+        Spacer(Modifier.height(10.dp))
         if (extra.isNotEmpty()) {
-            Spacer(Modifier.padding(2.dp))
-            HudLabel(extra.joinToString("  ·  ") { it.replace(' ', '\u00A0') }, color = MaterialTheme.colorScheme.onSurface, maxLines = 3)
+            Text(extra.joinToString(" · "), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.2.sp, fontSize = 12.sp), color = HudTextDim)
         }
         // El modelo en su propia línea: con RSSI, distancia y rastro no entraba y se cortaba.
         val calandria by vm.calandria.collectAsState()
@@ -970,19 +1013,12 @@ private fun NodeCard(
         cal?.let { CalandriaFirmware(it, showLink = false) }
         val est = antenna?.let { Range.estimate(it, preset) }
         if (antenna != null && est != null) {
-            Spacer(Modifier.padding(2.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                HudLabel(
-                    "Antena %s dBi a %s m".format(fmtNum(antenna.gainDbi), fmtNum(antenna.heightM)) +
-                        if (fromGps) " (GPS)" else "",
-                    Modifier.weight(1f), color = SigFixed, maxLines = 2,
-                )
-                TextButton(onClick = onRange) { Text(if (showingRange) "OCULTAR" else "VER ALCANCE") }
-            }
+            Spacer(Modifier.height(4.dp))
             Text(
-                "Alcance ≈ ${PhoneLocation.formatDistance(est.urbanM.toFloat())} en ciudad · " +
-                    "${PhoneLocation.formatDistance(est.openM.toFloat())} a campo abierto",
-                style = MaterialTheme.typography.bodySmall,
+                "Antena %s dBi a %s m".format(fmtNum(antenna.gainDbi), fmtNum(antenna.heightM)) + (if (fromGps) " (GPS)" else "") +
+                    " · alcance ≈ ${PhoneLocation.formatDistance(est.urbanM.toFloat())} ciudad, " +
+                    "${PhoneLocation.formatDistance(est.openM.toFloat())} campo",
+                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.2.sp, fontSize = 12.sp), color = HudTextDim,
             )
             Text(
                 when {
@@ -994,18 +1030,32 @@ private fun NodeCard(
                 style = MaterialTheme.typography.bodySmall, color = HudTextDim,
             )
         }
-        val tight = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)
-        // Si no entran en una línea, siguen en la de abajo (antes "ANTENA" se partía en dos).
-        @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-        androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.Center) {
-            if (n.num != me) TextButton(onClick = { onMessage(n.num) }, contentPadding = tight) { Text("Mensaje", softWrap = false) }
-            onGo?.let { TextButton(onClick = it, contentPadding = tight) { Text("Ir", color = RouteColor, softWrap = false) } }
-            onProfile?.let { TextButton(onClick = it, contentPadding = tight) { Text("Perfil", softWrap = false) } }
-            TextButton(onClick = onAntenna, contentPadding = tight) { Text("Antena", softWrap = false) }
-            if (n.num != me) TextButton(onClick = { askForget = true }, contentPadding = tight) {
-                Text("Olvidar", color = MaterialTheme.colorScheme.error, softWrap = false)
+        Spacer(Modifier.height(12.dp))
+        // Acciones grandes: mensaje (lleno), ir (naranja: la ruta) y perfil.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (n.num != me) HudButton(onClick = { onMessage(n.num) }, Modifier.weight(1.4f)) { Text("Mensaje", softWrap = false) }
+            onGo?.let {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = it, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = HudButtonShape,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, RouteColor),
+                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = RouteColor),
+                ) { Text("Ir", softWrap = false) }
             }
-            TextButton(onClick = onClose, contentPadding = tight) { Text("✕", softWrap = false) }
+            onProfile?.let { HudOutlinedButton(onClick = it, Modifier.weight(1f)) { Text("Perfil", softWrap = false) } }
+        }
+        val tight = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            if (antenna != null && est != null) {
+                TextButton(onClick = onRange, contentPadding = tight) {
+                    Text(if (showingRange) "Ocultar alcance" else "Ver alcance", color = HudText, fontWeight = FontWeight.Normal, softWrap = false)
+                }
+            }
+            TextButton(onClick = onAntenna, contentPadding = tight) { Text("Antena", color = HudText, fontWeight = FontWeight.Normal, softWrap = false) }
+            if (n.num != me) TextButton(onClick = { askForget = true }, contentPadding = tight) {
+                Text("Olvidar", color = HudTextDim, fontWeight = FontWeight.Normal, softWrap = false)
+            }
+            TextButton(onClick = onClose, contentPadding = tight) { Text("Cerrar", color = HudTextDim, fontWeight = FontWeight.Normal, softWrap = false) }
+        }
         }
     }
     if (askForget) {
@@ -1572,6 +1622,85 @@ private fun navArrowIcon(ctx: Context): BitmapDrawable = iconCache.getOrPut("nav
         strokeJoin = Paint.Join.ROUND
     })
     BitmapDrawable(ctx.resources, bmp)
+}
+
+/**
+ * Ícono de un nodo en el mapa (2.0): la forma (círculo del grupo, rombo fijo, rombo gris ajeno,
+ * anillo cortado perdido, retícula vos) y al costado una etiqueta con el nombre y las barras de
+ * señal. Devuelve el bitmap y dónde cae el punto del nodo (fracción del ancho), para el anclaje.
+ */
+private fun chipIcon(
+    ctx: Context, label: String, glyph: Glyph, bars: Int? = null, suffix: String? = null, repeats: Boolean = false,
+): Pair<BitmapDrawable, Float> {
+    val key = "c:$label:$glyph:$bars:$suffix:$repeats:${Appearance.isDay}"
+    val shapeW = dpPx(ctx, 30f)
+    val gap = dpPx(ctx, 4f)
+    val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        textSize = dpPx(ctx, if (glyph == Glyph.FOREIGN) 10.5f else 12f)
+    }
+    val shown = if (suffix != null) "$label · $suffix" else label.take(6)
+    val padX = dpPx(ctx, 7f)
+    val barsW = if (bars != null) dpPx(ctx, 6f) + dpPx(ctx, 15f) else 0f
+    val chipW = padX * 2 + text.measureText(shown) + barsW
+    val chipH = dpPx(ctx, if (glyph == Glyph.FOREIGN) 20f else 24f)
+    val w = (shapeW + gap + chipW + dpPx(ctx, 1f)).toInt()
+    val h = maxOf(shapeW, chipH).toInt() + 2
+    val u = (shapeW / 2) / w
+    val cached = iconCache[key]
+    if (cached != null) return cached to u
+    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val c = Canvas(bmp)
+    val cx = shapeW / 2
+    val cy = h / 2f
+    val ink = HudText.toArgb()
+    val warn = SigWeak.toArgb()
+    val me = SigMe.toArgb()
+    val bg = markerBg()
+    val sw = dpPx(ctx, 2.2f)
+    fun stroke(col: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col; style = Paint.Style.STROKE; strokeWidth = sw; strokeJoin = Paint.Join.ROUND }
+    fun fill(col: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col }
+    fun diamond(r: Float) = android.graphics.Path().apply { moveTo(cx, cy - r); lineTo(cx + r, cy); lineTo(cx, cy + r); lineTo(cx - r, cy); close() }
+    when (glyph) {
+        Glyph.MEMBER -> { c.drawCircle(cx, cy, dpPx(ctx, 9f), fill(bg)); c.drawCircle(cx, cy, dpPx(ctx, 9f), stroke(ink)) }
+        Glyph.FIXED -> { c.drawPath(diamond(dpPx(ctx, 11f)), fill(bg)); c.drawPath(diamond(dpPx(ctx, 11f)), stroke(ink)) }
+        Glyph.FOREIGN -> c.drawPath(diamond(dpPx(ctx, 6f)), fill(SigMute.toArgb()))
+        Glyph.LOST -> c.drawCircle(cx, cy, dpPx(ctx, 9f), stroke(warn).apply { pathEffect = DashPathEffect(floatArrayOf(dpPx(ctx, 4f), dpPx(ctx, 3f)), 0f) })
+        Glyph.ME -> {
+            c.drawCircle(cx, cy, dpPx(ctx, 12f), fill(me).apply { alpha = 36 })
+            c.drawCircle(cx, cy, dpPx(ctx, 4f), fill(me))
+            val a = dpPx(ctx, 7f); val b = dpPx(ctx, 14.5f)
+            val p = stroke(me)
+            c.drawLine(cx, cy - b, cx, cy - a, p); c.drawLine(cx, cy + a, cx, cy + b, p)
+            c.drawLine(cx - b, cy, cx - a, cy, p); c.drawLine(cx + a, cy, cx + b, cy, p)
+        }
+    }
+    // La etiqueta: fondo de superficie, borde fino (naranja si está perdido, cian si sos vos).
+    val x0 = shapeW + gap
+    val rect = android.graphics.RectF(x0, cy - chipH / 2, x0 + chipW, cy + chipH / 2)
+    val rr = dpPx(ctx, 7f)
+    c.drawRoundRect(rect, rr, rr, fill(bg))
+    val border = when (glyph) { Glyph.LOST -> warn; Glyph.ME -> me; else -> HudLine.toArgb() }
+    c.drawRoundRect(rect, rr, rr, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = border; style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 1f) })
+    text.color = when (glyph) {
+        Glyph.LOST -> warn
+        Glyph.ME -> me
+        Glyph.FOREIGN -> if (repeats) SigRelay.toArgb() else HudTextDim.toArgb()
+        else -> ink
+    }
+    c.drawText(shown, x0 + padX, cy - (text.descent() + text.ascent()) / 2, text)
+    if (bars != null) {
+        val bw = dpPx(ctx, 3.4f); val bgap = dpPx(ctx, 2.2f); val bh = dpPx(ctx, 11f)
+        val bx = x0 + chipW - padX - (3 * bw + 2 * bgap)
+        val by = cy + bh / 2
+        for (k in 0 until 3) {
+            val hh = bh * (0.45f + 0.275f * k)
+            c.drawRect(bx + k * (bw + bgap), by - hh, bx + k * (bw + bgap) + bw, by, fill(if (k < bars) ink else HudLine.toArgb()))
+        }
+    }
+    val d = BitmapDrawable(ctx.resources, bmp)
+    iconCache[key] = d
+    return d to u
 }
 
 /** Emoji del waypoint sobre una base chica. */
