@@ -116,7 +116,26 @@ object Updater {
         setRequestProperty("User-Agent", "CalandriApp-Android")
     }
 
-    private fun fetchLatest(): Release? {
+    /** La API; si dice que no por el límite de consultas (datos móviles), las páginas web. */
+    private fun fetchLatest(): Release? =
+        try {
+            fetchLatestApi()
+        } catch (e: Exception) {
+            if (!GitHubWeb.isRateLimit(e)) throw e
+            Log.w(TAG, "API de GitHub con límite (${e.message}): uso las páginas web")
+            fetchLatestWeb()
+        }
+
+    private fun fetchLatestWeb(): Release? {
+        val repo = "proto-hommer/calandriapp"
+        val tag = GitHubWeb.latestTag(repo) ?: return null
+        val apk = GitHubWeb.asset(repo, tag, ".apk") ?: return null
+        // Sin la API no tenemos las notas: el diálogo muestra la versión y el link a GitHub.
+        // El SHA-256 sale de la lista de archivos; además el APK se verifica por firma (verifyApk).
+        return Release(tag.removePrefix("v").trim(), "", apk.url, 0, apk.sha256)
+    }
+
+    private fun fetchLatestApi(): Release? {
         val c = open(LATEST).apply { setRequestProperty("Accept", "application/vnd.github+json") }
         try {
             if (c.responseCode != 200) throw IllegalStateException("GitHub respondió ${c.responseCode}")

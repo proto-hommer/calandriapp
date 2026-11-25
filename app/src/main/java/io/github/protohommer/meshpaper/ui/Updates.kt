@@ -46,7 +46,7 @@ fun UpdateDialog() {
                 Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                     HudLabel("Tenés la ${Updater.installedVersion(ctx)}")
                     Spacer(Modifier.padding(4.dp))
-                    Text(s.r.notes.ifEmpty { "Sin notas." }, style = MaterialTheme.typography.bodySmall)
+                    Text(s.r.notes.ifEmpty { "Las novedades están en la página del release, en GitHub." }, style = MaterialTheme.typography.bodySmall)
                 }
             },
             confirmButton = { TextButton(onClick = { scope.launch { Updater.download(ctx, s.r) } }) { Text("ACTUALIZAR") } },

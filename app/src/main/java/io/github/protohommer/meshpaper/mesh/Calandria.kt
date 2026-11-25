@@ -70,10 +70,19 @@ object Calandria {
         checked = true
         try {
             _latest.value = withContext(Dispatchers.IO) {
-                val rel = JSONObject(get("$REPO/releases/latest"))
-                val tag = rel.optString("tag_name").takeIf { it.isNotEmpty() } ?: return@withContext null
-                val sha = JSONObject(get("$REPO/commits/$tag")).optString("sha")
-                if (sha.length < 7) null else Release(tag, sha, rel.optString("html_url"))
+                try {
+                    val rel = JSONObject(get("$REPO/releases/latest"))
+                    val tag = rel.optString("tag_name").takeIf { it.isNotEmpty() } ?: return@withContext null
+                    val sha = JSONObject(get("$REPO/commits/$tag")).optString("sha")
+                    if (sha.length < 7) null else Release(tag, sha, rel.optString("html_url"))
+                } catch (e: Exception) {
+                    // Límite de la API (datos móviles con IP compartida): las páginas web no lo tienen.
+                    if (!io.github.protohommer.meshpaper.GitHubWeb.isRateLimit(e)) throw e
+                    val repo = "proto-hommer/calandria-mk1-epaper"
+                    val tag = io.github.protohommer.meshpaper.GitHubWeb.latestTag(repo) ?: return@withContext null
+                    val sha = io.github.protohommer.meshpaper.GitHubWeb.tagCommit(repo, tag) ?: return@withContext null
+                    Release(tag, sha, "https://github.com/$repo/releases/tag/$tag")
+                }
             }
         } catch (e: Exception) {
             checked = false // otro intento la próxima vez
