@@ -224,6 +224,7 @@ private fun SettingsContent(
     var confirm by remember { mutableStateOf<NodeEdits?>(null) }
     var askReboot by remember { mutableStateOf(false) }
     var askForget by remember { mutableStateOf(false) }
+    var askGhosts by remember { mutableStateOf(false) }
 
     // ---- validación y armado de los cambios ----
     val longOk = longName.isNotBlank() && longName.toByteArray().size <= MAX_LONG_NAME
@@ -394,7 +395,17 @@ private fun SettingsContent(
                     HudOutlinedButton(onClick = { askReboot = true }) { Text("REINICIAR") }
                     HudOutlinedButton(onClick = { askForget = true }) { Text("OLVIDAR NODOS") }
                 }
-                Note("Olvidar nodos borra la lista de nodos conocidos (deja los favoritos). Sirve para limpiar nodos fantasma.")
+                Note("Olvidar nodos borra la lista de nodos conocidos (deja los favoritos) y reinicia el nodo.")
+                val ghosts = remember(nodes) { vm.ghostNodes() }
+                HudOutlinedButton(onClick = { askGhosts = true }, enabled = ghosts.isNotEmpty()) {
+                    Text(if (ghosts.isEmpty()) "SIN FANTASMAS" else "LIMPIAR FANTASMAS (${ghosts.size})")
+                }
+                Note(
+                    "Fantasmas: nodos repetidos con el mismo nombre (queda el más reciente; pasa al reflashear o " +
+                        "cambiar de placa) y los que no se oyen hace más de ${io.github.protohommer.meshpaper.GHOST_STALE_DAYS} días. " +
+                        "Se borran solo de este nodo, sin reiniciar. Los demás nodos de la zona tienen su propia " +
+                        "lista: ninguno puede borrar la de otro."
+                )
             }
             }
 
@@ -534,6 +545,22 @@ private fun SettingsContent(
             text = { Text("Se corta el Bluetooth unos segundos y la app se vuelve a conectar sola.") },
             confirmButton = { TextButton(onClick = { vm.rebootNode(); askReboot = false }) { Text("REINICIAR") } },
             dismissButton = { TextButton(onClick = { askReboot = false }) { Text("CANCELAR") } },
+        )
+    }
+    if (askGhosts) {
+        val ghosts = vm.ghostNodes()
+        AlertDialog(
+            onDismissRequest = { askGhosts = false },
+            title = { Text("LIMPIAR FANTASMAS") },
+            text = {
+                Text(
+                    "Se olvidan ${ghosts.size} nodos: " +
+                        ghosts.joinToString(", ") { it.shortName.ifEmpty { it.id } } +
+                        ". Si alguno sigue activo, vuelve a aparecer cuando transmita."
+                )
+            },
+            confirmButton = { TextButton(onClick = { vm.forgetSome(ghosts.map { it.num }); askGhosts = false }) { Text("LIMPIAR") } },
+            dismissButton = { TextButton(onClick = { askGhosts = false }) { Text("CANCELAR") } },
         )
     }
     if (askForget) {

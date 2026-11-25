@@ -889,6 +889,7 @@ private fun NodeCard(
         else withContext(Dispatchers.IO) { Dem.elevation(ctx, la, lo, network = false) }
     }
     val tracks by vm.tracks.collectAsState()
+    var askForget by remember(n.num) { mutableStateOf(false) }
     val tone = Signal.tone(n, me, member, now)
     val kind = when (tone) {
         Tone.ME -> "Este nodo"
@@ -921,6 +922,12 @@ private fun NodeCard(
             "${n.shortName.ifEmpty { "?" }}  ${n.longName.ifEmpty { n.id }}",
             style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
         )
+        if (n.num != me) vm.duplicateOf(n)?.let { newer ->
+            Text(
+                "Hay otro \"${n.longName}\" oído ${agoText(now, newer.lastHeard)}: este parece un fantasma (OLVIDAR).",
+                style = MaterialTheme.typography.bodySmall, color = SigFair,
+            )
+        }
         Spacer(Modifier.padding(3.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             if (n.num != me) HudStat("Oído", agoText(now, n.lastHeard).removePrefix("hace "))
@@ -979,8 +986,27 @@ private fun NodeCard(
             onGo?.let { TextButton(onClick = it, contentPadding = tight) { Text("IR", color = RouteColor, softWrap = false) } }
             onProfile?.let { TextButton(onClick = it, contentPadding = tight) { Text("PERFIL", softWrap = false) } }
             TextButton(onClick = onAntenna, contentPadding = tight) { Text("ANTENA", softWrap = false) }
+            if (n.num != me) TextButton(onClick = { askForget = true }, contentPadding = tight) {
+                Text("OLVIDAR", color = MaterialTheme.colorScheme.error, softWrap = false)
+            }
             TextButton(onClick = onClose, contentPadding = tight) { Text("✕", softWrap = false) }
         }
+    }
+    if (askForget) {
+        AlertDialog(
+            onDismissRequest = { askForget = false },
+            title = { Text("¿Olvidar ${n.shortName.ifEmpty { n.id }}?") },
+            text = {
+                Text(
+                    "El nodo conectado lo borra de su lista y sale del mapa. Si en realidad sigue activo, " +
+                        "vuelve a aparecer la próxima vez que transmita."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { askForget = false; if (vm.forgetSome(listOf(n.num)) > 0) onClose() }) { Text("OLVIDAR") }
+            },
+            dismissButton = { TextButton(onClick = { askForget = false }) { Text("CANCELAR") } },
+        )
     }
 }
 

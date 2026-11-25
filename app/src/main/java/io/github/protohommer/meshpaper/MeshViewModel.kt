@@ -76,6 +76,9 @@ private const val SCAN_MS = 30_000L
 /** Nombre BLE por defecto del firmware: "<nombre corto o Meshtastic>_<4 hex del nodo>". */
 private val MESH_NAME = Regex(".*_[0-9a-fA-F]{4}")
 
+/** Días sin oír un nodo para considerarlo fantasma (Ajustes → Mantenimiento → Limpiar fantasmas). */
+const val GHOST_STALE_DAYS = 7
+
 data class MeshNode(
     val num: Int,
     val id: String,
@@ -800,6 +803,48 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     /** Borra la lista de nodos conocidos (guarda los favoritos) y reinicia. Sirve para limpiar fantasmas. */
     fun forgetNodes() = runEdit("Borrando la lista de nodos…", "Lista de nodos borrada.", transaction = false) { me ->
         sendAdmin(me, AdminMessage.newBuilder().setNodedbReset(true).build())
+    }
+
+    /**
+     * Olvida nodos sueltos (fantasmas, duplicados): el nodo conectado los borra de su lista con
+     * `remove_by_nodenum`, sin reiniciar, y salen del mapa y de la lista. Si alguno vuelve a
+     * transmitir, reaparece solo. Devuelve cuántos mandó a borrar (0 sin conexión).
+     */
+    fun forgetSome(nums: Collection<Int>): Int {
+        val me = _myNodeNum.value ?: return 0
+        if (link.value != LinkState.Connected) return 0
+        val list = nums.filter { it != me }
+        if (list.isEmpty()) return 0
+        viewModelScope.launch {
+            for (n in list) sendAdmin(me, AdminMessage.newBuilder().setRemoveByNodenum(n).build())
+        }
+        _nodes.update { it - list.toSet() }
+        if (list.any { it in groupNums }) {
+            groupNums = groupNums - list.toSet()
+            prefs.edit().putStringSet(groupKey(me), groupNums.map { "%08x".format(it) }.toSet()).apply()
+        }
+        return list.size
+    }
+
+    /**
+     * Posibles fantasmas: otro nodo con el mismo nombre largo se oyó más recientemente (pasa al
+     * reflashear o cambiar de placa: el número de nodo cambia y el viejo queda en la lista), o no
+     * se oye hace más de [GHOST_STALE_DAYS] días. Nunca el propio.
+     */
+    fun ghostNodes(now: Long = System.currentTimeMillis() / 1000): List<MeshNode> {
+        val me = _myNodeNum.value
+        val all = _nodes.value.values.filter { it.num != me }
+        val dup = all.filter { n -> n.longName.isNotBlank() && duplicateOf(n) != null }
+        val old = all.filter { it.lastHeard > 0 && now - it.lastHeard > GHOST_STALE_DAYS * 86_400L }
+        return (dup + old).distinctBy { it.num }
+    }
+
+    /** El nodo más nuevo con el mismo nombre largo que [n], si [n] es el más viejo de los dos. */
+    fun duplicateOf(n: MeshNode): MeshNode? {
+        if (n.longName.isBlank()) return null
+        return _nodes.value.values
+            .filter { it.num != n.num && it.longName == n.longName && it.lastHeard > n.lastHeard }
+            .maxByOrNull { it.lastHeard }
     }
 
     /** ¿El nodo ya tiene la config de posición para rastreo? (null = todavía no la leímos) */
