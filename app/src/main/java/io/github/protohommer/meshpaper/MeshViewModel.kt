@@ -98,6 +98,8 @@ data class MeshNode(
     val hw: MeshProtos.HardwareModel? = null, // modelo de placa, del NodeInfo
     val alt: Int? = null,     // altitud sobre el nivel del mar (m), si la manda
     val precisionBits: Int? = null, // bits de precisión de la posición (32 = exacta)
+    val favorite: Boolean = false, // marcado como favorito en el nodo (NodeInfo.is_favorite)
+    val ignored: Boolean = false,  // ignorado en el nodo (NodeInfo.is_ignored)
 ) {
     /**
      * Error de la posición si viene redondeada a propósito (canal con precisión reducida):
@@ -829,11 +831,12 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * Posibles fantasmas: otro nodo con el mismo nombre largo se oyó más recientemente (pasa al
      * reflashear o cambiar de placa: el número de nodo cambia y el viejo queda en la lista), o no
-     * se oye hace más de [GHOST_STALE_DAYS] días. Nunca el propio.
+     * se oye hace más de [GHOST_STALE_DAYS] días. Nunca el propio, ni favoritos ni ignorados.
      */
     fun ghostNodes(now: Long = System.currentTimeMillis() / 1000): List<MeshNode> {
         val me = _myNodeNum.value
-        val all = _nodes.value.values.filter { it.num != me }
+        // Favoritos e ignorados nunca: un ignorado borrado vuelve a aparecer sin estar ignorado.
+        val all = _nodes.value.values.filter { it.num != me && !it.favorite && !it.ignored }
         val dup = all.filter { n -> n.longName.isNotBlank() && duplicateOf(n) != null }
         val old = all.filter { it.lastHeard > 0 && now - it.lastHeard > GHOST_STALE_DAYS * 86_400L }
         return (dup + old).distinctBy { it.num }
@@ -1441,6 +1444,8 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             alt = if (n.position.hasLatitudeI()) mslOf(n.position) else _nodes.value[n.num]?.alt,
             precisionBits = if (n.position.hasLatitudeI()) n.position.precisionBits else _nodes.value[n.num]?.precisionBits,
             group = n.num in groupNums,
+            favorite = n.isFavorite,
+            ignored = n.isIgnored,
         )
         _nodes.update { it + (n.num to node) }
         maybeAskIdentity(node)

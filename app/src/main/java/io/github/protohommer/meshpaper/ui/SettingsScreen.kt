@@ -402,7 +402,8 @@ private fun SettingsContent(
                 }
                 Note(
                     "Fantasmas: nodos repetidos con el mismo nombre (queda el más reciente; pasa al reflashear o " +
-                        "cambiar de placa) y los que no se oyen hace más de ${io.github.protohommer.meshpaper.GHOST_STALE_DAYS} días. " +
+                        "cambiar de placa) y los que no se oyen hace más de ${io.github.protohommer.meshpaper.GHOST_STALE_DAYS} días, " +
+                        "salvo favoritos e ignorados. " +
                         "Se borran solo de este nodo, sin reiniciar. Los demás nodos de la zona tienen su propia " +
                         "lista: ninguno puede borrar la de otro."
                 )
