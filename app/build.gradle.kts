@@ -18,8 +18,8 @@ android {
         buildConfigField("boolean", "DEMO", "false")
         minSdk = 26
         targetSdk = 37
-        versionCode = 23
-        versionName = "1.7.2"
+        versionCode = 24
+        versionName = "1.8.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

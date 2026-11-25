@@ -3,7 +3,7 @@
 **Una app Android chica y propia para usar nodos Meshtastic en el campo: mensajes, mapa offline y
 seguimiento de un grupo cerrado, sin cuentas, sin nube y sin internet.**
 
-Versión **1.7.2** | Android 8 o más nuevo | *powered by Meshtastic®*
+Versión **1.8.0** | Android 8 o más nuevo | *powered by Meshtastic®*
 
 [![Descargar APK](https://img.shields.io/github/v/release/proto-hommer/calandriapp?label=descargar%20APK&color=2ea44f)](https://github.com/proto-hommer/calandriapp/releases/latest)
 
@@ -86,6 +86,10 @@ Sin salir de la app: tocás **IR** en la ficha de un nodo o de un waypoint y la 
 **por calles y senderos**, a pie, en bici o en auto, con lo que falta, el tiempo estimado, el rumbo y
 cuánto sube. Si te salís del camino recalcula, y si el destino es un nodo que se mueve, lo sigue. Al
 llegar te avisa.
+
+Con **INICIAR NAVEGACIÓN** te guía como un navegador de auto: el mapa te sigue de cerca, girado hacia
+donde vas, con una flecha en tu posición; arriba, el próximo giro ("en 150 m, girá a la derecha", la
+salida de la rotonda) y abajo, lo que falta y la hora de llegada. La pantalla queda prendida.
 
 Funciona **sin señal**: las rutas se calculan en el teléfono con [BRouter](https://github.com/abrensch/brouter).
 Los datos de cada zona se bajan una sola vez (Córdoba y alrededores son unos 11 MB) desde el mismo panel
@@ -193,7 +197,7 @@ sin cuentas, sin nube ni servicios de Google: todo queda en el teléfono.
 
 <p><img src="docs/img/titulos/descargar-e-instalar.png" alt="Descargar e instalar" width="100%"/></p>
 
-1. Bajá el `CalandriApp-1.7.2.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
+1. Bajá el `CalandriApp-1.8.0.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
 2. Abrilo en el celular. Android va a pedir permiso para **instalar apps de origen desconocido**:
    dáselo al navegador o al gestor de archivos con el que lo abriste.
 3. Abrí CalandriApp, dale los permisos de **Bluetooth** y **ubicación**, tocá **BUSCAR** y
