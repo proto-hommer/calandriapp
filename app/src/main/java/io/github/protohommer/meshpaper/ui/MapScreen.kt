@@ -873,7 +873,7 @@ private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, 
                 SignalBars(2, false); HudLabel("2-3", color = HudText)
                 SignalBars(1, false); HudLabel("4-5", color = HudText)
             }
-            HudLabel("Ajeno sin oír 30 min = oculto", maxLines = 2)
+            HudLabel("Ajeno sin oír 30 min = oculto (router: 13 h)", maxLines = 2)
             HudLabel("Largo en el mapa = waypoint", maxLines = 2)
             HudLabel("Largo en un nodo = alcance", maxLines = 2)
         }

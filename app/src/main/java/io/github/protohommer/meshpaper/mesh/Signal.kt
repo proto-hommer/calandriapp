@@ -14,15 +14,27 @@ import org.meshtastic.proto.ConfigProtos.Config.DeviceConfig.Role
 enum class Tone { ME, GOOD, FAIR, POOR, WEAK, RELAY, MUTE, FIXED }
 
 object Signal {
-    /** Más de esto sin oírlo = perdido (se pinta apagado y en rojo). */
+    /** Más de esto sin oírlo = perdido (anillo cortado naranja). */
     const val LOST_AFTER_S = 3600L
 
-    fun isLost(n: MeshNode, now: Long): Boolean = n.lastHeard == 0L || now - n.lastHeard > LOST_AFTER_S
+    /**
+     * Router y router tardío: el firmware les estira a 12 h la posición y la telemetría (NodeInfo,
+     * cada 3 h). Siguen repitiendo lo de los demás, pero eso no cuenta como "oído": sin esto, a la
+     * hora aparecían perdidos aunque estuvieran andando. Damos un margen sobre las 12 h.
+     */
+    const val ROUTER_LOST_AFTER_S = 13 * 3600L
 
-    /** Más de esto sin oírlo = no se dibuja en el mapa hasta que se lo vuelva a oír. */
+    private val QUIET_ROLES = setOf(Role.ROUTER, Role.ROUTER_LATE)
+
+    private fun lostAfter(n: MeshNode) = if (n.role in QUIET_ROLES) ROUTER_LOST_AFTER_S else LOST_AFTER_S
+
+    fun isLost(n: MeshNode, now: Long): Boolean = n.lastHeard == 0L || now - n.lastHeard > lostAfter(n)
+
+    /** Más de esto sin oírlo = no se dibuja en el mapa hasta que se lo vuelva a oír (los routers, como arriba). */
     const val HIDE_AFTER_S = 1800L
 
-    fun isStale(n: MeshNode, now: Long): Boolean = n.lastHeard == 0L || now - n.lastHeard > HIDE_AFTER_S
+    fun isStale(n: MeshNode, now: Long): Boolean =
+        n.lastHeard == 0L || now - n.lastHeard > (if (n.role in QUIET_ROLES) ROUTER_LOST_AFTER_S else HIDE_AFTER_S)
 
     /**
      * Calidad del enlace, por saltos:
