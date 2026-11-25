@@ -175,7 +175,7 @@ conectados, y el ojo es el nodo principal.
 
 <p><img src="docs/img/titulos/por-que-se-hizo.png" alt="Por qué se hizo" width="100%"/></p>
 
-Arrancó con el [Mesh Paper 1.54](https://github.com/proto-hommer/mesh-paper-154), un nodo
+Arrancó con el [Calandria MK1 epaper](https://github.com/proto-hommer/calandria-mk1-epaper) (antes "Mesh Paper 1.54"), un nodo
 Meshtastic de bolsillo con pantalla e-paper. Ese nodo **no tiene GPS**: su posición la tiene que
 mandar el celular. Y en el campo, lo que hacía falta era poco y concreto:
 
@@ -214,7 +214,7 @@ RAK, Seeed, ThinkNode, Station G2 y el resto de los 154 modelos que conoce Mesht
 cualquier región. Conviene firmware **2.5 o más nuevo**: la app avisa si el del nodo es más viejo.
 
 Probada en un Motorola moto e22 (Android 12) conectada a un nodo Seeed XIAO ESP32-S3 + Wio-SX1262,
-con un Mesh Paper 1.54 en el grupo, en la región ANZ (Argentina).
+con un Calandria MK1 epaper en el grupo, en la región ANZ (Argentina).
 
 Por ahora **solo por Bluetooth**: los nodos que solo se conectan por WiFi o USB (por ejemplo, con
 RP2040 o `meshtasticd` en Linux) todavía no.
