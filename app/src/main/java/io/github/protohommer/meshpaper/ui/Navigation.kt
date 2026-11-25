@@ -27,6 +27,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.github.protohommer.meshpaper.ui.theme.HudText
+import io.github.protohommer.meshpaper.ui.theme.SigWeak
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.background
 import io.github.protohommer.meshpaper.map.MapTiles
 import io.github.protohommer.meshpaper.map.Nav
 import io.github.protohommer.meshpaper.map.Routing
@@ -227,44 +232,54 @@ private fun turnDistance(m: Double): String = when {
     else -> PhoneLocation.formatDistance(m.toFloat())
 }
 
+/** El cuadrado del giro: naranja (es la ruta) con la flecha oscura adentro, como en el diseño 2.0. */
+@Composable
+private fun TurnBox(angle: Float, roundabout: Boolean, done: Boolean = false) {
+    androidx.compose.foundation.layout.Box(
+        Modifier.size(64.dp).background(if (done) HudText else RouteColor, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
+        contentAlignment = Alignment.Center,
+    ) { TurnArrow(angle, roundabout, io.github.protohommer.meshpaper.ui.theme.HudBg, Modifier.size(44.dp)) }
+}
+
 /** Navegación guiada: cartel de arriba con el próximo giro. [heading]: hacia dónde mira el mapa. */
 @Composable
 fun TurnBanner(s: Nav.State, heading: Float?, modifier: Modifier = Modifier) {
-    HudPanel(modifier.fillMaxWidth(), accent = RouteColor, padding = PaddingValues(12.dp)) {
+    HudPanel(modifier.fillMaxWidth(), padding = PaddingValues(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             when {
                 s.status == Nav.Status.Arrived -> {
-                    TurnArrow(0f, roundabout = false, color = SigGood)
-                    Spacer(Modifier.width(12.dp))
+                    TurnBox(0f, roundabout = false, done = true)
+                    Spacer(Modifier.width(14.dp))
                     Column {
-                        Text("Llegaste", style = MaterialTheme.typography.headlineSmall, color = SigGood, fontWeight = FontWeight.SemiBold)
+                        Text("Llegaste", style = MaterialTheme.typography.headlineSmall)
                         HudLabel(s.target.name)
                     }
                 }
                 s.route == null -> {
                     // Sin ruta (sin datos de la zona o calculando): flecha al destino en línea recta.
-                    TurnArrow((s.bearing ?: 0f) - (heading ?: 0f), roundabout = false, color = RouteColor)
-                    Spacer(Modifier.width(12.dp))
+                    TurnBox((s.bearing ?: 0f) - (heading ?: 0f), roundabout = false)
+                    Spacer(Modifier.width(14.dp))
                     Column {
                         Text(
                             s.straightM?.let { PhoneLocation.formatDistance(it.toFloat()) } ?: "—",
-                            style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold,
+                            style = io.github.protohommer.meshpaper.ui.theme.MonoValue.copy(fontSize = 30.sp, lineHeight = 34.sp),
                         )
-                        HudLabel("En línea recta al ${s.bearing?.let { PhoneLocation.cardinal(it) } ?: "—"} · ${s.target.name}", maxLines = 2)
+                        Text("En línea recta al ${s.bearing?.let { PhoneLocation.cardinal(it) } ?: "—"}", style = MaterialTheme.typography.titleMedium)
+                        HudLabel(s.target.name)
                     }
                 }
                 else -> {
                     val t = s.nextTurn
                     val (text, angle) = if (t == null) "Seguí hasta ${s.target.name}" to 0f else turnInfo(t)
-                    TurnArrow(angle, roundabout = t?.cmd == 13 || t?.cmd == 14, color = RouteColor)
-                    Spacer(Modifier.width(12.dp))
+                    TurnBox(angle, roundabout = t?.cmd == 13 || t?.cmd == 14)
+                    Spacer(Modifier.width(14.dp))
                     Column {
                         Text(
                             (if (t == null) s.remainingM else s.nextTurnM)?.let { turnDistance(it) } ?: "—",
-                            style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold,
+                            style = io.github.protohommer.meshpaper.ui.theme.MonoValue.copy(fontSize = 30.sp, lineHeight = 34.sp),
                         )
                         Text(text, style = MaterialTheme.typography.titleMedium, maxLines = 2)
-                        if (s.offRoute) HudLabel("Fuera de la ruta: recalculando…", color = SigFair)
+                        if (s.offRoute) HudLabel("Fuera de la ruta: recalculando…", color = SigWeak)
                     }
                 }
             }
@@ -275,26 +290,38 @@ fun TurnBanner(s: Nav.State, heading: Float?, modifier: Modifier = Modifier) {
 /** Navegación guiada: abajo, lo que falta y la hora de llegada, con volver a centrar, resumen y salir. */
 @Composable
 fun GuidedBottom(s: Nav.State, following: Boolean, onRecenter: () -> Unit, onOverview: () -> Unit, modifier: Modifier = Modifier) {
-    val tight = PaddingValues(horizontal = 8.dp)
-    HudPanel(modifier.fillMaxWidth(), accent = RouteColor, padding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                val secs = s.remainingS
-                Text(
-                    secs?.let { Routing.formatTime(it) } ?: "—",
-                    style = MaterialTheme.typography.titleLarge, color = RouteColor, fontWeight = FontWeight.SemiBold,
-                )
-                val eta = secs?.let {
-                    java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(System.currentTimeMillis() + it * 1000L))
-                }
-                HudLabel(
-                    listOfNotNull(s.remainingM?.let { PhoneLocation.formatDistance(it.toFloat()) }, eta?.let { "llega $it" })
-                        .joinToString(" · "),
-                )
+    HudPanel(modifier.fillMaxWidth(), padding = PaddingValues(18.dp)) {
+        HudLabel("Hacia · ${s.target.name}")
+        Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 6.dp)) {
+            Text(
+                s.remainingS?.let { Routing.formatTime(it) } ?: "—",
+                style = io.github.protohommer.meshpaper.ui.theme.MonoValue.copy(fontSize = 30.sp, lineHeight = 34.sp), color = RouteColor,
+            )
+            Spacer(Modifier.width(14.dp))
+            Text(
+                s.remainingM?.let { PhoneLocation.formatDistance(it.toFloat()) } ?: "",
+                style = io.github.protohommer.meshpaper.ui.theme.MonoValue.copy(fontWeight = FontWeight.Normal, fontSize = 18.sp),
+                color = HudTextDim, modifier = Modifier.padding(bottom = 3.dp),
+            )
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            val eta = s.remainingS?.let {
+                java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(System.currentTimeMillis() + it * 1000L))
             }
-            if (!following) TextButton(onClick = onRecenter, contentPadding = tight) { Text("Seguir", color = HudCyan, softWrap = false) }
-            TextButton(onClick = onOverview, contentPadding = tight) { Text("Resumen", softWrap = false) }
-            TextButton(onClick = { Nav.stop() }, contentPadding = tight) { Text("Salir", color = MaterialTheme.colorScheme.error, softWrap = false) }
+            HudStat("Llega", eta ?: "—", Modifier.weight(1f))
+            HudStat("Rumbo", s.bearing?.let { "${PhoneLocation.cardinal(it)} ${it.toInt()}°" } ?: "—", Modifier.weight(1f))
+            HudStat("Sube", s.route?.ascendM?.takeIf { it > 0 }?.let { "+$it m" } ?: "—", Modifier.weight(1f))
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (!following) {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = onRecenter, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = HudButtonShape,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, io.github.protohommer.meshpaper.ui.theme.SigMe),
+                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = io.github.protohommer.meshpaper.ui.theme.SigMe),
+                ) { Text("Seguir", softWrap = false) }
+            }
+            HudOutlinedButton(onClick = onOverview, Modifier.weight(1f)) { Text("Resumen", softWrap = false) }
+            HudButton(onClick = { Nav.stop() }, Modifier.weight(1f)) { Text("Salir", softWrap = false) }
         }
     }
 }
