@@ -71,16 +71,20 @@ private fun scanTimeAt(y: Float): Float {
 private fun ease(x: Float) = FastOutSlowInEasing.transform(x)
 
 // Paleta de la intro (la del fondo "Topografía"): siempre oscura, aunque la app esté en modo día.
-private val BgTop = Color(0xFF060A10)
-private val BgBottom = Color(0xFF090E16)
-private val Contour = Color(0xFF1C3140)
-private val Scan = Color(0xFF3FD6E6)
-private val Copper = Color(0xFFC98245)
-private val CopperDim = Color(0xFF784E2C)
-private val Eye = Color(0xFF3CC878)
-private val Link = Color(0xFF2E6E7C)
-private val Name = Color(0xFFC8D6DE)
-private val Sub = Color(0xFF5A7887)
+// En el tema nocturno: sin neón, la malla en gris, los nodos en naranja y el ojo en cian ("vos").
+private val nocturne get() = io.github.protohommer.meshpaper.ui.theme.Appearance.mode ==
+    io.github.protohommer.meshpaper.ui.theme.ThemeMode.NOCTURNE
+private val BgTop get() = if (nocturne) Color(0xFF07090C) else Color(0xFF060A10)
+private val BgBottom get() = if (nocturne) Color(0xFF0A0D11) else Color(0xFF090E16)
+private val Contour get() = if (nocturne) Color(0xFF1C232C) else Color(0xFF1C3140)
+private val Scan get() = if (nocturne) Color(0xFFD5DAE0) else Color(0xFF3FD6E6)
+private val Copper get() = if (nocturne) Color(0xFF8A939D) else Color(0xFFC98245)
+private val CopperDim get() = if (nocturne) Color(0xFF3A4450) else Color(0xFF784E2C)
+private val NodeOn get() = if (nocturne) Color(0xFFFF7A2F) else Copper
+private val Eye get() = if (nocturne) Color(0xFF5CE1E6) else Color(0xFF3CC878)
+private val Link get() = if (nocturne) Color(0xFF2A323C) else Color(0xFF2E6E7C)
+private val Name get() = if (nocturne) Color(0xFFF1F3F5) else Color(0xFFC8D6DE)
+private val Sub get() = if (nocturne) Color(0xFF8A939D) else Color(0xFF5A7887)
 
 private val Barlow = FontFamily(Font(R.font.barlow_regular))
 
@@ -155,6 +159,15 @@ private fun DrawScope.drawIntro(t: Float, markCenterY: Float) {
     val w = size.width
     val h = size.height
     drawRect(Brush.verticalGradient(listOf(BgTop, BgBottom)))
+    if (nocturne) {
+        // Grilla fina de 40 dp como textura, como un instrumento de precisión.
+        val step = 40.dp.toPx()
+        val grid = Color(0xFF10151B)
+        var x = (w % step) / 2
+        while (x < w) { drawLine(grid, Offset(x, 0f), Offset(x, h), 1f); x += step }
+        var y = (h % step) / 2
+        while (y < h) { drawLine(grid, Offset(0f, y), Offset(w, y), 1f); y += step }
+    }
 
     // ---------- 1 · El relieve: curvas de nivel que aparecen detrás de una línea de escaneo ----------
     val scan = ease(phase(t, SCAN_FROM, SCAN_TO))
@@ -228,7 +241,7 @@ private fun DrawScope.drawIntro(t: Float, markCenterY: Float) {
             g.outline.forEachIndexed { k, i -> if (k == 0) moveTo(pos[i].x, pos[i].y) else lineTo(pos[i].x, pos[i].y) }
             close()
         }
-        drawPath(p, Copper.copy(alpha = 0.07f * fill))
+        drawPath(p, Copper.copy(alpha = (if (nocturne) 0.04f else 0.07f) * fill))
     }
     if (lines > 0f) {
         val stroke = g.STROKE * s * 0.55f
@@ -239,7 +252,7 @@ private fun DrawScope.drawIntro(t: Float, markCenterY: Float) {
         for (k in g.edges.indices step 2) seg(g.edges[k], g.edges[k + 1], CopperDim.copy(alpha = lines), stroke * 0.7f)
         val o = g.outline
         for (k in 0 until o.size - 1) {
-            seg(o[k], o[k + 1], Copper.copy(alpha = 0.12f * lines), stroke * 3.5f) // halo suave
+            if (!nocturne) seg(o[k], o[k + 1], Copper.copy(alpha = 0.12f * lines), stroke * 3.5f) // halo suave
             seg(o[k], o[k + 1], Copper.copy(alpha = lines), stroke)
         }
     }
@@ -247,8 +260,8 @@ private fun DrawScope.drawIntro(t: Float, markCenterY: Float) {
     for (i in 0 until n) {
         if (i == g.EYE && phase(t, 0.72f, 0.84f) > 0f) continue
         val arrived = phase(t, 0.62f + i * 0.008f, 0.70f + i * 0.008f)
-        val c = lerp(Scan, Copper, arrived)
-        drawCircle(c.copy(alpha = 0.18f * appearOf[i]), g.NODE_R * s * 1.6f, pos[i])
+        val c = lerp(Scan, NodeOn, arrived)
+        if (!nocturne) drawCircle(c.copy(alpha = 0.18f * appearOf[i]), g.NODE_R * s * 1.6f, pos[i])
         drawCircle(c.copy(alpha = appearOf[i]), g.NODE_R * s * 0.62f, pos[i])
     }
     // El ojo: llega como los demás y al final se enciende en verde.
@@ -256,7 +269,7 @@ private fun DrawScope.drawIntro(t: Float, markCenterY: Float) {
     val glow = ease(phase(t, 0.72f, 0.84f))
     if (glow > 0f) {
         val pop = 1f + 0.25f * sin(PI.toFloat() * glow)
-        drawCircle(Eye.copy(alpha = 0.14f * glow), g.EYE_R * s * 1.8f * pop, eye)
+        if (!nocturne) drawCircle(Eye.copy(alpha = 0.14f * glow), g.EYE_R * s * 1.8f * pop, eye)
         drawCircle(Eye.copy(alpha = glow), g.EYE_R * s * 0.62f * pop, eye, style = Stroke(g.EYE_RING * s * 0.5f))
         drawCircle(Eye.copy(alpha = glow), g.EYE_R * s * 0.28f * pop, eye)
     }

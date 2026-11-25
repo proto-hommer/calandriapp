@@ -34,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
@@ -62,6 +63,7 @@ import io.github.protohommer.meshpaper.ui.theme.HudBg
 import io.github.protohommer.meshpaper.ui.theme.HudCyan
 import io.github.protohommer.meshpaper.ui.theme.HudLine
 import io.github.protohommer.meshpaper.ui.theme.HudSurface
+import io.github.protohommer.meshpaper.ui.theme.HudText
 import io.github.protohommer.meshpaper.ui.theme.HudTextDim
 import io.github.protohommer.meshpaper.ui.theme.SigFair
 import io.github.protohommer.meshpaper.ui.theme.SigGood
@@ -137,7 +139,7 @@ fun Modifier.glass(shape: Shape, accent: Color = HudCyan, blur: Boolean = true, 
     val haze = LocalHaze.current.takeIf { blur }
     return this
         // De día el borde cian de los paneles es el neón brillante, con un halo más ancho.
-        .then(if (glow) Modifier.neonGlow(dayNeon(accent).copy(alpha = if (Appearance.isDay) 0.85f else 0.55f), shape, if (Appearance.isDay) 9.dp else 7.dp) else Modifier)
+        .then(if (glow && Appearance.neon) Modifier.neonGlow(dayNeon(accent).copy(alpha = if (Appearance.isDay) 0.85f else 0.55f), shape, if (Appearance.isDay) 9.dp else 7.dp) else Modifier)
         .clip(shape)
         .then(
             if (haze != null) Modifier.hazeEffect(haze, GlassStyle).background(HudSurface.copy(alpha = 0.18f))
@@ -153,7 +155,9 @@ fun Modifier.glass(shape: Shape, accent: Color = HudCyan, blur: Boolean = true, 
         )
         .border(
             1.dp,
-            dayNeon(accent).let { a -> Brush.linearGradient(listOf(a.copy(alpha = 0.95f), a.copy(alpha = 0.25f), a.copy(alpha = 0.75f))) },
+            // Nocturno: borde fino y quieto (la línea, o el color del panel apenas marcado).
+            if (!Appearance.neon) androidx.compose.ui.graphics.SolidColor(if (accent == HudCyan) HudLine else accent.copy(alpha = 0.55f))
+            else dayNeon(accent).let { a -> Brush.linearGradient(listOf(a.copy(alpha = 0.95f), a.copy(alpha = 0.25f), a.copy(alpha = 0.75f))) },
             shape,
         )
 }
@@ -167,11 +171,11 @@ fun TextStyle.neon(color: Color, radius: Float = 14f): TextStyle =
     copy(shadow = Shadow(color.copy(alpha = 0.85f), Offset.Zero, radius))
 
 /** Los textos de color (acentos y señales) brillan; los grises y el blanco del texto, no. */
-private fun glows(color: Color) = !Appearance.isDay && color.alpha > 0.5f && color != HudTextDim &&
+private fun glows(color: Color) = !Appearance.isDay && Appearance.neon && color.alpha > 0.5f && color != HudTextDim &&
     color.red + color.green + color.blue < 2.6f && maxOf(color.red, color.green, color.blue) - minOf(color.red, color.green, color.blue) > 0.35f
 
 /** Esquinas tipo visor sobre cualquier cosa. */
-fun Modifier.hudCorners(color: Color = HudCyan.copy(alpha = 0.7f), len: Dp = 14.dp, stroke: Dp = 1.5.dp): Modifier =
+fun Modifier.hudCorners(color: Color = if (Appearance.neon) HudCyan.copy(alpha = 0.7f) else HudTextDim.copy(alpha = 0.45f), len: Dp = 14.dp, stroke: Dp = 1.5.dp): Modifier =
     drawWithContent {
         drawContent()
         val l = len.toPx()
@@ -208,7 +212,11 @@ fun HudPanel(
                 if (onToggle != null) Modifier.fillMaxWidth().clickable(onClick = onToggle) else Modifier,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(width = 3.dp, height = 12.dp).neonGlow(accent, HudButtonShape, 4.dp, 3.dp).background(accent))
+                Box(
+                    Modifier.size(width = 3.dp, height = 12.dp)
+                        .then(if (Appearance.neon) Modifier.neonGlow(accent, HudButtonShape, 4.dp, 3.dp) else Modifier)
+                        .background(accent)
+                )
                 Spacer(Modifier.width(8.dp))
                 HudLabel(title, if (onToggle != null) Modifier.weight(1f) else Modifier, color = accent)
                 if (onToggle != null) {
@@ -256,7 +264,47 @@ fun HudStat(label: String, value: String, modifier: Modifier = Modifier, color: 
 
 @Composable
 fun StatusDot(color: Color, size: Dp = 8.dp) {
-    Box(Modifier.size(size).neonGlow(color, CircleShape, 4.dp, size / 2).background(color, CircleShape))
+    Box(
+        Modifier.size(size)
+            .then(if (Appearance.neon) Modifier.neonGlow(color, CircleShape, 4.dp, size / 2) else Modifier)
+            .background(color, CircleShape)
+    )
+}
+
+/** Barras de señal por saltos (tema nocturno): 3 = directo o 1 salto, 2 = 2-3, 1 = 4-5, 0 = 6 o más. */
+fun signalBars(t: io.github.protohommer.meshpaper.mesh.Tone): Int = when (t) {
+    io.github.protohommer.meshpaper.mesh.Tone.GOOD -> 3
+    io.github.protohommer.meshpaper.mesh.Tone.FAIR -> 2
+    io.github.protohommer.meshpaper.mesh.Tone.POOR -> 1
+    else -> 0
+}
+
+/**
+ * La señal como barras, en lugar del color del punto: se lee igual al sol y para quien no distingue
+ * colores. Perdido: un anillo cortado en naranja.
+ */
+@Composable
+fun SignalBars(bars: Int, lost: Boolean, modifier: Modifier = Modifier) {
+    val on = HudText
+    val off = HudLine
+    val warn = SigWeak
+    androidx.compose.foundation.Canvas(modifier.size(width = 16.dp, height = 12.dp)) {
+        if (lost) {
+            drawCircle(
+                warn, radius = size.height / 2 - 1.dp.toPx(), center = Offset(size.width / 2, size.height / 2),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    1.6.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 2.dp.toPx())),
+                ),
+            )
+            return@Canvas
+        }
+        val w = 3.5.dp.toPx()
+        val gap = 2.5.dp.toPx()
+        for (i in 0 until 3) {
+            val h = size.height * (0.45f + 0.275f * i)
+            drawRect(if (i < bars) on else off, topLeft = Offset(i * (w + gap), size.height - h), size = Size(w, h))
+        }
+    }
 }
 
 /** Encabezado de pantalla: volver + título. */

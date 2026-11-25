@@ -653,7 +653,8 @@ private fun AppearancePanel() {
                         io.github.protohommer.meshpaper.ui.theme.Appearance.set(ctx, m)
                         // El mapa acompaña: oscuro de noche, normal de día (se puede cambiar en CAPA).
                         val night = when (m) {
-                            io.github.protohommer.meshpaper.ui.theme.ThemeMode.NIGHT -> true
+                            io.github.protohommer.meshpaper.ui.theme.ThemeMode.NIGHT,
+                            io.github.protohommer.meshpaper.ui.theme.ThemeMode.NOCTURNE -> true
                             io.github.protohommer.meshpaper.ui.theme.ThemeMode.DAY -> false
                             io.github.protohommer.meshpaper.ui.theme.ThemeMode.AUTO -> system
                         }
@@ -668,6 +669,7 @@ private fun AppearancePanel() {
                 io.github.protohommer.meshpaper.ui.theme.ThemeMode.NIGHT -> "HUD oscuro, la de siempre. Ahorra batería en pantallas OLED."
                 io.github.protohommer.meshpaper.ui.theme.ThemeMode.DAY -> "Neón sobre luz: vidrio claro translúcido y bordes que brillan. Para leer al sol."
                 io.github.protohommer.meshpaper.ui.theme.ThemeMode.AUTO -> "Noche o día según el tema oscuro del teléfono."
+                io.github.protohommer.meshpaper.ui.theme.ThemeMode.NOCTURNE -> "En prueba: oscuro y sin neón. El cian es solo tu posición, el naranja lo que pide atención y la señal va en barras."
             },
             style = MaterialTheme.typography.bodySmall, color = HudTextDim,
         )

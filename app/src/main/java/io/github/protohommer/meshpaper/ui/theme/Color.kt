@@ -17,6 +17,8 @@ data class Palette(
     val copper: Color, val green: Color,
     val good: Color, val fair: Color, val poor: Color, val weak: Color,
     val relay: Color, val mute: Color, val fixed: Color,
+    /** Este teléfono / nodo propio. null = el acento ([cyan]), como en noche y día. */
+    val me: Color? = null,
 )
 
 val NightPalette = Palette(
@@ -36,11 +38,25 @@ val DayPalette = Palette(
     relay = Color(0xFFC21FD6), mute = Color(0xFF7A8691), fixed = Color(0xFF1F7AE0),
 )
 
+/**
+ * Nocturno: el ADN oscuro, con disciplina. Negro azulado sin neón ni brillos; el acento de la
+ * interfaz es casi blanco; el cian queda solo para "vos" (este teléfono) y el naranja solo para lo
+ * que pide atención: perdido, la ruta, un obstáculo. La señal no va por color sino por barras.
+ */
+val NocturnePalette = Palette(
+    bg = Color(0xFF07090C), surface = Color(0xFF0E1217), surfaceHi = Color(0xFF141920), line = Color(0xFF1C232C),
+    cyan = Color(0xFFD5DAE0), cyanDim = Color(0xFF1A2028), text = Color(0xFFF1F3F5), textDim = Color(0xFF8A939D),
+    copper = Color(0xFFFF7A2F), green = Color(0xFFF1F3F5),
+    good = Color(0xFFF1F3F5), fair = Color(0xFFC2C9D1), poor = Color(0xFF8A949E), weak = Color(0xFFFF7A2F),
+    relay = Color(0xFFA898E6), mute = Color(0xFF5E6873), fixed = Color(0xFFF1F3F5),
+    me = Color(0xFF5CE1E6),
+)
+
 /** Borde neón de los paneles de día: un cian más brillante que el de los textos. */
 val DayNeon = Color(0xFF00C8E8)
 
 /** Modo elegido en Ajustes → Apariencia. AUTO sigue al sistema (tema oscuro del teléfono). */
-enum class ThemeMode(val label: String) { NIGHT("NOCHE"), DAY("DÍA"), AUTO("AUTO") }
+enum class ThemeMode(val label: String) { NIGHT("NOCHE"), DAY("DÍA"), AUTO("AUTO"), NOCTURNE("NOCTURNO") }
 
 object Appearance {
     private const val PREFS = "ui"
@@ -52,7 +68,14 @@ object Appearance {
     var isDay by mutableStateOf(false)
         internal set
 
-    val palette: Palette get() = if (isDay) DayPalette else NightPalette
+    /** Tema nocturno (oscuro, sin neón). Lo fija el tema junto con [isDay]. */
+    var isNocturne by mutableStateOf(false)
+        internal set
+
+    /** Neón (brillos, halos, bordes que se encienden): noche y día sí, nocturno no. */
+    val neon: Boolean get() = !isNocturne
+
+    val palette: Palette get() = if (isDay) DayPalette else if (isNocturne) NocturnePalette else NightPalette
 
     fun load(ctx: Context) {
         mode = runCatching { ThemeMode.valueOf(prefs(ctx).getString("theme", null) ?: "") }.getOrDefault(ThemeMode.NIGHT)
@@ -96,4 +119,4 @@ val SigWeak: Color get() = p.weak     // 6 o más saltos, o perdido
 val SigRelay: Color get() = p.relay   // ajeno que repite (aporta cobertura): el nombre va en violeta
 val SigMute: Color get() = p.mute     // ajeno que no repite
 val SigFixed: Color get() = p.fixed   // del grupo, instalación fija (router, base): azul
-val SigMe: Color get() = p.cyan       // este teléfono / nodo propio
+val SigMe: Color get() = p.me ?: p.cyan // este teléfono / nodo propio

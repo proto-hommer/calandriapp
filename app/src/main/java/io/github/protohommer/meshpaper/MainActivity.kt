@@ -730,7 +730,11 @@ private fun NodeRow(
         if (n.num != me) {
             Spacer(Modifier.width(8.dp))
             // El punto es la señal (saltos); el color del nombre corto dice qué es el nodo.
-            StatusDot(Signal.linkTone(tone, n, now).color().copy(alpha = if (lost) 0.4f else 1f), 10.dp)
+            if (io.github.protohommer.meshpaper.ui.theme.Appearance.isNocturne) {
+                io.github.protohommer.meshpaper.ui.SignalBars(io.github.protohommer.meshpaper.ui.signalBars(Signal.quality(n, now)), lost)
+            } else {
+                StatusDot(Signal.linkTone(tone, n, now).color().copy(alpha = if (lost) 0.4f else 1f), 10.dp)
+            }
         }
     }
     androidx.compose.material3.DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {

@@ -18,7 +18,7 @@ private fun nightScheme(p: Palette): ColorScheme = darkColorScheme(
     primary = p.cyan,
     onPrimary = Color(0xFF00171C),
     primaryContainer = p.cyanDim,
-    onPrimaryContainer = Color(0xFFA6F4FF),
+    onPrimaryContainer = if (p === NocturnePalette) p.text else Color(0xFFA6F4FF),
     secondary = Color(0xFF7FA3B8),
     onSecondary = Color(0xFF071118),
     secondaryContainer = Color(0xFF16252F),
@@ -85,12 +85,14 @@ fun MeshPaperTheme(content: @Composable () -> Unit) {
     val system = isSystemInDarkTheme()
     val day = when (Appearance.mode) {
         ThemeMode.DAY -> true
-        ThemeMode.NIGHT -> false
+        ThemeMode.NIGHT, ThemeMode.NOCTURNE -> false
         ThemeMode.AUTO -> !system
     }
+    val nocturne = Appearance.mode == ThemeMode.NOCTURNE
+    if (Appearance.isNocturne != nocturne) Appearance.isNocturne = nocturne
     // Se fija acá mismo para que el primer cuadro ya salga con la paleta correcta (solo si cambió).
     if (Appearance.isDay != day) Appearance.isDay = day
-    val pal = if (day) DayPalette else NightPalette
+    val pal = if (day) DayPalette else if (nocturne) NocturnePalette else NightPalette
     MaterialTheme(colorScheme = if (day) dayScheme(pal) else nightScheme(pal), typography = Typography, shapes = HudShapes) {
         // Color de texto por defecto en toda la app (no todo está dentro de un Surface).
         CompositionLocalProvider(LocalContentColor provides pal.text, content = content)

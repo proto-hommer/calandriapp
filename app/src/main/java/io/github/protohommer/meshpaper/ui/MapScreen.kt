@@ -86,6 +86,9 @@ import io.github.protohommer.meshpaper.mesh.Signal
 import io.github.protohommer.meshpaper.mesh.Tone
 import io.github.protohommer.meshpaper.mesh.Wpt
 import io.github.protohommer.meshpaper.ui.theme.HudCyan
+import io.github.protohommer.meshpaper.ui.theme.HudLine
+import io.github.protohommer.meshpaper.ui.theme.HudText
+import io.github.protohommer.meshpaper.ui.theme.SigMe
 import io.github.protohommer.meshpaper.ui.theme.SigFair
 import io.github.protohommer.meshpaper.ui.theme.SigGood
 import io.github.protohommer.meshpaper.ui.theme.SigRelay
@@ -652,9 +655,13 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                             // Fijo del grupo: rombo azul, con la señal en un rombo de afuera.
                             tone == Tone.FIXED -> nodeIcon(
                                 mv.context, label, tone.color().toArgb(), filled = true, lost = lost,
-                                ring = link, diamond = true,
+                                ring = if (Appearance.isNocturne) null else link, diamond = true,
+                                bars = if (Appearance.isNocturne) signalBars(Signal.quality(n, now)) else null,
                             )
-                            else -> nodeIcon(mv.context, label, tone.color().toArgb(), filled = true, lost = lost)
+                            else -> nodeIcon(
+                                mv.context, label, tone.color().toArgb(), filled = true, lost = lost,
+                                bars = if (Appearance.isNocturne && n.num != me) signalBars(Signal.quality(n, now)) else null,
+                            )
                         }
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         infoWindow = null
@@ -814,7 +821,16 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
 }
 
 /** Mapa oscuro: invierte el brillo y lo lleva a azules (las rutas quedan marcadas por sus bordes). */
-internal val darkFilter = ColorMatrixColorFilter(ColorMatrix().apply {
+/** Mapa oscuro del tema: azulado en noche, gris neutro en nocturno (el color queda para lo que importa). */
+internal val darkFilter: ColorMatrixColorFilter get() = if (Appearance.isNocturne) neutralDarkFilter else blueDarkFilter
+
+/** Nocturno: invierte el brillo y lo deja en grises fríos, apagados. */
+private val neutralDarkFilter = ColorMatrixColorFilter(ColorMatrix().apply {
+    fun row(a: Float, c: Float) = floatArrayOf(-0.299f * a, -0.587f * a, -0.114f * a, 0f, 255f * a + c)
+    set(row(0.40f, 4f) + row(0.43f, 6f) + row(0.48f, 9f) + floatArrayOf(0f, 0f, 0f, 1f, 0f))
+})
+
+private val blueDarkFilter = ColorMatrixColorFilter(ColorMatrix().apply {
     fun row(a: Float, c: Float) = floatArrayOf(-0.299f * a, -0.587f * a, -0.114f * a, 0f, 255f * a + c)
     set(row(0.33f, 6f) + row(0.55f, 12f) + row(0.78f, 20f) + floatArrayOf(0f, 0f, 0f, 1f, 0f))
 })
@@ -1402,12 +1418,15 @@ private fun dpPx(ctx: Context, v: Float) = v * ctx.resources.displayMetrics.dens
 private fun nodeIcon(
     ctx: Context, label: String, color: Int, filled: Boolean, lost: Boolean,
     ring: Int? = null, labelColor: Int = color, compact: Boolean = false, diamond: Boolean = false,
+    /** Nocturno: barras de señal abajo a la derecha (0 a 3); null = sin barras. */
+    bars: Int? = null,
 ): BitmapDrawable =
-    iconCache.getOrPut("n:$label:$color:$filled:$lost:$ring:$labelColor:$compact:$diamond:${Appearance.isDay}") {
+    iconCache.getOrPut("n:$label:$color:$filled:$lost:$ring:$labelColor:$compact:$diamond:$bars:${Appearance.isDay}:${Appearance.isNocturne}") {
         // El rombo es un poco más grande: a la altura del texto es más angosto que el círculo.
         val base = if (ring != null) 46f else if (compact) 32f else 40f
         val inner = dpPx(ctx, if (diamond) base + 6f else base)
-        val glowPad = dpPx(ctx, 5f) // margen para el halo de neón
+        // margen para el halo de neón, o para las barras de señal (nocturno)
+        val glowPad = dpPx(ctx, if (bars != null) 9f else 5f)
         val size = (inner + 2 * glowPad).toInt()
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
@@ -1424,7 +1443,7 @@ private fun nodeIcon(
         }
         /** Halo de neón: el mismo borde, más ancho y desenfocado (bitmap en software: anda en todos). */
         fun glow(radius: Float, col: Int) {
-            if (lost) return
+            if (lost || !Appearance.neon) return
             shape(radius, Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 this.color = col; this.alpha = 210
                 style = Paint.Style.STROKE; strokeWidth = dpPx(ctx, 4f)
@@ -1463,9 +1482,28 @@ private fun nodeIcon(
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             textAlign = Paint.Align.CENTER
             textSize = dpPx(ctx, if (label.length <= 2) 12f else if (compact) 8.5f else 9.5f)
-            if (!lost) setShadowLayer(dpPx(ctx, 3f), 0f, 0f, labelColor)
+            if (!lost && Appearance.neon) setShadowLayer(dpPx(ctx, 3f), 0f, 0f, labelColor)
         }
         c.drawText(label.take(4), m, m - (text.descent() + text.ascent()) / 2, text)
+        if (bars != null && !lost) {
+            // Tres barritas abajo a la derecha, sobre un fondo oscuro para que se lean sobre el mapa.
+            val bw = dpPx(ctx, 2.6f)
+            val gap = dpPx(ctx, 1.6f)
+            val bh = dpPx(ctx, 9f)
+            val x0 = size - dpPx(ctx, 2f) - 3 * bw - 2 * gap
+            val y1 = size - dpPx(ctx, 2f)
+            c.drawRoundRect(
+                x0 - dpPx(ctx, 2f), y1 - bh - dpPx(ctx, 2f), size - dpPx(ctx, 0.5f), y1 + dpPx(ctx, 1.5f),
+                dpPx(ctx, 2f), dpPx(ctx, 2f), Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = markerBg() },
+            )
+            for (i in 0 until 3) {
+                val h = bh * (0.45f + 0.275f * i)
+                val x = x0 + i * (bw + gap)
+                c.drawRect(x, y1 - h, x + bw, y1, Paint().apply {
+                    this.color = if (i < bars) HudText.toArgb() else HudLine.toArgb()
+                })
+            }
+        }
         BitmapDrawable(ctx.resources, bmp)
     }
 
@@ -1477,7 +1515,7 @@ private fun nodeIcon(
 private fun markerBg(): Int =
     if (Appearance.isDay) android.graphics.Color.argb(215, 248, 250, 252) else android.graphics.Color.argb(200, 5, 9, 13)
 
-private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.getOrPut("me:$label:${Appearance.isDay}") {
+private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.getOrPut("me:$label:${Appearance.isDay}:${Appearance.isNocturne}") {
     val size = dpPx(ctx, 34f).toInt()
     val tag = if (label != null) dpPx(ctx, 16f).toInt() else 0
     val w = max(size, dpPx(ctx, 64f).toInt())
@@ -1487,7 +1525,7 @@ private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.get
     val cx = w / 2f
     val cy = h / 2f
     val r = size / 2f
-    val cyan = HudCyan.toArgb()
+    val cyan = SigMe.toArgb()
     c.drawCircle(cx, cy, r - dpPx(ctx, 1f), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; alpha = 40 })
     val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cyan; strokeWidth = dpPx(ctx, 1.5f); setShadowLayer(dpPx(ctx, 3f), 0f, 0f, cyan) }
     val g = dpPx(ctx, 7f)
@@ -1514,11 +1552,11 @@ private fun meIcon(ctx: Context, label: String?): BitmapDrawable = iconCache.get
 }
 
 /** Navegación guiada: flecha del teléfono, apuntando hacia arriba (el mapa gira hacia donde uno va). */
-private fun navArrowIcon(ctx: Context): BitmapDrawable = iconCache.getOrPut("nav:${Appearance.isDay}") {
+private fun navArrowIcon(ctx: Context): BitmapDrawable = iconCache.getOrPut("nav:${Appearance.isDay}:${Appearance.isNocturne}") {
     val s = dpPx(ctx, 44f).toInt()
     val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
-    val cyan = HudCyan.toArgb()
+    val cyan = SigMe.toArgb()
     val cx = s / 2f
     val path = android.graphics.Path().apply {
         moveTo(cx, s * 0.12f)
