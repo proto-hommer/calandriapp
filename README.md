@@ -288,8 +288,6 @@ Algunas cosas que salieron en el camino:
 
 - Conexión por **WiFi** y por **USB**, para nodos sin Bluetooth.
 - Paleta de la marca (cobre y verde) en toda la interfaz.
-- Alcance según el terreno: en vez de un círculo, la zona que cubre un nodo y la que queda en
-  sombra detrás de los cerros.
 
 * * *
 
