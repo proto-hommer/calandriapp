@@ -58,18 +58,21 @@ object Calandria {
     data class Release(val tag: String, val commit: String, val url: String)
 
     private val _latest = MutableStateFlow<Release?>(null)
-    /** La última versión publicada en GitHub, si ya se consultó (una vez por arranque). */
+    /** La última versión publicada en GitHub, si ya se consultó. */
     val latest: StateFlow<Release?> = _latest
-    private var checked = false
+    /** Cuándo se consultó por última vez con éxito (ms). La app puede quedar viva días: se vuelve a mirar. */
+    private var checkedAt = 0L
+    private const val RECHECK_MS = 30 * 60 * 1000L
 
     private const val REPO = "https://api.github.com/repos/proto-hommer/calandria-mk1-epaper"
 
-    /** Consulta GitHub una vez por arranque (sin datos del usuario ni del nodo). */
+    /** Consulta GitHub (sin datos del usuario ni del nodo), como mucho cada 30 min. */
     suspend fun checkLatest() {
-        if (checked) return
-        checked = true
+        val now = System.currentTimeMillis()
+        if (checkedAt != 0L && now - checkedAt < RECHECK_MS) return
+        checkedAt = now
         try {
-            _latest.value = withContext(Dispatchers.IO) {
+            val found = withContext(Dispatchers.IO) {
                 try {
                     val rel = JSONObject(get("$REPO/releases/latest"))
                     val tag = rel.optString("tag_name").takeIf { it.isNotEmpty() } ?: return@withContext null
@@ -84,8 +87,9 @@ object Calandria {
                     Release(tag, sha, "https://github.com/$repo/releases/tag/$tag")
                 }
             }
+            if (found != null) _latest.value = found else checkedAt = 0L // sin respuesta: queda la anterior
         } catch (e: Exception) {
-            checked = false // otro intento la próxima vez
+            checkedAt = 0L // otro intento la próxima vez
             Log.w("Calandria", "no pude consultar la última versión: ${e.message}")
         }
     }

@@ -42,6 +42,11 @@ fun boardName(info: Calandria.Info?, hw: HardwareModel?): String? =
 @Composable
 fun CalandriaFirmware(info: Calandria.Info, showLink: Boolean = true) {
     val latest by Calandria.latest.collectAsState()
+    // Al mirar la versión, volver a consultar si pasó rato (la app puede llevar días abierta)
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (io.github.protohommer.meshpaper.Updater.autoCheck(ctx)) Calandria.checkLatest()
+    }
     val upToDate = Calandria.upToDate(info, latest)
     // "Calandria 0.6.0 · Meshtastic 2.8.3"; los firmwares de antes de la 0.6.0 no mandan su versión.
     val fw = if (info.ver.isNotEmpty()) "Calandria ${info.ver} · Meshtastic ${info.base}" else "Firmware ${info.fw.ifEmpty { "?" }}"
