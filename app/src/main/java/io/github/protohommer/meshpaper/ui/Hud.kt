@@ -207,7 +207,7 @@ fun HudPanel(
                     TextButton(onClick = onToggle, contentPadding = tight, modifier = Modifier.height(36.dp)) {
                         Chevron(up = collapsed, color = HudText)
                     }
-                    if (collapsed && onClose != null) {
+                    if (onClose != null) { // siempre a mano: cerrar sin buscar el botón abajo
                         TextButton(onClick = onClose, contentPadding = tight, modifier = Modifier.height(36.dp)) { Text("✕", color = HudText) }
                     }
                 }

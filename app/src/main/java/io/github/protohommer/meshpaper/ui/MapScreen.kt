@@ -136,7 +136,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     val hasGroup = remember(channels) { vm.hasPrivateGroup() }
 
     var showOthers by remember { mutableStateOf(true) }
-    var showTracks by remember { mutableStateOf(true) }
+    var showTracks by remember { mutableStateOf(false) } // los rastros, solo si se piden (RAS)
     val mapPrefs = remember { context.getSharedPreferences("map", Context.MODE_PRIVATE) }
     var showLegend by remember { mutableStateOf(mapPrefs.getBoolean("legend", true)) }
     // Fichas y escala de cobertura minimizadas (quedan así hasta que se vuelvan a abrir).
@@ -1002,68 +1002,21 @@ private fun NodeCard(
             )
         }
         Spacer(Modifier.height(12.dp))
-        // Cuatro datos en tarjetas: oído, enlace (en barras), batería y distancia.
+        // Lo necesario a la vista: oído, enlace y distancia (con hacia dónde). El resto, en "Más".
+        val bearing = if (fix != null && n.num != me && n.lat != null && n.lon != null) {
+            PhoneLocation.distanceAndBearing(fix.latitude, fix.longitude, n.lat, n.lon)
+        } else null
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val dist = if (fix != null && n.num != me && n.lat != null && n.lon != null) {
-                PhoneLocation.formatDistance(PhoneLocation.distanceAndBearing(fix.latitude, fix.longitude, n.lat, n.lon).first)
-            } else "—"
             StatTile("Oído", if (n.num == me) "ahora" else agoText(now, n.lastHeard).removePrefix("hace "), Modifier.weight(1f), warn = lostNow)
             StatTile(
                 // Directo: "dir."; si no, la cantidad de saltos (las barras dicen la calidad).
                 "Enlace", when (val h = n.hopsAway) { null -> "—"; 0 -> "dir."; else -> "$h" },
                 Modifier.weight(1f), bars = if (n.num != me && !lostNow) signalBars(Signal.quality(n, now)) else null,
             )
-            StatTile("Bat", n.battery?.let { if (it > 100) "USB" else "$it %" } ?: "—", Modifier.weight(1f))
-            StatTile("Dist.", dist, Modifier.weight(1f))
-        }
-        val extra = buildList {
-            if (fix != null && n.num != me && n.lat != null && n.lon != null) {
-                add("al " + PhoneLocation.cardinal(PhoneLocation.distanceAndBearing(fix.latitude, fix.longitude, n.lat, n.lon).second))
-            }
-            if (n.hopsAway == 0) n.rssi?.let { add("RSSI $it dBm") }
-            groundM?.let { add("terreno ${it.roundToInt()} m") }
-            tracks[n.num]?.size?.takeIf { it > 1 }?.let { add("rastro $it pts") }
-        }
-        Spacer(Modifier.height(10.dp))
-        if (extra.isNotEmpty()) {
-            Text(extra.joinToString(" · "), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.2.sp, fontSize = 12.sp), color = HudTextDim)
-        }
-        // El modelo en su propia línea: con RSSI, distancia y rastro no entraba y se cortaba.
-        val calandria by vm.calandria.collectAsState()
-        val cal = calandria[n.num]
-        boardName(cal, n.hw)?.let { HudLabel(it, maxLines = 2) }
-        cal?.let { CalandriaFirmware(it, showLink = false) }
-        val est = antenna?.let { Range.estimate(it, preset) }
-        if (antenna != null && est != null) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Antena %s dBi a %s m".format(fmtNum(antenna.gainDbi), fmtNum(antenna.heightM)) + (if (fromGps) " (GPS)" else "") +
-                    " · alcance ≈ ${PhoneLocation.formatDistance(est.urbanM.toFloat())} ciudad, " +
-                    "${PhoneLocation.formatDistance(est.openM.toFloat())} campo",
-                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.2.sp, fontSize = 12.sp), color = HudTextDim,
+            StatTile(
+                "Dist.", bearing?.let { (d, b) -> "${PhoneLocation.formatDistance(d)} ${PhoneLocation.cardinal(b)}" } ?: "—",
+                Modifier.weight(1.3f),
             )
-            Text(
-                when {
-                    coverageMsg != null -> coverageMsg
-                    coverage != null -> "Con relieve: señal en ${coverage.coveredPct}% del círculo de " +
-                        "${(Coverage.RADIUS_M / 1000).toInt()} km. Sin pintar = sombra o muy lejos."
-                    else -> "Hacia un nodo de mano (1,5 m). Sin relieve: un cerro en el medio lo corta."
-                },
-                style = MaterialTheme.typography.bodySmall, color = HudTextDim,
-            )
-        }
-        Spacer(Modifier.height(12.dp))
-        // Acciones grandes: mensaje (lleno), ir (naranja: la ruta) y perfil.
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (n.num != me) HudButton(onClick = { onMessage(n.num) }, Modifier.weight(1.4f)) { Text("Mensaje", softWrap = false) }
-            onGo?.let {
-                androidx.compose.material3.OutlinedButton(
-                    onClick = it, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = HudButtonShape,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, RouteColor),
-                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = RouteColor),
-                ) { Text("Ir", softWrap = false) }
-            }
-            onProfile?.let { HudOutlinedButton(onClick = it, Modifier.weight(1f)) { Text("Perfil", softWrap = false) } }
         }
         // Sin ficha en el nodo conectado: decirlo, y dejar pedírsela por radio.
         if (n.num != me && (n.noIdent || n.identCached)) {
@@ -1081,22 +1034,84 @@ private fun NodeCard(
                 }) { Text("Pedir datos", color = HudText, fontWeight = FontWeight.Normal, softWrap = false) }
             }
         }
+        Spacer(Modifier.height(12.dp))
+        // Acciones: mensaje (lleno), ir (naranja: la ruta) y "Más", que despliega el resto.
+        var more by remember { mutableStateOf(false) } // se mantiene al pasar de un nodo a otro
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (n.num != me) HudButton(onClick = { onMessage(n.num) }, Modifier.weight(1.4f)) { Text("Mensaje", softWrap = false) }
+            onGo?.let {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = it, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = HudButtonShape,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, RouteColor),
+                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = RouteColor),
+                ) { Text("Ir", softWrap = false) }
+            }
+            HudOutlinedButton(onClick = { more = !more }, Modifier.weight(1f)) { Text(if (more) "Menos" else "Más", softWrap = false) }
+        }
+        val est = antenna?.let { Range.estimate(it, preset) }
         val tight = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        // El alcance prendido se tiene que poder apagar aunque "Más" esté cerrado.
+        if (!more && showingRange) {
+            TextButton(onClick = onRange, contentPadding = tight) {
+                Text("Ocultar alcance", color = HudText, fontWeight = FontWeight.Normal, softWrap = false)
+            }
+        }
+        if (more) {
+            Spacer(Modifier.height(10.dp))
+            androidx.compose.material3.HorizontalDivider(color = HudLine)
+            Spacer(Modifier.height(8.dp))
+            val extra = buildList {
+                n.battery?.let { add(if (it > 100) "batería: USB" else "batería $it %") }
+                if (n.hopsAway == 0) n.rssi?.let { add("RSSI $it dBm") }
+                if (n.hopsAway == 0 && n.snr != 0f) add("SNR %.1f dB".format(n.snr))
+                groundM?.let { add("terreno ${it.roundToInt()} m") }
+                tracks[n.num]?.size?.takeIf { it > 1 }?.let { add("rastro $it pts") }
+            }
+            if (extra.isNotEmpty()) {
+                Text(extra.joinToString(" · "), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.2.sp, fontSize = 12.sp), color = HudTextDim)
+            }
+            // El modelo en su propia línea: con RSSI, distancia y rastro no entraba y se cortaba.
+            val calandria by vm.calandria.collectAsState()
+            val cal = calandria[n.num]
+            boardName(cal, n.hw)?.let { HudLabel(it, maxLines = 2) }
+            cal?.let { CalandriaFirmware(it, showLink = false) }
             if (antenna != null && est != null) {
-                TextButton(onClick = onRange, contentPadding = tight) {
-                    Text(if (showingRange) "Ocultar alcance" else "Ver alcance", color = HudText, fontWeight = FontWeight.Normal, softWrap = false)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Antena %s dBi a %s m".format(fmtNum(antenna.gainDbi), fmtNum(antenna.heightM)) + (if (fromGps) " (GPS)" else "") +
+                        " · alcance ≈ ${PhoneLocation.formatDistance(est.urbanM.toFloat())} ciudad, " +
+                        "${PhoneLocation.formatDistance(est.openM.toFloat())} campo",
+                    style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.2.sp, fontSize = 12.sp), color = HudTextDim,
+                )
+                if (showingRange) Text(
+                    when {
+                        coverageMsg != null -> coverageMsg
+                        coverage != null -> "Con relieve: señal en ${coverage.coveredPct}% del círculo de " +
+                            "${(Coverage.RADIUS_M / 1000).toInt()} km. Sin pintar = sombra o muy lejos."
+                        else -> "Hacia un nodo de mano (1,5 m). Sin relieve: un cerro en el medio lo corta."
+                    },
+                    style = MaterialTheme.typography.bodySmall, color = HudTextDim,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                if (antenna != null && est != null) {
+                    TextButton(onClick = onRange, contentPadding = tight) {
+                        Text(if (showingRange) "Ocultar alcance" else "Ver alcance", color = HudText, fontWeight = FontWeight.Normal, softWrap = false)
+                    }
+                }
+                TextButton(onClick = onAntenna, contentPadding = tight) { Text("Antena", color = HudText, fontWeight = FontWeight.Normal, softWrap = false) }
+                onProfile?.let { TextButton(onClick = it, contentPadding = tight) { Text("Perfil", color = HudText, fontWeight = FontWeight.Normal, softWrap = false) } }
+            }
+            if (n.num != me) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(onClick = { vm.setFavorite(n.num, !n.favorite) }, contentPadding = tight) {
+                    // Favorito en el nodo conectado: en rol Base, prioriza lo que va y viene de sus favoritos.
+                    Text(if (n.favorite) "★ Favorito" else "☆ Marcar favorito", color = if (n.favorite) SigMe else HudText, fontWeight = FontWeight.Normal, softWrap = false)
+                }
+                TextButton(onClick = { askForget = true }, contentPadding = tight) {
+                    Text("Olvidar", color = HudTextDim, fontWeight = FontWeight.Normal, softWrap = false)
                 }
             }
-            TextButton(onClick = onAntenna, contentPadding = tight) { Text("Antena", color = HudText, fontWeight = FontWeight.Normal, softWrap = false) }
-            if (n.num != me) TextButton(onClick = { vm.setFavorite(n.num, !n.favorite) }, contentPadding = tight) {
-                // Favorito en el nodo conectado: en rol Base, prioriza lo que va y viene de sus favoritos.
-                Text(if (n.favorite) "★ Fav" else "☆ Fav", color = if (n.favorite) SigMe else HudText, fontWeight = FontWeight.Normal, softWrap = false)
-            }
-            if (n.num != me) TextButton(onClick = { askForget = true }, contentPadding = tight) {
-                Text("Olvidar", color = HudTextDim, fontWeight = FontWeight.Normal, softWrap = false)
-            }
-            TextButton(onClick = onClose, contentPadding = tight) { Text("Cerrar", color = HudTextDim, fontWeight = FontWeight.Normal, softWrap = false) }
         }
         }
     }
