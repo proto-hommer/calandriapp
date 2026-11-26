@@ -1167,9 +1167,11 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun onText(p: MeshPacket) {
+    private fun onText(packet: MeshPacket) {
         val me = _myNodeNum.value ?: return
-        if (p.from == 0) return
+        // Lo que manda la pantalla del nodo puede llegar con from = 0 (la copia se hace antes de que el
+        // router ponga el número): es nuestro. Se normaliza, así el duplicado se reconoce igual.
+        val p = if (packet.from == 0) packet.toBuilder().setFrom(me).build() else packet
         val mine = p.from == me
         val conv = when {
             p.to == me -> Conv.Direct(p.from).key
