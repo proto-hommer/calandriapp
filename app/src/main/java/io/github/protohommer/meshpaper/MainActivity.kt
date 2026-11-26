@@ -781,6 +781,8 @@ private fun NodeRow(
                 if (!member) add(if (n.mute) "no repite" else "repite")
                 if (member && Signal.isFixedRole(n)) add(if (Signal.isBaseRole(n)) "base" else "fijo")
                 Signal.describe(n)?.let { add(it) }
+                if (n.num != me && n.identCached) add("datos guardados")
+                if (n.num != me && n.noIdent) add("sin ficha")
                 if (n.num != me) add(agoText(now, n.lastHeard))
             }
             Text(

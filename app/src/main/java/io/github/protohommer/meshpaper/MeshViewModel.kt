@@ -102,7 +102,11 @@ data class MeshNode(
     val precisionBits: Int? = null, // bits de precisión de la posición (32 = exacta)
     val favorite: Boolean = false, // marcado como favorito en el nodo (NodeInfo.is_favorite)
     val ignored: Boolean = false,  // ignorado en el nodo (NodeInfo.is_ignored)
+    /** Nombre y rol sacados de lo que la app recordaba: el nodo conectado no tiene su ficha (NodeInfo). */
+    val identCached: Boolean = false,
 ) {
+    /** Ni el nodo ni la app saben cómo se llama ni qué rol tiene. */
+    val noIdent: Boolean get() = longName.isEmpty() && shortName.isEmpty()
     /**
      * Error de la posición si viene redondeada a propósito (canal con precisión reducida):
      * el firmware deja los [precisionBits] bits altos de latitude_i (1e-7°) y centra el resto.
@@ -849,6 +853,61 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    // ---------- Fichas recordadas (nombre y rol de cada nodo) ----------
+
+    /** Lo que la app sabe de un nodo aunque el nodo conectado pierda su ficha (NodeInfo). */
+    private data class Ident(val longName: String, val shortName: String, val role: DeviceConfig.Role?, val hw: MeshProtos.HardwareModel?)
+
+    private val idents: MutableMap<Int, Ident> by lazy { loadIdents() }
+
+    private fun loadIdents(): MutableMap<Int, Ident> =
+        prefs.getStringSet("idents", emptySet()).orEmpty().mapNotNull { e ->
+            val k = e.substringBefore('=').toLongOrNull(16)?.toInt() ?: return@mapNotNull null
+            val f = e.substringAfter('=').split('')
+            if (f.size != 4) return@mapNotNull null
+            k to Ident(
+                f[0], f[1],
+                f[2].toIntOrNull()?.let { DeviceConfig.Role.forNumber(it) },
+                f[3].toIntOrNull()?.let { MeshProtos.HardwareModel.forNumber(it) },
+            )
+        }.toMap().toMutableMap()
+
+    private fun rememberIdent(num: Int, u: MeshProtos.User) {
+        if (u.longName.isEmpty() && u.shortName.isEmpty()) return
+        val id = Ident(u.longName, u.shortName, DeviceConfig.Role.forNumber(u.roleValue), MeshProtos.HardwareModel.forNumber(u.hwModelValue))
+        if (idents[num] == id) return
+        idents[num] = id
+        // Tope: los 400 más recientes alcanzan de sobra (la NodeDB del nodo guarda menos).
+        while (idents.size > 400) idents.remove(idents.keys.first())
+        prefs.edit().putStringSet("idents", idents.map { (k, v) ->
+            "%08x=%s".format(k, listOf(v.longName, v.shortName, v.role?.number ?: "", v.hw?.number ?: "").joinToString(""))
+        }.toSet()).apply()
+    }
+
+    private val identAsked = mutableMapOf<Int, Long>()
+
+    /**
+     * Le pide la ficha a un nodo: le manda la nuestra (NODEINFO_APP) con want_response, como la app
+     * oficial; el firmware contesta con la suya. Gasta aire: solo cuando lo pide el usuario, y como
+     * mucho una vez por minuto por nodo. Devuelve false sin conexión o si se pidió hace poco.
+     */
+    fun requestNodeInfo(num: Int): Boolean {
+        val me = _myNodeNum.value ?: return false
+        val owner = _owner.value ?: return false
+        if (BuildConfig.DEMO || link.value != LinkState.Connected || num == me) return false
+        val now = System.currentTimeMillis()
+        if (now - (identAsked[num] ?: 0L) < 60_000) return false
+        identAsked[num] = now
+        val packet = MeshPacket.newBuilder()
+            .setTo(num)
+            .setId(newPacketId())
+            .setChannel(_nodes.value[num]?.channel ?: 0)
+            .setDecoded(MeshProtos.Data.newBuilder().setPortnum(PortNum.NODEINFO_APP).setPayload(owner.toByteString()).setWantResponse(true))
+            .build()
+        viewModelScope.launch { runCatching { ble.send(ToRadio.newBuilder().setPacket(packet).build()) } }
+        return true
+    }
+
     /** Miembros del grupo que todavía no son favoritos del nodo conectado. */
     fun groupNotFavorite(): List<MeshNode> {
         val me = _myNodeNum.value
@@ -1329,6 +1388,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         val direct = hops == 0
         val channel = channelProof(p)
         if (channel == 0) markGroup(from)
+        if (user != null) rememberIdent(from, user)
         _nodes.update { map ->
             val old = map[from] ?: MeshNode(
                 from, "!%08x".format(from), "", "", 0, 0f, null, null, null, null, channel,
@@ -1343,6 +1403,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 longName = user?.longName?.ifEmpty { null } ?: old.longName,
                 shortName = user?.shortName?.ifEmpty { null } ?: old.shortName,
                 id = user?.id?.ifEmpty { null } ?: old.id,
+                identCached = if (user != null) false else old.identCached,
                 mute = user?.let { it.role == Config.DeviceConfig.Role.CLIENT_MUTE } ?: old.mute,
                 role = user?.role ?: old.role,
                 hw = user?.hwModel ?: old.hw,
@@ -1512,11 +1573,16 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     private fun upsert(n: NodeInfo) {
         if (n.num == _myNodeNum.value && n.hasUser()) _owner.value = n.user
         if (n.hasUser() && n.channel == 0 && n.num != _myNodeNum.value) markGroup(n.num)
+        if (n.hasUser()) rememberIdent(n.num, n.user)
+        // Sin ficha en el nodo conectado: lo último que la app supo de él (nombre, rol, placa).
+        val known = if (n.hasUser()) null else idents[n.num] ?: _nodes.value[n.num]?.takeIf { !it.noIdent }?.let {
+            Ident(it.longName, it.shortName, it.role, it.hw)
+        }
         val node = MeshNode(
             num = n.num,
             id = n.user.id.ifEmpty { "!%08x".format(n.num) },
-            longName = n.user.longName,
-            shortName = n.user.shortName,
+            longName = if (n.hasUser()) n.user.longName else known?.longName.orEmpty(),
+            shortName = if (n.hasUser()) n.user.shortName else known?.shortName.orEmpty(),
             lastHeard = n.lastHeard.toLong() and 0xffffffffL,
             snr = n.snr,
             hopsAway = if (n.hasHopsAway()) n.hopsAway else null,
@@ -1526,14 +1592,15 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             // La NodeDB asigna el canal solo al recibir un NodeInfo (updateUser): sin user queda en 0
             // por defecto, aunque lo hayamos oído por el público. Ese 0 no prueba nada.
             channel = if (n.hasUser()) n.channel else _nodes.value[n.num]?.channel,
-            mute = n.user.role == Config.DeviceConfig.Role.CLIENT_MUTE,
-            role = if (n.hasUser()) n.user.role else _nodes.value[n.num]?.role,
-            hw = if (n.hasUser()) n.user.hwModel else _nodes.value[n.num]?.hw,
+            mute = (if (n.hasUser()) n.user.role else known?.role) == Config.DeviceConfig.Role.CLIENT_MUTE,
+            role = if (n.hasUser()) n.user.role else known?.role,
+            hw = if (n.hasUser()) n.user.hwModel else known?.hw,
             alt = if (n.position.hasLatitudeI()) mslOf(n.position) else _nodes.value[n.num]?.alt,
             precisionBits = if (n.position.hasLatitudeI()) n.position.precisionBits else _nodes.value[n.num]?.precisionBits,
             group = n.num in groupNums,
             favorite = n.isFavorite,
             ignored = n.isIgnored,
+            identCached = known != null,
         )
         _nodes.update { it + (n.num to node) }
         maybeAskIdentity(node)

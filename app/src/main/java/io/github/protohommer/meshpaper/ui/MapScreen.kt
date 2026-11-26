@@ -1065,6 +1065,22 @@ private fun NodeCard(
             }
             onProfile?.let { HudOutlinedButton(onClick = it, Modifier.weight(1f)) { Text("Perfil", softWrap = false) } }
         }
+        // Sin ficha en el nodo conectado: decirlo, y dejar pedírsela por radio.
+        if (n.num != me && (n.noIdent || n.identCached)) {
+            var asked by remember(n.num) { mutableStateOf<String?>(null) }
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    asked ?: if (n.identCached) "El nodo perdió su ficha: nombre y rol los recuerda la app."
+                        else "Todavía no llegó su ficha: no se sabe el nombre ni el rol.",
+                    style = MaterialTheme.typography.bodySmall, color = HudTextDim, modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = {
+                    asked = if (vm.requestNodeInfo(n.num)) "Pedida. Si la contesta, llega en un rato (depende de los saltos)."
+                        else "No se pudo pedir ahora (sin conexión, o ya se pidió hace menos de un minuto)."
+                }) { Text("Pedir datos", color = HudText, fontWeight = FontWeight.Normal, softWrap = false) }
+            }
+        }
         val tight = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             if (antenna != null && est != null) {
