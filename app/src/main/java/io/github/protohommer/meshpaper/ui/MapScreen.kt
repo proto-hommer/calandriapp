@@ -651,7 +651,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                         val member = isMember(n)
                         val glyph = when {
                             lost -> Glyph.LOST
-                            !member -> Glyph.FOREIGN
+                            !member -> Glyph.foreignOf(n)
                             Signal.isBaseRole(n) -> Glyph.BASE
                             Signal.isFixedRole(n) -> Glyph.FIXED
                             else -> Glyph.MEMBER
@@ -871,7 +871,13 @@ private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, 
             GlyphRow(Glyph.MEMBER, "Del grupo")
             GlyphRow(Glyph.FIXED, "Fijo del grupo (router)")
             GlyphRow(Glyph.BASE, "Base del grupo")
-            GlyphRow(Glyph.FOREIGN, "Ajeno (violeta: repite)")
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                NodeGlyph(Glyph.FOREIGN, size = 20.dp)
+                NodeGlyph(Glyph.FOREIGN_FIXED, size = 20.dp)
+                NodeGlyph(Glyph.FOREIGN_BASE, size = 20.dp)
+                Spacer(Modifier.width(6.dp))
+                HudLabel("Ajenos (violeta: repiten)", color = HudText)
+            }
             GlyphRow(Glyph.LOST, "Perdido")
             GlyphRow(Glyph.ME, "Vos")
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1659,13 +1665,13 @@ private fun chipIcon(
     val gap = dpPx(ctx, 4f)
     val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-        textSize = dpPx(ctx, if (glyph == Glyph.FOREIGN) 10.5f else 12f)
+        textSize = dpPx(ctx, if (glyph.foreign) 10.5f else 12f)
     }
     val shown = if (suffix != null) "$label · $suffix" else label.take(6)
     val padX = dpPx(ctx, 7f)
     val barsW = if (bars != null) dpPx(ctx, 6f) + dpPx(ctx, 15f) else 0f
     val chipW = padX * 2 + text.measureText(shown) + barsW
-    val chipH = dpPx(ctx, if (glyph == Glyph.FOREIGN) 20f else 24f)
+    val chipH = dpPx(ctx, if (glyph.foreign) 20f else 24f)
     val w = (shapeW + gap + chipW + dpPx(ctx, 1f)).toInt()
     val h = maxOf(shapeW, chipH).toInt() + 2
     val u = (shapeW / 2) / w
@@ -1684,25 +1690,27 @@ private fun chipIcon(
     fun stroke(col: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col; style = Paint.Style.STROKE; strokeWidth = sw; strokeJoin = Paint.Join.ROUND }
     fun fill(col: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col }
     fun diamond(r: Float) = android.graphics.Path().apply { moveTo(cx, cy - r); lineTo(cx + r, cy); lineTo(cx, cy + r); lineTo(cx - r, cy); close() }
+    fun hex(r: Float) = android.graphics.Path().apply {
+        for (i in 0..5) {
+            val a = Math.toRadians(60.0 * i - 90.0)
+            val x = cx + r * kotlin.math.cos(a).toFloat(); val y = cy + r * kotlin.math.sin(a).toFloat()
+            if (i == 0) moveTo(x, y) else lineTo(x, y)
+        }
+        close()
+    }
     when (glyph) {
         Glyph.MEMBER -> { c.drawCircle(cx, cy, dpPx(ctx, 9f), fill(bg)); c.drawCircle(cx, cy, dpPx(ctx, 9f), stroke(ink)) }
         Glyph.FIXED -> { c.drawPath(diamond(dpPx(ctx, 11f)), fill(bg)); c.drawPath(diamond(dpPx(ctx, 11f)), stroke(ink)) }
-        Glyph.BASE -> {
-            val hex = android.graphics.Path().apply {
-                val r = dpPx(ctx, 10.5f)
-                for (i in 0..5) {
-                    val a = Math.toRadians(60.0 * i - 90.0)
-                    val x = cx + r * kotlin.math.cos(a).toFloat(); val y = cy + r * kotlin.math.sin(a).toFloat()
-                    if (i == 0) moveTo(x, y) else lineTo(x, y)
-                }
-                close()
-            }
-            c.drawPath(hex, fill(bg)); c.drawPath(hex, stroke(ink))
-        }
-        // Violeta si repite (aporta cobertura), gris si no: en gris se perdían sobre el mapa.
-        Glyph.FOREIGN -> {
+        Glyph.BASE -> { val hex = hex(dpPx(ctx, 10.5f)); c.drawPath(hex, fill(bg)); c.drawPath(hex, stroke(ink)) }
+        // Ajenos: rellenos, violeta si repite (aporta cobertura), gris si no; la forma dice su rol.
+        Glyph.FOREIGN, Glyph.FOREIGN_FIXED, Glyph.FOREIGN_BASE -> {
             val col = if (repeats) io.github.protohommer.meshpaper.ui.theme.SigRelay.toArgb() else SigMute.toArgb()
-            c.drawPath(diamond(dpPx(ctx, 7.5f)), fill(bg)); c.drawPath(diamond(dpPx(ctx, 6.5f)), fill(col))
+            val halo = dpPx(ctx, 1f)
+            when (glyph) {
+                Glyph.FOREIGN -> { c.drawCircle(cx, cy, dpPx(ctx, 5.5f) + halo, fill(bg)); c.drawCircle(cx, cy, dpPx(ctx, 5.5f), fill(col)) }
+                Glyph.FOREIGN_FIXED -> { c.drawPath(diamond(dpPx(ctx, 7.5f) + halo), fill(bg)); c.drawPath(diamond(dpPx(ctx, 7.5f)), fill(col)) }
+                else -> { c.drawPath(hex(dpPx(ctx, 7f) + halo), fill(bg)); c.drawPath(hex(dpPx(ctx, 7f)), fill(col)) }
+            }
         }
         Glyph.LOST -> c.drawCircle(cx, cy, dpPx(ctx, 9f), stroke(warn).apply { pathEffect = DashPathEffect(floatArrayOf(dpPx(ctx, 4f), dpPx(ctx, 3f)), 0f) })
         Glyph.ME -> {
@@ -1724,7 +1732,7 @@ private fun chipIcon(
     text.color = when (glyph) {
         Glyph.LOST -> warn
         Glyph.ME -> me
-        Glyph.FOREIGN -> if (repeats) SigRelay.toArgb() else HudTextDim.toArgb()
+        Glyph.FOREIGN, Glyph.FOREIGN_FIXED, Glyph.FOREIGN_BASE -> if (repeats) SigRelay.toArgb() else HudTextDim.toArgb()
         else -> ink
     }
     c.drawText(shown, x0 + padX, cy - (text.descent() + text.ascent()) / 2, text)

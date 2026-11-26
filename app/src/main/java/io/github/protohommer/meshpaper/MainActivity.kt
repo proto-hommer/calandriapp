@@ -743,7 +743,7 @@ private fun NodeRow(
             when {
                 n.num == me -> io.github.protohommer.meshpaper.ui.Glyph.ME
                 lost -> io.github.protohommer.meshpaper.ui.Glyph.LOST
-                !member -> io.github.protohommer.meshpaper.ui.Glyph.FOREIGN
+                !member -> io.github.protohommer.meshpaper.ui.Glyph.foreignOf(n)
                 Signal.isBaseRole(n) -> io.github.protohommer.meshpaper.ui.Glyph.BASE
                 Signal.isFixedRole(n) -> io.github.protohommer.meshpaper.ui.Glyph.FIXED
                 else -> io.github.protohommer.meshpaper.ui.Glyph.MEMBER

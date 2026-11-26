@@ -420,8 +420,34 @@ fun LegendItem(color: Color, text: String) {
 /** Rota el contenido (la flecha de "volver" es el chevron girado). */
 fun Modifier.graphicsLayerRotate(degrees: Float): Modifier = this.graphicsLayer { rotationZ = degrees }
 
-/** Qué es un nodo, por su forma (2.0). */
-enum class Glyph { MEMBER, FIXED, BASE, FOREIGN, LOST, ME }
+/**
+ * Qué es un nodo, por su forma (2.0). Los ajenos van rellenos y violetas, con la forma de su rol:
+ * círculo cliente, rombo router (o repetidor), hexágono base.
+ */
+enum class Glyph {
+    MEMBER, FIXED, BASE, FOREIGN, FOREIGN_FIXED, FOREIGN_BASE, LOST, ME;
+
+    val foreign: Boolean get() = this == FOREIGN || this == FOREIGN_FIXED || this == FOREIGN_BASE
+
+    companion object {
+        /** La forma de un nodo ajeno según cómo está configurado. */
+        fun foreignOf(n: io.github.protohommer.meshpaper.MeshNode): Glyph = when {
+            io.github.protohommer.meshpaper.mesh.Signal.isBaseRole(n) -> FOREIGN_BASE
+            io.github.protohommer.meshpaper.mesh.Signal.isFixedRole(n) -> FOREIGN_FIXED
+            else -> FOREIGN
+        }
+    }
+}
+
+/** Hexágono con un vértice arriba (los Base). */
+private fun hexPath(cx: Float, cy: Float, r: Float) = androidx.compose.ui.graphics.Path().apply {
+    for (i in 0..5) {
+        val a = Math.toRadians(60.0 * i - 90.0)
+        val x = cx + r * kotlin.math.cos(a).toFloat(); val y = cy + r * kotlin.math.sin(a).toFloat()
+        if (i == 0) moveTo(x, y) else lineTo(x, y)
+    }
+    close()
+}
 
 /** La forma de un nodo: círculo del grupo, rombo fijo, hexágono base, rombo gris ajeno, anillo cortado perdido, retícula vos. */
 @Composable
@@ -452,8 +478,10 @@ fun NodeGlyph(g: Glyph, modifier: Modifier = Modifier, size: Dp = 26.dp, tint: C
                 },
                 ink, style = androidx.compose.ui.graphics.drawscope.Stroke(sw),
             )
-            // Ajeno: rombo chico violeta (repite); [tint] gris para los que no repiten.
-            Glyph.FOREIGN -> drawPath(diamond(r * 0.7f), tint ?: io.github.protohommer.meshpaper.ui.theme.SigRelay)
+            // Ajenos: rellenos, violeta (repiten) o [tint] gris (no repiten), con la forma de su rol.
+            Glyph.FOREIGN -> drawCircle(tint ?: io.github.protohommer.meshpaper.ui.theme.SigRelay, r * 0.62f, c)
+            Glyph.FOREIGN_FIXED -> drawPath(diamond(r * 0.85f), tint ?: io.github.protohommer.meshpaper.ui.theme.SigRelay)
+            Glyph.FOREIGN_BASE -> drawPath(hexPath(c.x, c.y, r * 0.8f), tint ?: io.github.protohommer.meshpaper.ui.theme.SigRelay)
             Glyph.LOST -> drawCircle(
                 warn, r, c,
                 style = androidx.compose.ui.graphics.drawscope.Stroke(
