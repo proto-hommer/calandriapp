@@ -414,8 +414,9 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                         guidedZoomSet = true
                         map.controller.setZoom(if (navNow?.mode == io.github.protohommer.meshpaper.map.Routing.Mode.CAR) 17.0 else 18.0)
                     }
-                    // Uno queda en el cuarto de abajo de la pantalla, para ver más de lo que viene.
-                    map.setMapCenterOffset(0, (map.height * 0.25f).toInt())
+                    // Uno queda más abajo del centro, para ver más de lo que viene, pero por encima del
+                    // panel de abajo (Llega/Rumbo/Sube), que en la 2.0 ocupa casi el último cuarto.
+                    map.setMapCenterOffset(0, (map.height * 0.12f).toInt())
                     map.controller.setCenter(shown)
                     map.mapOrientation = -shownHeading
                 }

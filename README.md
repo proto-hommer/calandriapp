@@ -44,14 +44,14 @@ Cada nodo se lee de un vistazo por su **color**, su **forma** y su **borde**:
 
 | Cómo se ve | Qué es | En el ejemplo |
 |---|---|---|
-| **Círculo** blanco, con barras al lado | Del grupo. Tres barras: directo o 1 salto; dos: 2-3 saltos; una: 4-5 | ANA, JUAN, SOFI |
+| **Círculo** de color, con barras al lado | Del grupo: cada persona tiene su color, el mismo en el mapa y en el chat. Tres barras: directo o 1 salto; dos: 2-3 saltos; una: 4-5 | ANA, JUAN, SOFI |
 | **Anillo cortado naranja** | Del grupo, perdido: no se lo oye hace rato (la etiqueta dice hace cuánto) | TOMI |
-| **Rombo** blanco | Fijo del grupo (router, base) | BASE |
+| **Rombo** de color | Fijo del grupo (router, base) | BASE |
 | **Rombo gris chico** | Ajeno (no es del grupo): solo sirve de repetidor; nombre **violeta** si repite | SRC2, CHMP |
 | Retícula **cian** | Vos: el teléfono y el nodo conectado. El cian es solo tuyo | VOS |
 | Emoji con un palito | Waypoint (campamento, peligro, auto…) | ⛺ ⚠️ 🚗 |
 
-Los ajenos que no se oyen hace más de 30 minutos se ocultan del mapa hasta que vuelven a oírse. La
+Los ajenos que no se oyen hace más de 30 minutos se ocultan del mapa hasta que vuelven a oírse (los routers, a las 13 horas: el firmware los hace transmitir cada 12). La
 leyenda de abajo a la izquierda se puede achicar.
 
 <p><img src="docs/img/titulos/s-la-ficha-de-un-nodo.png" alt="La ficha de un nodo" height="26"/></p>
@@ -66,7 +66,7 @@ leyenda de abajo a la izquierda se puede achicar.
 
 Tocás un nodo y aparece su ficha: hace cuánto se lo oyó, el enlace (saltos o SNR), la batería, a qué
 distancia y en qué dirección está, su rastro y el modelo de placa. Desde ahí le escribís, vas hacia él
-(**IR**), ves el perfil del terreno o cargás los datos de su antena. En la pestaña **Nodos** está la
+(**IR**), ves el perfil del terreno, cargás los datos de su antena o lo marcás como **favorito** (☆ Fav) en tu nodo. Los favoritos importan en el rol **Base**: el nodo les da prioridad a sus mensajes. En la pestaña **Nodos** está la
 misma información en lista: primero los del grupo y después los repetidores y otros. Mantené apretado
 un nodo de la lista para verlo en el mapa. Los waypoints tienen su propia ficha (quién lo puso, si vence,
 a qué distancia está) y también se puede ir hacia ellos; se crean con un toque largo en el mapa.
@@ -75,6 +75,8 @@ a qué distancia está) y también se puede ir hacia ellos; se crean con un toqu
 
 <p align="center">
   <img src="docs/img/ir-a.png" alt="Ruta a pie hasta un nodo, por senderos" width="32%"/>
+  &nbsp;
+  <img src="docs/img/navegacion.png" alt="Navegación guiada: próximo giro arriba, lo que falta abajo" width="32%"/>
   &nbsp;
   <img src="docs/img/rutas-ajustes.png" alt="Ajustes: mapas y rutas sin conexión" width="32%"/>
 </p>
