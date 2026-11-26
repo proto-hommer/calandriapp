@@ -266,6 +266,10 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- Ajustes del nodo conectado ----------
 
+    /** WiFi del nodo (NetworkConfig). Trae la clave: no se muestra nunca. */
+    private val _network = MutableStateFlow<Config.NetworkConfig?>(null)
+    val networkConfig: StateFlow<Config.NetworkConfig?> = _network
+
     private val _device = MutableStateFlow<DeviceConfig?>(null)
     val deviceConfig: StateFlow<DeviceConfig?> = _device
 
@@ -624,6 +628,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         _lora.value = null
         _position.value = null
         _device.value = null
+        _network.value = null
         _owner.value = null
         _metadata.value = null
         _lastPosSent.value = 0L
@@ -806,6 +811,28 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         e.fixed?.let { sendAdmin(me, AdminMessage.newBuilder().setSetFixedPosition(it).build()) }
         e.lora?.let { sendAdmin(me, cfg(Config.newBuilder().setLora(it))) }
         for (ch in e.channels) sendAdmin(me, AdminMessage.newBuilder().setSetChannel(ch).build())
+    }
+
+    /**
+     * Red WiFi del nodo: [ssid], [psk] (vacía = la que ya tiene: el firmware conserva la guardada si
+     * recibe "sekrit", AdminModule.cpp writeSecret) y si queda prendido. En ESP32, con WiFi el Bluetooth
+     * no arranca (main-esp32.cpp): prenderlo corta la app y no tiene sentido reconectar.
+     */
+    fun saveWifi(ssid: String, psk: String, enabled: Boolean) {
+        val net = _network.value ?: Config.NetworkConfig.getDefaultInstance()
+        val next = net.toBuilder()
+            .setWifiSsid(ssid.trim())
+            .setWifiPsk(psk.ifEmpty { "sekrit" })
+            .setWifiEnabled(enabled)
+            .build()
+        runEdit(
+            "Guardando el WiFi…",
+            if (enabled) "WiFi prendido. El nodo reinicia sin Bluetooth: la app ya no se puede conectar hasta que lo apagues."
+            else "WiFi guardado.",
+            reconnect = !enabled,
+        ) { me ->
+            sendAdmin(me, AdminMessage.newBuilder().setSetConfig(Config.newBuilder().setNetwork(next)).build())
+        }
     }
 
     fun rebootNode() = runEdit("Reiniciando el nodo…", "Nodo reiniciado.", transaction = false) { me ->
@@ -1344,6 +1371,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 Config.PayloadVariantCase.LORA -> _lora.value = msg.config.lora
                 Config.PayloadVariantCase.DEVICE -> _device.value = msg.config.device
                 Config.PayloadVariantCase.POSITION -> _position.value = msg.config.position
+                Config.PayloadVariantCase.NETWORK -> _network.value = msg.config.network
                 else -> Unit
             }
             FromRadio.PayloadVariantCase.PACKET -> onPacket(msg.packet)

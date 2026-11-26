@@ -781,6 +781,8 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                 onToggle = { showLegend = !showLegend; mapPrefs.edit().putBoolean("legend", showLegend).apply() },
                 members = nodes.values.count { isMember(it) && it.num != me } + if (hasGroup && me != null) 1 else 0,
                 relays = nodes.values.count { !isMember(it) && !it.mute },
+                // Activos: oídos hace poco (1 h; routers y Base 13 h). El total incluye los de hace días.
+                relaysActive = nodes.values.count { !isMember(it) && !it.mute && !Signal.isLost(it, now) },
             )
         }
     }
@@ -862,9 +864,9 @@ private fun CoverageLegend(cv: Coverage.Result, modifier: Modifier, collapsed: B
 }
 
 @Composable
-private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, members: Int, relays: Int) {
+private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, members: Int, relays: Int, relaysActive: Int) {
     HudPanel(
-        modifier.width(220.dp), title = "Grupo $members · Rep $relays", collapsed = !expanded, onToggle = onToggle,
+        modifier.width(220.dp), title = "Grupo $members · Rep $relaysActive de $relays", collapsed = !expanded, onToggle = onToggle,
         padding = androidx.compose.foundation.layout.PaddingValues(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 10.dp),
     ) {
         Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -885,7 +887,8 @@ private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, 
                 SignalBars(2, false); HudLabel("2-3", color = HudText)
                 SignalBars(1, false); HudLabel("4-5", color = HudText)
             }
-            HudLabel("Ajeno sin oír 30 min = oculto (router: 13 h)", maxLines = 2)
+            HudLabel("Rep: activos (oídos en la última hora) de todos los conocidos", maxLines = 2)
+            HudLabel("Ajeno sin oír 30 min = oculto (router y base: 13 h)", maxLines = 2)
             HudLabel("Largo en el mapa = waypoint", maxLines = 2)
             HudLabel("Largo en un nodo = alcance", maxLines = 2)
         }
@@ -1103,14 +1106,23 @@ private fun NodeCard(
                 TextButton(onClick = onAntenna, contentPadding = tight) { Text("Antena", color = HudText, fontWeight = FontWeight.Normal, softWrap = false) }
                 onProfile?.let { TextButton(onClick = it, contentPadding = tight) { Text("Perfil", color = HudText, fontWeight = FontWeight.Normal, softWrap = false) } }
             }
-            if (n.num != me) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = { vm.setFavorite(n.num, !n.favorite) }, contentPadding = tight) {
-                    // Favorito en el nodo conectado: en rol Base, prioriza lo que va y viene de sus favoritos.
-                    Text(if (n.favorite) "★ Favorito" else "☆ Marcar favorito", color = if (n.favorite) SigMe else HudText, fontWeight = FontWeight.Normal, softWrap = false)
+            if (n.num != me) {
+                var asked by remember(n.num) { mutableStateOf<String?>(null) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = { vm.setFavorite(n.num, !n.favorite) }, contentPadding = tight) {
+                        // Favorito en el nodo conectado: en rol Base, prioriza lo que va y viene de sus favoritos.
+                        Text(if (n.favorite) "★ Favorito" else "☆ Favorito", color = if (n.favorite) SigMe else HudText, fontWeight = FontWeight.Normal, softWrap = false)
+                    }
+                    // Refrescar nombre, rol y clave de cualquier nodo (gasta aire: como mucho 1 por minuto)
+                    TextButton(onClick = {
+                        asked = if (vm.requestNodeInfo(n.num)) "Datos pedidos: si contesta, se actualizan en un rato."
+                            else "No se pudo pedir ahora (sin conexión, o se pidió hace menos de un minuto)."
+                    }, contentPadding = tight) { Text("Pedir datos", color = HudText, fontWeight = FontWeight.Normal, softWrap = false) }
+                    TextButton(onClick = { askForget = true }, contentPadding = tight) {
+                        Text("Olvidar", color = HudTextDim, fontWeight = FontWeight.Normal, softWrap = false)
+                    }
                 }
-                TextButton(onClick = { askForget = true }, contentPadding = tight) {
-                    Text("Olvidar", color = HudTextDim, fontWeight = FontWeight.Normal, softWrap = false)
-                }
+                asked?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = HudTextDim) }
             }
         }
         }

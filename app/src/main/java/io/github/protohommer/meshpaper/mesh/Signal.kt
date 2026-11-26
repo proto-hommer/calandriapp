@@ -24,7 +24,8 @@ object Signal {
      */
     const val ROUTER_LOST_AFTER_S = 13 * 3600L
 
-    private val QUIET_ROLES = setOf(Role.ROUTER, Role.ROUTER_LATE)
+    // Routers y Base hablan poco (y la Base queda quieta en un techo): 13 h antes de darlos por perdidos.
+    private val QUIET_ROLES = setOf(Role.ROUTER, Role.ROUTER_LATE, Role.CLIENT_BASE)
 
     private fun lostAfter(n: MeshNode) = if (n.role in QUIET_ROLES) ROUTER_LOST_AFTER_S else LOST_AFTER_S
 

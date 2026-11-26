@@ -697,7 +697,7 @@ private fun NodesScreen(vm: MeshViewModel, onAskLocation: () -> Unit, onNode: (I
         }
         items(members, key = { it.num }) { n -> NodeRow(n, me, true, fix, now, onNode, onShowOnMap) }
         if (others.isNotEmpty()) {
-            item { Spacer(Modifier.height(16.dp)); SectionTitle("Repetidores y otros · ${others.size}", HudTextDim) }
+            item { Spacer(Modifier.height(16.dp)); SectionTitle("Repetidores y otros · ${others.size} · ${others.count { !Signal.isLost(it, now) }} activos", HudTextDim) }
             items(others, key = { it.num }) { n -> NodeRow(n, me, false, fix, now, onNode, onShowOnMap) }
         }
         item {

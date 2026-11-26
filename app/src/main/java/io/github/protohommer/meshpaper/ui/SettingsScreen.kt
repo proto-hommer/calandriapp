@@ -345,6 +345,9 @@ private fun SettingsContent(
                 }
             }
 
+            // ---------- WiFi (solo si la placa tiene) ----------
+            if (meta?.hasWifi == true) WifiPanel(vm)
+
             // ---------- Mensajes rápidos ----------
             CannedPanel(vm)
 
@@ -633,6 +636,86 @@ private fun Choice(text: String, selected: Boolean, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
         RadioButton(selected = selected, onClick = onClick)
         Text(text)
+    }
+}
+
+/**
+ * Red WiFi del nodo. Aparte del "Guardar" general: prenderlo apaga el Bluetooth, así que va con su
+ * propia confirmación. La clave nunca se muestra; vacía = queda la que tiene.
+ */
+@Composable
+private fun WifiPanel(vm: MeshViewModel) {
+    val net by vm.networkConfig.collectAsState()
+    val me by vm.myNodeNum.collectAsState()
+    val calandria by vm.calandria.collectAsState()
+    val isCalandria = me?.let { it in calandria } == true
+    val cur = net
+    var ssid by remember(cur) { mutableStateOf(cur?.wifiSsid.orEmpty()) }
+    var psk by remember(cur) { mutableStateOf("") }
+    var askOn by remember { mutableStateOf(false) }
+    val hasPsk = !cur?.wifiPsk.isNullOrEmpty()
+    val on = cur?.wifiEnabled == true
+    val ssidOk = ssid.isNotBlank() && ssid.toByteArray().size <= 32
+    val pskOk = psk.isEmpty() || psk.toByteArray().size in 8..63
+    val changed = cur != null && (ssid.trim() != cur.wifiSsid || psk.isNotEmpty())
+
+    HudPanel(Modifier.fillMaxWidth(), title = "WiFi") {
+        Note(
+            when {
+                cur == null -> "Todavía no llegó la configuración de red del nodo."
+                on -> "Prendido · red ${cur.wifiSsid.ifEmpty { "(sin red)" }}"
+                cur.wifiSsid.isNotEmpty() -> "Apagado · red cargada: ${cur.wifiSsid}"
+                else -> "Apagado · sin red cargada"
+            }
+        )
+        OutlinedTextField(
+            value = ssid, onValueChange = { ssid = it.take(32) },
+            label = { Text("Red (nombre)") }, singleLine = true, isError = ssid.isNotEmpty() && !ssidOk,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = psk, onValueChange = { psk = it.take(63) },
+            label = { Text(if (hasPsk) "Clave (vacía = la que ya tiene)" else "Clave") },
+            singleLine = true, isError = !pskOk,
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (!pskOk) Warn("La clave de WiFi tiene entre 8 y 63 caracteres.")
+        Note(
+            "Hora por internet: con WiFi el nodo toma la hora de " +
+                (cur?.ntpServer?.ifEmpty { null } ?: "meshtastic.pool.ntp.org") + "."
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HudOutlinedButton(
+                onClick = { vm.saveWifi(ssid, psk, on) }, enabled = changed && ssidOk && pskOk,
+                modifier = Modifier.weight(1f),
+            ) { Text("GUARDAR RED", softWrap = false) }
+            HudOutlinedButton(
+                onClick = { if (on) vm.saveWifi(ssid, psk, false) else askOn = true },
+                enabled = cur != null && (on || (ssidOk && pskOk && (hasPsk || psk.isNotEmpty()))),
+                modifier = Modifier.weight(1f),
+            ) { Text(if (on) "APAGAR WIFI" else "PRENDER WIFI", softWrap = false) }
+        }
+        Note("El WiFi es para una base en casa: mientras está prendido, el nodo no tiene Bluetooth.")
+    }
+    if (askOn) {
+        AlertDialog(
+            onDismissRequest = { askOn = false },
+            title = { Text("¿Prender el WiFi?") },
+            text = {
+                Text(
+                    "El nodo reinicia y se conecta a \"${ssid.trim()}\". Mientras tenga WiFi, el Bluetooth queda " +
+                        "apagado: ni esta app ni la oficial se van a poder conectar.\n\n" +
+                        if (isCalandria) "Para volver: en el MK1, Estado → WiFi → Apagar WiFi. Si no conecta en 3 minutos, " +
+                            "el Inicio lo avisa y con un clic vuelve al Bluetooth. También: mantener BOOT al arrancar."
+                        else "Para volver: apagalo desde la pantalla del nodo o por USB."
+                )
+            },
+            confirmButton = { TextButton(onClick = { askOn = false; vm.saveWifi(ssid, psk, true) }) { Text("Prender") } },
+            dismissButton = { TextButton(onClick = { askOn = false }) { Text("Cancelar") } },
+        )
     }
 }
 
