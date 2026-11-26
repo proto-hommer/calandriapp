@@ -70,7 +70,7 @@ object Demo {
             node(SOFI, "SOFI", "Sofi · cumbre", 300, -31.9538, -64.8165, 4, -6.0f, true, battery = 31),
             node(TOMI, "TOMI", "Tomi", 2 * 3600, -32.0080, -64.6950, 3, -9.5f, true, battery = 12),
             node(BASE, "BASE", "Base Los Reartes", 90, -31.9310, -64.6230, 1, 6.0f, true, battery = 101,
-                role = DeviceConfig.Role.ROUTER, hw = MeshProtos.HardwareModel.RAK4631),
+                role = DeviceConfig.Role.CLIENT_BASE, hw = MeshProtos.HardwareModel.RAK4631),
             node(VGB, "VGB1", "Villa General Belgrano Rep", 60, -31.9858, -64.5655, 1, 7.0f, false,
                 role = DeviceConfig.Role.ROUTER, hw = MeshProtos.HardwareModel.RAK4631),
             node(SRC, "SRC2", "Santa Rosa Mesh", 240, -32.0660, -64.5365, 2, 1.0f, false),

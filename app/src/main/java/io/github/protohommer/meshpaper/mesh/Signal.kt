@@ -62,6 +62,9 @@ object Signal {
 
     fun isFixedRole(n: MeshNode): Boolean = n.role in FIXED_ROLES
 
+    /** Rol Base (CLIENT_BASE): fijo, pero repite como router solo lo de sus favoritos. Se dibuja hexágono. */
+    fun isBaseRole(n: MeshNode): Boolean = n.role == Role.CLIENT_BASE
+
     fun tone(n: MeshNode, me: Int?, member: Boolean, now: Long): Tone = when {
         n.num == me -> Tone.ME
         member && isFixedRole(n) -> Tone.FIXED

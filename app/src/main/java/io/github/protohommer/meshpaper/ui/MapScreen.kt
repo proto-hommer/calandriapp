@@ -652,6 +652,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                         val glyph = when {
                             lost -> Glyph.LOST
                             !member -> Glyph.FOREIGN
+                            Signal.isBaseRole(n) -> Glyph.BASE
                             Signal.isFixedRole(n) -> Glyph.FIXED
                             else -> Glyph.MEMBER
                         }
@@ -840,7 +841,7 @@ private val blueDarkFilter = ColorMatrixColorFilter(ColorMatrix().apply {
 @Composable
 private fun CoverageLegend(cv: Coverage.Result, modifier: Modifier, collapsed: Boolean, onToggle: () -> Unit) {
     HudPanel(
-        modifier.width(210.dp), title = "Cobertura · nodo de mano",
+        modifier.width(210.dp), title = "Cobertura",
         padding = androidx.compose.foundation.layout.PaddingValues(10.dp), collapsed = collapsed, onToggle = onToggle,
     ) {
         val stops = (0..8).map { androidx.compose.ui.graphics.Color(Coverage.color(it / 8f, 0xFF)) }
@@ -854,6 +855,7 @@ private fun CoverageLegend(cv: Coverage.Result, modifier: Modifier, collapsed: B
             HudLabel("${lo + Coverage.FULL_SCALE_DB.toInt()}+")
         }
         HudLabel("Al límite → fuerte")
+        HudLabel("Hacia un nodo de mano")
     }
 }
 
@@ -865,7 +867,8 @@ private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, 
     ) {
         Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             GlyphRow(Glyph.MEMBER, "Del grupo")
-            GlyphRow(Glyph.FIXED, "Fijo del grupo (base)")
+            GlyphRow(Glyph.FIXED, "Fijo del grupo (router)")
+            GlyphRow(Glyph.BASE, "Base del grupo")
             GlyphRow(Glyph.FOREIGN, "Ajeno (violeta: repite)")
             GlyphRow(Glyph.LOST, "Perdido")
             GlyphRow(Glyph.ME, "Vos")
@@ -899,7 +902,10 @@ private fun StatTile(label: String, value: String, modifier: Modifier = Modifier
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             bars?.let { SignalBars(it, false); Spacer(Modifier.width(5.dp)) }
-            Text(value, style = io.github.protohommer.meshpaper.ui.theme.MonoValue.copy(fontWeight = FontWeight.Medium), color = if (warn) SigWeak else HudText, maxLines = 1)
+            // Mono: cada carácter ocupa lo mismo; "21,6 km" (7) no entraba a 15sp en un cuarto del ancho.
+            val len = value.length + (if (bars != null) 2 else 0)
+            val fs = when { len >= 9 -> 12.sp; len >= 7 -> 13.sp; else -> 15.sp }
+            Text(value, style = io.github.protohommer.meshpaper.ui.theme.MonoValue.copy(fontWeight = FontWeight.Medium, fontSize = fs), color = if (warn) SigWeak else HudText, maxLines = 1, softWrap = false)
         }
     }
 }
@@ -932,7 +938,7 @@ private fun NodeCard(
         Tone.ME -> "Este nodo"
         Tone.RELAY -> "Repetidor ajeno"
         Tone.MUTE -> "Ajeno · no repite"
-        Tone.FIXED -> if (Signal.isLost(n, now)) "Grupo · fijo · sin noticias" else "Grupo · fijo"
+        Tone.FIXED -> (if (Signal.isBaseRole(n)) "Grupo · base" else "Grupo · fijo") + (if (Signal.isLost(n, now)) " · sin noticias" else "")
         else -> if (Signal.isLost(n, now)) "Grupo · sin noticias" else "Grupo"
     }
     // Minimizada queda la barra con el nombre, para ver el mapa (o la cobertura) de abajo.
@@ -1679,6 +1685,18 @@ private fun chipIcon(
     when (glyph) {
         Glyph.MEMBER -> { c.drawCircle(cx, cy, dpPx(ctx, 9f), fill(bg)); c.drawCircle(cx, cy, dpPx(ctx, 9f), stroke(ink)) }
         Glyph.FIXED -> { c.drawPath(diamond(dpPx(ctx, 11f)), fill(bg)); c.drawPath(diamond(dpPx(ctx, 11f)), stroke(ink)) }
+        Glyph.BASE -> {
+            val hex = android.graphics.Path().apply {
+                val r = dpPx(ctx, 10.5f)
+                for (i in 0..5) {
+                    val a = Math.toRadians(60.0 * i - 90.0)
+                    val x = cx + r * kotlin.math.cos(a).toFloat(); val y = cy + r * kotlin.math.sin(a).toFloat()
+                    if (i == 0) moveTo(x, y) else lineTo(x, y)
+                }
+                close()
+            }
+            c.drawPath(hex, fill(bg)); c.drawPath(hex, stroke(ink))
+        }
         Glyph.FOREIGN -> c.drawPath(diamond(dpPx(ctx, 6f)), fill(SigMute.toArgb()))
         Glyph.LOST -> c.drawCircle(cx, cy, dpPx(ctx, 9f), stroke(warn).apply { pathEffect = DashPathEffect(floatArrayOf(dpPx(ctx, 4f), dpPx(ctx, 3f)), 0f) })
         Glyph.ME -> {

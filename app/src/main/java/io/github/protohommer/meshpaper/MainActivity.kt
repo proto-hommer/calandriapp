@@ -744,6 +744,7 @@ private fun NodeRow(
                 n.num == me -> io.github.protohommer.meshpaper.ui.Glyph.ME
                 lost -> io.github.protohommer.meshpaper.ui.Glyph.LOST
                 !member -> io.github.protohommer.meshpaper.ui.Glyph.FOREIGN
+                Signal.isBaseRole(n) -> io.github.protohommer.meshpaper.ui.Glyph.BASE
                 Signal.isFixedRole(n) -> io.github.protohommer.meshpaper.ui.Glyph.FIXED
                 else -> io.github.protohommer.meshpaper.ui.Glyph.MEMBER
             },
@@ -777,7 +778,7 @@ private fun NodeRow(
             val parts = buildList {
                 if (lost) add("perdido")
                 if (!member) add(if (n.mute) "no repite" else "repite")
-                if (member && Signal.isFixedRole(n)) add("fijo")
+                if (member && Signal.isFixedRole(n)) add(if (Signal.isBaseRole(n)) "base" else "fijo")
                 Signal.describe(n)?.let { add(it) }
                 if (n.num != me) add(agoText(now, n.lastHeard))
             }

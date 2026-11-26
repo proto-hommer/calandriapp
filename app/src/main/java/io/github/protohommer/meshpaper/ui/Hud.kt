@@ -418,9 +418,9 @@ fun LegendItem(color: Color, text: String) {
 fun Modifier.graphicsLayerRotate(degrees: Float): Modifier = this.graphicsLayer { rotationZ = degrees }
 
 /** Qué es un nodo, por su forma (2.0). */
-enum class Glyph { MEMBER, FIXED, FOREIGN, LOST, ME }
+enum class Glyph { MEMBER, FIXED, BASE, FOREIGN, LOST, ME }
 
-/** La forma de un nodo: círculo del grupo, rombo fijo, rombo gris ajeno, anillo cortado perdido, retícula vos. */
+/** La forma de un nodo: círculo del grupo, rombo fijo, hexágono base, rombo gris ajeno, anillo cortado perdido, retícula vos. */
 @Composable
 fun NodeGlyph(g: Glyph, modifier: Modifier = Modifier, size: Dp = 26.dp, tint: Color? = null) {
     val ink = tint ?: HudText
@@ -437,6 +437,18 @@ fun NodeGlyph(g: Glyph, modifier: Modifier = Modifier, size: Dp = 26.dp, tint: C
         when (g) {
             Glyph.MEMBER -> drawCircle(ink, r, c, style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
             Glyph.FIXED -> drawPath(diamond(r * 1.15f), ink, style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
+            Glyph.BASE -> drawPath(
+                androidx.compose.ui.graphics.Path().apply {
+                    val rr = r * 1.08f
+                    for (i in 0..5) {
+                        val a = Math.toRadians(60.0 * i - 90.0)
+                        val x = c.x + rr * kotlin.math.cos(a).toFloat(); val y = c.y + rr * kotlin.math.sin(a).toFloat()
+                        if (i == 0) moveTo(x, y) else lineTo(x, y)
+                    }
+                    close()
+                },
+                ink, style = androidx.compose.ui.graphics.drawscope.Stroke(sw),
+            )
             Glyph.FOREIGN -> drawPath(diamond(r * 0.62f), mute)
             Glyph.LOST -> drawCircle(
                 warn, r, c,
