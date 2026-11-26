@@ -829,7 +829,8 @@ internal val darkFilter: ColorMatrixColorFilter get() = if (Appearance.isNocturn
 /** Nocturno: invierte el brillo y lo deja en grises fríos, apagados. */
 private val neutralDarkFilter = ColorMatrixColorFilter(ColorMatrix().apply {
     fun row(a: Float, c: Float) = floatArrayOf(-0.299f * a, -0.587f * a, -0.114f * a, 0f, 255f * a + c)
-    set(row(0.40f, 4f) + row(0.43f, 6f) + row(0.48f, 9f) + floatArrayOf(0f, 0f, 0f, 1f, 0f))
+    // Más contraste (antes 0.40/0.43/0.48): el relieve, los bosques y las sierras se marcan más.
+    set(row(0.62f, 0f) + row(0.66f, 2f) + row(0.72f, 5f) + floatArrayOf(0f, 0f, 0f, 1f, 0f))
 })
 
 private val blueDarkFilter = ColorMatrixColorFilter(ColorMatrix().apply {
@@ -1697,7 +1698,11 @@ private fun chipIcon(
             }
             c.drawPath(hex, fill(bg)); c.drawPath(hex, stroke(ink))
         }
-        Glyph.FOREIGN -> c.drawPath(diamond(dpPx(ctx, 6f)), fill(SigMute.toArgb()))
+        // Violeta si repite (aporta cobertura), gris si no: en gris se perdían sobre el mapa.
+        Glyph.FOREIGN -> {
+            val col = if (repeats) io.github.protohommer.meshpaper.ui.theme.SigRelay.toArgb() else SigMute.toArgb()
+            c.drawPath(diamond(dpPx(ctx, 7.5f)), fill(bg)); c.drawPath(diamond(dpPx(ctx, 6.5f)), fill(col))
+        }
         Glyph.LOST -> c.drawCircle(cx, cy, dpPx(ctx, 9f), stroke(warn).apply { pathEffect = DashPathEffect(floatArrayOf(dpPx(ctx, 4f), dpPx(ctx, 3f)), 0f) })
         Glyph.ME -> {
             c.drawCircle(cx, cy, dpPx(ctx, 12f), fill(me).apply { alpha = 36 })

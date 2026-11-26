@@ -748,7 +748,8 @@ private fun NodeRow(
                 Signal.isFixedRole(n) -> io.github.protohommer.meshpaper.ui.Glyph.FIXED
                 else -> io.github.protohommer.meshpaper.ui.Glyph.MEMBER
             },
-            tint = if (member && !lost && n.num != me) io.github.protohommer.meshpaper.ui.theme.memberColor(n.num) else null,
+            tint = if (member && !lost && n.num != me) io.github.protohommer.meshpaper.ui.theme.memberColor(n.num)
+                else if (!member && n.mute) io.github.protohommer.meshpaper.ui.theme.SigMute else null,
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {

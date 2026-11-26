@@ -107,11 +107,11 @@ internal val GlassStyle: HazeStyle
     get() = HazeStyle(
         backgroundColor = HudBg,
         // De día, vidrio claro: velo blanco translúcido sobre el mapa desenfocado.
-        tint = HazeTint(if (Appearance.isDay) HudSurface.copy(alpha = 0.52f) else HudBg.copy(alpha = 0.42f)),
+        tint = HazeTint(if (Appearance.isDay) HudSurface.copy(alpha = 0.58f) else HudSurface.copy(alpha = 0.55f)),
         blurRadius = 18.dp,
         noiseFactor = 0f,
         // Sin desenfoque (Android 11 o anterior, o el mapa moviéndose): un velo que se lea igual.
-        fallbackTint = HazeTint(if (Appearance.isDay) HudSurface.copy(alpha = 0.78f) else HudBg.copy(alpha = 0.74f)),
+        fallbackTint = HazeTint(if (Appearance.isDay) HudSurface.copy(alpha = 0.86f) else HudSurface.copy(alpha = 0.84f)),
     )
 
 /**
@@ -136,17 +136,20 @@ fun Modifier.neonGlow(color: Color, shape: Shape, radius: Dp = 8.dp, width: Dp =
  * [blur] = false para cosas chicas y numerosas (botones): solo tinte, que es más liviano.
  */
 /**
- * Panel de la 2.0: plano, del color de la superficie, con un borde fino y quieto (la línea, o el
- * color de [accent] apenas marcado si no es el acento de la interfaz). Sin vidrio ni neón: se lee
- * igual sobre el mapa y al sol. [blur] y [glow] quedan por compatibilidad y no hacen nada.
+ * Panel de la 2.0: del color de la superficie, con un borde fino y quieto (la línea, o el color de
+ * [accent] apenas marcado si no es el acento de la interfaz). Sobre el mapa ([blur] y hay mapa
+ * detrás) es vidrio esmerilado: desenfoca el mapa y lo tiñe con la superficie a media opacidad
+ * (Android 12+; antes, o con el mapa moviéndose, un velo casi opaco). Sin neón. [glow] no hace nada.
  */
 @Suppress("UNUSED_PARAMETER")
 @Composable
-fun Modifier.glass(shape: Shape, accent: Color = HudCyan, blur: Boolean = true, glow: Boolean = true): Modifier =
-    this
+fun Modifier.glass(shape: Shape, accent: Color = HudCyan, blur: Boolean = true, glow: Boolean = true): Modifier {
+    val haze = LocalHaze.current.takeIf { blur }
+    return this
         .clip(shape)
-        .background(HudSurface)
+        .then(if (haze != null) Modifier.hazeEffect(haze, GlassStyle) else Modifier.background(HudSurface))
         .border(1.dp, if (accent == HudCyan || accent == HudLine) HudLine else accent.copy(alpha = 0.7f), shape)
+}
 
 /** Texto con brillo de neón (sombra difusa del mismo color). */
 fun TextStyle.neon(color: Color, radius: Float = 14f): TextStyle =
@@ -449,7 +452,8 @@ fun NodeGlyph(g: Glyph, modifier: Modifier = Modifier, size: Dp = 26.dp, tint: C
                 },
                 ink, style = androidx.compose.ui.graphics.drawscope.Stroke(sw),
             )
-            Glyph.FOREIGN -> drawPath(diamond(r * 0.62f), mute)
+            // Ajeno: rombo chico violeta (repite); [tint] gris para los que no repiten.
+            Glyph.FOREIGN -> drawPath(diamond(r * 0.7f), tint ?: io.github.protohommer.meshpaper.ui.theme.SigRelay)
             Glyph.LOST -> drawCircle(
                 warn, r, c,
                 style = androidx.compose.ui.graphics.drawscope.Stroke(
