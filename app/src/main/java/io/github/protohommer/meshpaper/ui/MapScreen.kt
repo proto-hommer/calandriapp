@@ -829,8 +829,9 @@ internal val darkFilter: ColorMatrixColorFilter get() = if (Appearance.isNocturn
 /** Nocturno: invierte el brillo y lo deja en grises fríos, apagados. */
 private val neutralDarkFilter = ColorMatrixColorFilter(ColorMatrix().apply {
     fun row(a: Float, c: Float) = floatArrayOf(-0.299f * a, -0.587f * a, -0.114f * a, 0f, 255f * a + c)
-    // Más contraste (antes 0.40/0.43/0.48): el relieve, los bosques y las sierras se marcan más.
-    set(row(0.62f, 0f) + row(0.66f, 2f) + row(0.72f, 5f) + floatArrayOf(0f, 0f, 0f, 1f, 0f))
+    // Más contraste (antes 0.40/0.43/0.48): el relieve, los bosques y las sierras se marcan más;
+    // el corrimiento negativo deja el fondo (el blanco del mapa) bien negro.
+    set(row(0.80f, -6f) + row(0.84f, -5f) + row(0.90f, -3f) + floatArrayOf(0f, 0f, 0f, 1f, 0f))
 })
 
 private val blueDarkFilter = ColorMatrixColorFilter(ColorMatrix().apply {
