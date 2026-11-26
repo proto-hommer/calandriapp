@@ -104,10 +104,34 @@ object Calandria {
         }
     }
 
-    /** null = no se puede saber (build sin hash o sin consulta). */
+    /**
+     * null = no se puede saber (build sin hash o sin consulta).
+     * Con versión propia de los dos lados ("0.7.0" contra "calandria-0.6.0") manda el número: un build
+     * más nuevo que el último publicado (uno de prueba, grabado antes del release) está al día.
+     * Sin versión, el commit: los firmwares de antes de la 0.6.0.
+     */
     fun upToDate(i: Info, r: Release?): Boolean? {
-        val c = i.commit ?: return null
         r ?: return null
+        compareVersions(i.ver, r)?.let { return it >= 0 }
+        val c = i.commit ?: return null
         return r.commit.startsWith(c, ignoreCase = true)
     }
+
+    /** El nodo tiene una versión posterior a la última publicada (un build de prueba). */
+    fun newerThanLatest(i: Info, r: Release?): Boolean = r != null && (compareVersions(i.ver, r) ?: 0) > 0
+
+    /** ver del nodo contra el tag del release: <0, 0, >0; null si alguno no es "calandria-x.y.z". */
+    private fun compareVersions(ver: String, r: Release): Int? {
+        if (!r.tag.startsWith("calandria-")) return null
+        val a = numbers(ver) ?: return null
+        val b = numbers(r.tag.removePrefix("calandria-")) ?: return null
+        for (k in 0 until maxOf(a.size, b.size)) {
+            val d = a.getOrElse(k) { 0 }.compareTo(b.getOrElse(k) { 0 })
+            if (d != 0) return d
+        }
+        return 0
+    }
+
+    private fun numbers(v: String): List<Int>? =
+        v.takeIf { it.isNotEmpty() }?.split('.')?.map { it.toIntOrNull() ?: return null }
 }

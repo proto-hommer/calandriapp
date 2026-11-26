@@ -46,7 +46,9 @@ fun CalandriaFirmware(info: Calandria.Info, showLink: Boolean = true) {
     // "Calandria 0.6.0 · Meshtastic 2.8.3"; los firmwares de antes de la 0.6.0 no mandan su versión.
     val fw = if (info.ver.isNotEmpty()) "Calandria ${info.ver} · Meshtastic ${info.base}" else "Firmware ${info.fw.ifEmpty { "?" }}"
     when (upToDate) {
-        true -> HudLabel("$fw · al día", color = SigGood, maxLines = 2)
+        true -> if (Calandria.newerThanLatest(info, latest))
+            HudLabel("$fw · de prueba, más nueva que la publicada (${latest?.tag?.let { Calandria.shortTag(it) }})", maxLines = 2)
+        else HudLabel("$fw · al día", color = SigGood, maxLines = 2)
         false -> {
             HudLabel("$fw · hay una nueva: ${latest?.tag?.let { Calandria.shortTag(it) }}", color = SigFair, maxLines = 2)
             val uri = LocalUriHandler.current

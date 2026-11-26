@@ -1423,8 +1423,10 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     private fun tellLatestFirmware() {
         if (BuildConfig.DEMO || link.value != LinkState.Connected) return
         val me = _myNodeNum.value ?: return
-        if (me !in _calandria.value) return
+        val info = _calandria.value[me] ?: return
         val r = Calandria.latest.value ?: return
+        // Un build más nuevo que el publicado compara por commit en el nodo y diría "hay <vieja>": no avisar
+        if (Calandria.newerThanLatest(info, r)) return
         val text = "CALANDRIA/1;latest=${r.tag};commit=${r.commit}"
         val packet = MeshPacket.newBuilder()
             .setTo(me)
