@@ -325,6 +325,18 @@ private fun SettingsContent(
                     SigWeak,
                 )
                 else if (role != device.role && role in WARN_ROLES) Warn("Este rol cambia también intervalos del nodo y lo marca como \"no recibe mensajes directos\".")
+                if (role == Role.CLIENT_BASE) {
+                    // Base repite como un router (con prioridad y sin gastar saltos) solo lo que viene de sus
+                    // favoritos o va hacia ellos (FloodingRouter.cpp / NextHopRouter.cpp). Sin favoritos no gana nada.
+                    val notFav = remember(nodes) { vm.groupNotFavorite() }
+                    Note(
+                        "Base le da prioridad a lo que viene de sus favoritos o va hacia ellos. Marcá como favoritos " +
+                            "a los del grupo (acá abajo, o en la ficha de cada nodo: ☆ Fav). El Bluetooth sigue andando."
+                    )
+                    if (role == device.role) HudOutlinedButton(onClick = { vm.favoriteGroup() }, enabled = notFav.isNotEmpty()) {
+                        Text(if (notFav.isEmpty()) "GRUPO EN FAVORITOS" else "MARCAR AL GRUPO COMO FAVORITOS (${notFav.size})")
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
                 Select("Qué repite", rebroadcast, REBROADCAST.map { it.first }, { rebroadcastName(it) }, { m -> REBROADCAST.first { it.first == m }.second }) { rebroadcast = it }
                 Note(REBROADCAST.firstOrNull { it.first == rebroadcast }?.second ?: "")

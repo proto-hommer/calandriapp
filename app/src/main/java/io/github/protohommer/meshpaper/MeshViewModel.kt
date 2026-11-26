@@ -835,6 +835,39 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * Marca o desmarca un nodo como favorito en el nodo conectado (`set_favorite_node` /
+     * `remove_favorite_node`, sin reiniciar). En rol Base, el nodo prioriza los paquetes de sus
+     * favoritos y hacia ellos. Devuelve false sin conexión.
+     */
+    fun setFavorite(num: Int, on: Boolean): Boolean {
+        val me = _myNodeNum.value ?: return false
+        if (link.value != LinkState.Connected || num == me) return false
+        viewModelScope.launch {
+            sendAdmin(me, AdminMessage.newBuilder().apply { if (on) setSetFavoriteNode(num) else setRemoveFavoriteNode(num) }.build())
+        }
+        _nodes.update { m -> m[num]?.let { m + (num to it.copy(favorite = on)) } ?: m }
+        return true
+    }
+
+    /** Miembros del grupo que todavía no son favoritos del nodo conectado. */
+    fun groupNotFavorite(): List<MeshNode> {
+        val me = _myNodeNum.value
+        return _nodes.value.values.filter { it.num != me && it.group && !it.favorite && !it.ignored }
+    }
+
+    /** Marca como favoritos a todos los del grupo. Devuelve cuántos. */
+    fun favoriteGroup(): Int {
+        val list = groupNotFavorite()
+        if (list.isEmpty()) return 0
+        val me = _myNodeNum.value ?: return 0
+        if (link.value != LinkState.Connected) return 0
+        viewModelScope.launch { for (n in list) sendAdmin(me, AdminMessage.newBuilder().setSetFavoriteNode(n.num).build()) }
+        val nums = list.map { it.num }.toSet()
+        _nodes.update { m -> m.mapValues { if (it.key in nums) it.value.copy(favorite = true) else it.value } }
+        return list.size
+    }
+
+    /**
      * Posibles fantasmas: otro nodo con el mismo nombre largo se oyó más recientemente (pasa al
      * reflashear o cambiar de placa: el número de nodo cambia y el viejo queda en la lista), o no
      * se oye hace más de [GHOST_STALE_DAYS] días. Nunca el propio, ni favoritos ni ignorados.
@@ -928,9 +961,17 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 _apply.value = if (ok) ApplyState.Done(doneText)
                 else ApplyState.Failed("se aplicó, pero no pude reconectar en 2 minutos: probá Conectar a mano")
             } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
+                // Un corte por tiempo de una escritura BLE (el nodo dejó de contestar) también es una
+                // CancellationException: si se relanzaba, la pantalla quedaba en "Guardando…" para siempre.
+                if (e is kotlinx.coroutines.CancellationException && e !is kotlinx.coroutines.TimeoutCancellationException) throw e
                 Log.e(TAG, "applyChannelSet", e)
-                _apply.value = ApplyState.Failed(e.message ?: e.javaClass.simpleName)
+                _keepAlive.value = false
+                ble.disconnect()
+                _apply.value = ApplyState.Failed(
+                    if (e is kotlinx.coroutines.TimeoutCancellationException)
+                        "el nodo dejó de contestar. Puede que parte de los cambios no se haya aplicado: reconectá y revisá"
+                    else e.message ?: e.javaClass.simpleName
+                )
             }
         }
     }

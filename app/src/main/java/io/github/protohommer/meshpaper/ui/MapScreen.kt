@@ -1058,6 +1058,10 @@ private fun NodeCard(
                 }
             }
             TextButton(onClick = onAntenna, contentPadding = tight) { Text("Antena", color = HudText, fontWeight = FontWeight.Normal, softWrap = false) }
+            if (n.num != me) TextButton(onClick = { vm.setFavorite(n.num, !n.favorite) }, contentPadding = tight) {
+                // Favorito en el nodo conectado: en rol Base, prioriza lo que va y viene de sus favoritos.
+                Text(if (n.favorite) "★ Fav" else "☆ Fav", color = if (n.favorite) SigMe else HudText, fontWeight = FontWeight.Normal, softWrap = false)
+            }
             if (n.num != me) TextButton(onClick = { askForget = true }, contentPadding = tight) {
                 Text("Olvidar", color = HudTextDim, fontWeight = FontWeight.Normal, softWrap = false)
             }
