@@ -9,6 +9,8 @@ Versión **2.3.2** | Android 8 o más nuevo | *powered by Meshtastic®*
 
 **Bajás el APK, lo instalás, emparejás tu nodo por Bluetooth y tenés a tu grupo en el mapa.**
 
+**¿Nuevo en esto?** Empezá por [Si recién llegás](#si-recien-llegas): qué es LoRa, qué es una red mesh, qué es Meshtastic, qué te hace falta y por qué cada proyecto tiene su versión.
+
 <p align="center">
   <img src="docs/img/intro-nodos.png" alt="Intro: se escanea el relieve y aparecen los nodos" width="23%"/>
   &nbsp;
@@ -19,6 +21,120 @@ Versión **2.3.2** | Android 8 o más nuevo | *powered by Meshtastic®*
   <img src="docs/img/acerca.png" alt="Acerca de y licencias" width="23%"/>
 </p>
 <p align="center"><i>La intro (se escanea el relieve, los nodos aparecen en el mapa y se juntan formando la calandria), los ajustes del nodo y el "acerca de".</i></p>
+
+* * *
+
+<a id="si-recien-llegas"></a>
+<p><img src="docs/img/titulos/si-recien-llegas.png" alt="Si recién llegás" width="100%"/></p>
+
+Si nunca oíste hablar de LoRa ni de Meshtastic, empezá por acá: en cinco minutos sabés qué es todo
+esto, para qué sirve y qué te hace falta.
+
+<p><img src="docs/img/titulos/s-la-idea.png" alt="La idea" height="26"/></p>
+
+Unos aparatos de radio chiquitos, del tamaño de una caja de fósforos, llamados **nodos**, que se pasan
+mensajes de texto y posiciones entre ellos **sin internet, sin señal de celular y sin pagar abono**.
+Cada uno maneja el suyo desde el celular, por Bluetooth, con una app como esta. Sirve para salidas al
+campo o a la montaña, para coordinar un grupo donde no hay señal, o para cuando se corta todo.
+
+<p><img src="docs/img/titulos/s-que-es-lora.png" alt="Qué es LoRa" height="26"/></p>
+
+**LoRa** (de *Long Range*, "largo alcance") es una forma de transmitir por radio pensada para mandar
+**pocos datos muy lejos, gastando muy poca batería**. Pensalo como un walkie-talkie que, en vez de voz,
+manda mensajes de texto:
+
+- **Llega lejos:** de 1 a 5 km en la ciudad, de 10 a 20 km con vista despejada, y más de 100 km entre
+  cerros altos. Lo que más importa es la altura de la antena y lo que haya en el medio (cerros, casas,
+  monte).
+- **Gasta poco:** un nodo dura días con una batería chica.
+- **Es lento:** pasa un mensaje corto (unos 200 caracteres) o una posición; no fotos, audios ni llamadas.
+- **Es libre:** usa una banda de radio que no necesita licencia ni abono. En Argentina es la de
+  915 a 928 MHz, que Meshtastic llama región **ANZ**.
+
+<p><img src="docs/img/titulos/s-que-es-una-red-mesh.png" alt="Qué es una red mesh" height="26"/></p>
+
+*Mesh* quiere decir malla. En una red mesh no hay una antena central ni una empresa en el medio:
+**cada nodo repite lo que oye**, y así un mensaje va saltando de uno a otro hasta llegar.
+
+```
+ Vos ───► nodo en un cerro ───► nodo de un vecino ───► tu amigo
+              1.er salto              2.º salto
+```
+
+- Cada repetición es un **salto**. Un mensaje da como mucho 3 saltos (se puede subir hasta 7), para
+  que no ande dando vueltas para siempre.
+- Cuantos más nodos haya en la zona, más lejos llega todo y más huecos se cubren. Un nodo fijo en un
+  techo o en un cerro (un **repetidor**) ayuda a todos los que lo oyen.
+- No hay un punto único que, si se cae, corta todo: si un nodo se apaga, los demás siguen repitiendo.
+
+<p><img src="docs/img/titulos/s-que-es-meshtastic.png" alt="Qué es Meshtastic" height="26"/></p>
+
+[Meshtastic](https://meshtastic.org) es un proyecto libre y gratuito que convierte placas LoRa baratas
+en nodos de una red mesh. Tiene tres partes:
+
+- **El firmware**, el programa que corre adentro del nodo. Se instala una vez (eso es **flashear**) y
+  después se actualiza de vez en cuando.
+- **La red**: todos los nodos Meshtastic se entienden entre sí, sean de quien sean. En muchas ciudades
+  ya hay nodos de otra gente que te repiten los mensajes sin que tengas que hacer nada.
+- **Las apps**, que hablan con el nodo: la oficial (Android, iPhone y web) y otras independientes, como
+  esta.
+
+Los mensajes viajan **cifrados**. Hay un **canal público** (se llama LongFast) que cualquiera puede
+leer, y se pueden crear **canales privados** con una clave que solo tienen los del grupo. CalandriApp
+arma ese canal privado por vos y lo comparte con un QR.
+
+<p><img src="docs/img/titulos/s-que-te-hace-falta.png" alt="Qué te hace falta" height="26"/></p>
+
+1. **Un nodo** con Bluetooth. Se consiguen armados (Heltec, LilyGO, RAK, Seeed y muchos más) o se arman,
+   como el [Calandria MK1](https://github.com/proto-hommer/calandria-mk1-epaper). En América tiene que
+   ser de la banda de **915 MHz** (no de 433 ni de 868).
+2. **El firmware de Meshtastic** en el nodo. Muchos ya vienen con él; si no, se instala desde el
+   navegador con el [flasher oficial](https://flasher.meshtastic.org). Para el MK1 está el
+   [Calandria Flasher](https://proto-hommer.github.io/calandria-flasher/).
+3. **La antena siempre puesta** mientras el nodo esté prendido: transmitir sin antena puede quemar la
+   radio.
+4. **Un celular Android** con esta app (ver [Descargar e instalar](#descargar-e-instalar)).
+5. Para hablar con otros, que **ellos también tengan un nodo**. Se suman a tu grupo escaneando un QR.
+
+<p><img src="docs/img/titulos/s-palabras-que-vas-a-ver.png" alt="Palabras que vas a ver" height="26"/></p>
+
+| Palabra | Qué quiere decir |
+|---|---|
+| **Nodo** | Cada aparato de radio de la red. El tuyo es el que está conectado al celular. |
+| **Salto** | Cada vez que otro nodo repite tu mensaje. "Directo" = te oyó sin intermediarios. |
+| **Canal** | Una "sala" de chat con su clave. Tu grupo es un canal privado. |
+| **Repetidor** o **router** | Un nodo fijo, puesto en alto, que está para repetir lo de los demás. |
+| **Rol** | Cómo se porta un nodo: de mano (cliente), repetidor (router), base… |
+| **RSSI** | Qué tan fuerte llegó la señal, en dBm: −60 es muy fuerte, −120 está al límite. |
+| **SNR** | Qué tan limpia llegó, en dB: positivo es bueno; por debajo de −15 está al límite. |
+| **Margen** | Cuánto le sobra a un enlace, en dB. Con 10 dB o más es estable. |
+| **Firmware** / **flashear** | El programa del nodo / instalárselo. |
+| **APK** | El instalador de una app de Android, para instalarla sin Play Store. |
+| **Waypoint** | Un punto marcado en el mapa (campamento, peligro…) que ve todo el grupo. |
+
+<p><img src="docs/img/titulos/s-la-familia-calandria-y-sus-versiones.png" alt="La familia Calandria y sus versiones" height="26"/></p>
+
+Calandria son varios proyectos que se usan juntos, pero cada uno anda solo y va a su ritmo:
+
+| Proyecto | Qué es | Última versión |
+|---|---|---|
+| **CalandriApp** (este repo) | La app Android. Anda con **cualquier** nodo Meshtastic con Bluetooth. | [![app](https://img.shields.io/github/v/release/proto-hommer/calandriapp?label=&color=2ea44f)](https://github.com/proto-hommer/calandriapp/releases/latest) |
+| [**Calandria MK1 epaper**](https://github.com/proto-hommer/calandria-mk1-epaper) | Un nodo de bolsillo con pantalla e-paper, hecho a mano, y su firmware. | [![mk1](https://img.shields.io/github/v/release/proto-hommer/calandria-mk1-epaper?label=&color=ff7a2f)](https://github.com/proto-hommer/calandria-mk1-epaper/releases/latest) |
+| [**Calandria Flasher**](https://github.com/proto-hommer/calandria-flasher) | Una página web para instalarle el firmware al MK1 por USB, desde Chrome o Edge. | [abrir](https://proto-hommer.github.io/calandria-flasher/) |
+| [**calandria-datos**](https://github.com/proto-hommer/calandria-datos) | Los datos de monte y ciudad que usa la app para calcular el alcance. | — |
+
+**Por qué tienen números distintos.** La app y el MK1 no dependen uno del otro (la app anda con
+cualquier nodo y el MK1 anda con cualquier app), así que cada uno lleva su propio número. Los dos se
+numeran igual, **X.Y.Z**:
+
+- **Z**, el último, sube con los **arreglos** (la 2.3.1 corrigió algo de la 2.3.0);
+- **Y**, el del medio, con **funciones nuevas** (la 2.3.0 sumó el monte y la ciudad);
+- **X**, el primero, con un **cambio grande** (la 2.0 cambió toda la interfaz).
+
+El MK1 va por la **0.x** porque todavía es **alpha**, un prototipo en desarrollo: llega a 1.0 cuando
+tenga GPS, batería y carcasa. Su firmware es Meshtastic **2.8.3** con los cambios del Calandria encima;
+por eso a la app oficial le dice "2.8.3", y CalandriApp, que además lee la versión del Calandria, te
+avisa si está al día. La app se actualiza sola desde Ajustes; el MK1, con el Calandria Flasher.
 
 * * *
 
@@ -67,7 +183,7 @@ leyenda de abajo a la izquierda se puede achicar.
 
 Tocás un nodo y aparece su ficha: hace cuánto se lo oyó, el enlace (saltos o SNR), la batería, a qué
 distancia y en qué dirección está, su rastro y el modelo de placa. Desde ahí le escribís, vas hacia él
-(**IR**), ves el perfil del terreno, cargás los datos de su antena o lo marcás como **favorito** (☆ Fav) en tu nodo. Los favoritos importan en el rol **Base**: el nodo les da prioridad a sus mensajes. En la pestaña **Nodos** está la
+(**IR**), ves el perfil del terreno, cargás los datos de su antena lo marcás como **favorito** (☆ Fav) en tu nodo, o lo **ocultás un minuto** ("Ocultar 1 min") si te tapa lo que querés mostrar en el mapa. Los favoritos importan en el rol **Base**: el nodo les da prioridad a sus mensajes. En la pestaña **Nodos** está la
 misma información en lista: primero los del grupo y después los repetidores y otros. Mantené apretado
 un nodo de la lista para verlo en el mapa. Los waypoints tienen su propia ficha (quién lo puso, si vence,
 a qué distancia está) y también se puede ir hacia ellos; se crean con un toque largo en el mapa.
@@ -203,6 +319,7 @@ sin cuentas, sin nube ni servicios de Google: todo queda en el teléfono.
 
 * * *
 
+<a id="descargar-e-instalar"></a>
 <p><img src="docs/img/titulos/descargar-e-instalar.png" alt="Descargar e instalar" width="100%"/></p>
 
 1. Bajá el `CalandriApp-2.3.2.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
