@@ -3,7 +3,7 @@
 **Una app Android chica y propia para usar nodos Meshtastic en el campo: mensajes, mapa offline y
 seguimiento de un grupo cerrado, sin cuentas, sin nube y sin internet.**
 
-Versión **2.2.0** | Android 8 o más nuevo | *powered by Meshtastic®*
+Versión **2.3.0** | Android 8 o más nuevo | *powered by Meshtastic®*
 
 [![Descargar APK](https://img.shields.io/github/v/release/proto-hommer/calandriapp?label=descargar%20APK&color=2ea44f)](https://github.com/proto-hommer/calandriapp/releases/latest)
 
@@ -111,12 +111,18 @@ cuadrantes por donde pasa la ruta.
   antena, se pinta la señal que le llegaría a alguien de mano en 25 km a la redonda, de violeta (al
   límite) a amarillo (fuerte), con la escala CMRmap. Lo que queda sin pintar es sombra detrás de los
   cerros o demasiado lejos. Se calcula en el teléfono, sin internet si ya está el relieve de la zona.
-  Es una estimación (un solo filo por camino, sin árboles ni edificios); para un enlace puntual está
-  el perfil. La altura de la antena puede salir sola del GPS del nodo (su altitud menos el terreno).
+  Es una estimación (un solo filo por camino); para un enlace puntual está el perfil. La altura de la antena puede salir sola del GPS del nodo (su altitud menos el terreno).
 - **Perfil del terreno** entre vos y cualquier nodo: el corte del relieve, la línea de vista, la zona de
   Fresnel (las líneas punteadas) y si el enlace **pasa, está al límite o no pasa**, con el margen en
   dB. En el ejemplo, la base pasa con +17 dB aunque un cerro roza la línea de vista; JUAN, del otro lado
   de las sierras, no pasa. Usa el relieve del SRTM (≈30 m), que se baja por zonas y queda guardado.
+- **Monte y ciudad**: la cobertura y el perfil tienen en cuenta qué hay sobre el suelo (ESA WorldCover
+  y la altura de copas de ETH). Una antena metida entre árboles o casas pierde señal, y el monte en el
+  camino suma altura a los cerros (en el perfil, la franja verde). Por ahora, provincia de Córdoba; en
+  otras zonas se calcula solo con el relieve.
+- **Mediciones reales**: cada paquete que llega directo se guarda con las dos posiciones y la señal
+  (solo en el teléfono). El botón **MED** del mapa muestra dónde hubo señal de verdad, y en Ajustes →
+  App se comparan con el modelo (cuánto le erra) o se exportan a CSV.
 
 <p><img src="docs/img/titulos/s-mensajes.png" alt="Mensajes" height="26"/></p>
 
@@ -199,7 +205,7 @@ sin cuentas, sin nube ni servicios de Google: todo queda en el teléfono.
 
 <p><img src="docs/img/titulos/descargar-e-instalar.png" alt="Descargar e instalar" width="100%"/></p>
 
-1. Bajá el `CalandriApp-2.2.0.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
+1. Bajá el `CalandriApp-2.3.0.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
 2. Abrilo en el celular. Android va a pedir permiso para **instalar apps de origen desconocido**:
    dáselo al navegador o al gestor de archivos con el que lo abriste.
 3. Abrí CalandriApp, dale los permisos de **Bluetooth** y **ubicación**, tocá **BUSCAR** y
@@ -325,6 +331,10 @@ clave, ver el comentario sobre la firma en `app/build.gradle.kts`.
   de OpenStreetMap preparados por brouter.de.
 - Relieve: SRTM, cortesía del U.S. Geological Survey, a través de
   [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (AWS Open Data, Mapzen / Tilezen).
+- Monte y ciudad: © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021)
+  processed by ESA WorldCover consortium, y altura de copas de Lang et al. (2023), *ETH Global
+  Sentinel-2 10 m Canopy Height (2020)*. Ambos CC BY 4.0; procesados con `tools/wc_tiles.py` y publicados
+  en [calandria-datos](https://github.com/proto-hommer/calandria-datos).
 - Usa los [protobufs de Meshtastic](https://github.com/meshtastic/protobufs) (GPL-3.0),
   [osmdroid](https://github.com/osmdroid/osmdroid), [ZXing](https://github.com/zxing/zxing) y
   [zxing-android-embedded](https://github.com/journeyapps/zxing-android-embedded) (Apache-2.0),
