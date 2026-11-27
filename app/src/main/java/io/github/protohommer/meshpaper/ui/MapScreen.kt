@@ -145,6 +145,14 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     var cardMin by remember { mutableStateOf(mapPrefs.getBoolean("card_min", false)) }
     var coverageMin by remember { mutableStateOf(mapPrefs.getBoolean("coverage_min", false)) }
     var selectedNode by remember { mutableStateOf<Int?>(null) }
+    // Nodos ocultos un rato a pedido (para que no tapen lo que se quiere mostrar): número → hasta cuándo (ms).
+    var hiddenUntil by remember { mutableStateOf(mapOf<Int, Long>()) }
+    LaunchedEffect(hiddenUntil) {
+        val next = hiddenUntil.values.minOrNull() ?: return@LaunchedEffect
+        delay(maxOf(0L, next - System.currentTimeMillis()))
+        val t = System.currentTimeMillis()
+        hiddenUntil = hiddenUntil.filterValues { it > t }
+    }
     // Nodo pedido desde la lista ("Ver en el mapa"): se dibuja aunque esté oculto (ajeno sin oír
     // o REP apagado) mientras su ficha siga abierta.
     var pinned by remember { mutableStateOf<Int?>(null) }
@@ -516,7 +524,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     // Los ajenos que no se oyen hace más de 30 min no se dibujan (vuelven solos al oírlos de
     // nuevo). Los del grupo y el propio siempre están: de esos importa ver que se perdieron.
     val visibleNodes = nodes.values.filter { n ->
-        n.lat != null && n.lon != null && (
+        n.lat != null && n.lon != null && n.num !in hiddenUntil && (
             (n.num == pinned && pinned == selectedNode) ||
                 ((showOthers || isMember(n)) && (n.num == me || isMember(n) || !Signal.isStale(n, now)))
             )
@@ -763,6 +771,12 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                     } else null,
                     stack = stack.mapNotNull { nodes[it] }.takeIf { it.size > 1 }.orEmpty(),
                     onPick = { selectedNode = it },
+                    onHide = if (n.num != me) {
+                        {
+                            hiddenUntil = hiddenUntil + (n.num to System.currentTimeMillis() + HIDE_MS)
+                            selectedNode = null; rangeNode = null; stack = emptyList()
+                        }
+                    } else null,
                     onGo = if (n.num != me && n.lat != null && n.lon != null) {
                         { startNav(Nav.Target(n.num, null, n.shortName.ifEmpty { n.longName.ifEmpty { n.id } }, n.lat, n.lon)) }
                     } else null,
@@ -928,6 +942,9 @@ private fun StatTile(label: String, value: String, modifier: Modifier = Modifier
     }
 }
 
+/** Cuánto queda oculto un nodo con "Ocultar 1 min". */
+private const val HIDE_MS = 60_000L
+
 @Composable
 private fun NodeCard(
     vm: MeshViewModel, n: MeshNode, me: Int?, member: Boolean, fix: Location?, now: Long, modifier: Modifier,
@@ -940,6 +957,7 @@ private fun NodeCard(
     onProfile: (() -> Unit)? = null,
     fromGps: Boolean = false,
     onGo: (() -> Unit)? = null,
+    onHide: (() -> Unit)? = null,
 ) {
     // Altura del terreno donde está el nodo, si ya está el relieve de la zona (sin bajar nada).
     val ctx = LocalContext.current
@@ -1060,10 +1078,18 @@ private fun NodeCard(
         }
         val est = antenna?.let { Range.estimate(it, preset) }
         val tight = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
-        // El alcance prendido se tiene que poder apagar aunque "Más" esté cerrado.
-        if (!more && showingRange) {
-            TextButton(onClick = onRange, contentPadding = tight) {
-                Text("Ocultar alcance", color = HudText, fontWeight = FontWeight.Normal, softWrap = false)
+        // El alcance prendido se tiene que poder apagar aunque "Más" esté cerrado. Y el nodo se puede
+        // sacar del mapa un minuto, para que no tape lo que se quiere mostrar.
+        if ((!more && showingRange) || onHide != null) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                if (!more && showingRange) TextButton(onClick = onRange, contentPadding = tight) {
+                    Text("Ocultar alcance", color = HudText, fontWeight = FontWeight.Normal, softWrap = false)
+                } else Spacer(Modifier.width(1.dp))
+                onHide?.let {
+                    TextButton(onClick = it, contentPadding = tight) {
+                        Text("Ocultar 1 min", color = HudText, fontWeight = FontWeight.Normal, softWrap = false)
+                    }
+                }
             }
         }
         if (more) {
