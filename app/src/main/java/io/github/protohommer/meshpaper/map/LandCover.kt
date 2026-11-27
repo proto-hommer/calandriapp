@@ -117,14 +117,26 @@ object LandCover {
         return ByteArray(px.size) { (px[it] and 0xff).toByte() } // gris: R = G = B = la clase
     }
 
-    private fun fetch(x: Int, y: Int): ByteArray? = runCatching {
+    /** El tile, o null. [missing] = el servidor dijo que no existe (404), no un corte de red. */
+    private class Fetched(val bytes: ByteArray?, val missing: Boolean)
+
+    private fun fetch(x: Int, y: Int): Fetched = runCatching {
         val c = URL(URL_TEMPLATE.format(x, y)).openConnection() as HttpURLConnection
         c.connectTimeout = 10_000; c.readTimeout = 15_000
         c.setRequestProperty("User-Agent", "CalandriApp-Android/1.0") // genérico, sin datos del usuario
-        try { if (c.responseCode != 200) null else c.inputStream.use { it.readBytes() } } finally { c.disconnect() }
-    }.getOrNull()
+        try {
+            when (c.responseCode) {
+                200 -> Fetched(c.inputStream.use { it.readBytes() }, false)
+                404 -> Fetched(null, true)
+                else -> Fetched(null, false)
+            }
+        } finally { c.disconnect() }
+    }.getOrElse { Fetched(null, false) }
 
-    /** Tiles que ya se pidieron y no existen (fuera de la zona publicada): no volver a pedirlos. */
+    /**
+     * Tiles que el servidor dijo que no existen (fuera de la zona publicada): no volver a pedirlos.
+     * Un corte de red o un timeout no cuenta: se reintenta la próxima vez.
+     */
     private val absent = java.util.Collections.synchronizedSet(HashSet<Long>())
 
     fun has(ctx: Context, x: Int, y: Int) = file(ctx, x, y).isFile
@@ -133,7 +145,8 @@ object LandCover {
         if (has(ctx, x, y)) return true
         val key = (x.toLong() shl 32) or y.toLong()
         if (key in absent) return false
-        val bytes = fetch(x, y) ?: run { absent += key; return false }
+        val got = fetch(x, y)
+        val bytes = got.bytes ?: run { if (got.missing) absent += key; return false }
         if (decode(bytes) == null) return false
         val f = file(ctx, x, y)
         f.parentFile?.mkdirs()
