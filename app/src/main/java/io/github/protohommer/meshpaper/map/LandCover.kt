@@ -17,16 +17,21 @@ import kotlin.math.sqrt
 import kotlin.math.tan
 
 /**
- * Qué hay sobre el suelo: ESA WorldCover 2021 (10 m), llevado a la misma grilla que el relieve
- * ([Dem]: Web Mercator, zoom 12, ~33 m por píxel en Córdoba). Cada píxel es la clase que más aparece
- * ahí: 10 árboles, 20 arbustos, 30 pastizal, 40 cultivo, 50 construido, 60 suelo desnudo, 70 nieve,
- * 80 agua, 90 humedal, 95 manglar, 100 musgo; 0 = sin dato.
+ * Qué hay sobre el suelo, en la misma grilla que el relieve ([Dem]: Web Mercator, zoom 12, ~33 m
+ * por píxel en Córdoba). Cada píxel es un byte (lo arma `tools/wc_tiles.py`):
  *
- * Los tiles (PNG en escala de grises, el valor es la clase) los arma `tools/wc_tiles.py` a partir de
- * los originales de ESA, y se bajan y guardan igual que el relieve: `files/landcover/12/x/y.png`.
+ *   (índice de clase << 4) | (altura de copas / 2 m)
  *
- * Licencia de los datos: CC BY 4.0. Atribución: "© ESA WorldCover project 2021 / Contains modified
- * Copernicus Sentinel data (2021) processed by ESA WorldCover consortium".
+ * Clase (ESA WorldCover 2021, la que más aparece en el píxel): 0 sin dato, 1 árboles, 2 arbustos,
+ * 3 pastizal, 4 cultivo, 5 construido, 6 suelo desnudo, 7 nieve, 8 agua, 9 humedal, 10 manglar,
+ * 11 musgo. Altura: el promedio de las copas en el píxel (ETH Global Canopy Height 2020, Lang et
+ * al.), de a 2 m hasta 30.
+ *
+ * Los tiles (PNG en escala de grises) se bajan y guardan igual que el relieve: `files/landcover/12/x/y.png`.
+ *
+ * Licencias (CC BY 4.0): "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data
+ * (2021) processed by ESA WorldCover consortium" y "Lang et al. (2023), ETH Global Sentinel-2 10 m
+ * Canopy Height (2020)".
  *
  * Para la radio, cada clase es una "altura de obstáculos" R y un tipo:
  *  - En los extremos (el nodo y el de mano): si la antena queda debajo de R, pérdida de terminal de
@@ -39,27 +44,41 @@ import kotlin.math.tan
 object LandCover {
     const val ZOOM = Dem.ZOOM
     const val SIZE = Dem.SIZE
-    const val ATTRIBUTION = "Cobertura del suelo: © ESA WorldCover 2021 (CC BY 4.0), datos Copernicus Sentinel modificados"
+    const val ATTRIBUTION = "Monte y ciudad: © ESA WorldCover 2021 y altura de copas ETH (Lang et al. 2023), CC BY 4.0, datos Copernicus Sentinel modificados"
     /** Dónde están publicados los tiles ({x}, {y}). Vacío = solo los que ya estén en el teléfono. */
     const val URL_TEMPLATE = "https://proto-hommer.github.io/calandria-datos/landcover/12/%d/%d.png"
     /** Fracción de la altura de obstáculos que se suma al relieve en el medio del camino. */
     const val MID_PATH_FACTOR = 0.5
     private const val STREET_WIDTH_M = 27.0
 
-    /** Altura de los obstáculos de cada clase (m). 0 = abierto. */
-    fun clutterHeightM(cls: Int): Double = when (cls) {
-        10 -> 10.0  // monte: algarrobos, espinillos, pinares (en las sierras, 6 a 15 m)
-        20 -> 3.0   // arbustos, fachinal
-        50 -> 8.0   // construido: en Córdoba casi todo casas de 1 o 2 plantas
-        95 -> 8.0
-        90 -> 1.0
-        40 -> 0.5   // cultivo: maíz y soja, según la época
-        else -> 0.0 // pastizal, suelo desnudo, agua, nieve, musgo, sin dato
+    /** Índice de clase de un píxel (ver arriba). */
+    fun classOf(px: Int): Int = (px shr 4) and 0x0f
+
+    /** Altura de copas del píxel (m), 0 si no hay. */
+    fun canopyOf(px: Int): Double = (px and 0x0f) * 2.0
+
+    /**
+     * Altura de los obstáculos de un píxel (m). 0 = abierto. Con altura de copas medida, manda esa
+     * (en las sierras el monte da ~6 a 7 m de promedio, no los 10 que uno supondría); si no, un valor
+     * típico de la clase.
+     */
+    fun clutterHeightM(px: Int): Double {
+        val canopy = canopyOf(px)
+        return when (classOf(px)) {
+            1 -> if (canopy >= 2) canopy else 6.0  // monte: algarrobos, espinillos, pinares
+            2 -> if (canopy >= 2) canopy else 2.0  // arbustos, fachinal
+            5 -> 8.0                               // construido: en Córdoba casi todo casas de 1 o 2 plantas
+            10 -> if (canopy >= 2) canopy else 8.0 // manglar
+            9 -> if (canopy >= 4) canopy else 1.0  // humedal
+            4 -> if (canopy >= 4) canopy else 0.5  // cultivo: maíz y soja, según la época
+            0 -> 0.0                               // sin dato
+            else -> if (canopy >= 4) canopy else 0.0 // pastizal, suelo, agua...: árboles sueltos si los hay
+        }
     }
 
-    fun className(cls: Int): String = when (cls) {
-        10 -> "monte"; 20 -> "arbustos"; 30 -> "pastizal"; 40 -> "cultivo"; 50 -> "construido"
-        60 -> "suelo desnudo"; 70 -> "nieve"; 80 -> "agua"; 90 -> "humedal"; 95 -> "manglar"; 100 -> "musgo"
+    fun className(px: Int): String = when (classOf(px)) {
+        1 -> "monte"; 2 -> "arbustos"; 3 -> "pastizal"; 4 -> "cultivo"; 5 -> "construido"
+        6 -> "suelo desnudo"; 7 -> "nieve"; 8 -> "agua"; 9 -> "humedal"; 10 -> "manglar"; 11 -> "musgo"
         else -> "sin dato"
     }
 
@@ -68,11 +87,11 @@ object LandCover {
         if (v <= -0.78) 0.0 else 6.9 + 20 * log10(sqrt((v - 0.1) * (v - 0.1) + 1) + v - 0.1)
 
     /**
-     * Un extremo del enlace metido en obstáculos de la clase [cls], con la antena a [heightM].
+     * Un extremo del enlace en el píxel [px], con la antena a [heightM].
      * Devuelve (altura a usar para la propagación, pérdida extra en dB).
      */
-    fun terminal(cls: Int, heightM: Double, freqMHz: Double): Pair<Double, Double> {
-        val r = clutterHeightM(cls)
+    fun terminal(px: Int, heightM: Double, freqMHz: Double): Pair<Double, Double> {
+        val r = clutterHeightM(px)
         if (r < 2.0 || heightM >= r) return heightM to 0.0 // abierto, o la antena ya está por encima
         val hdif = r - heightM
         val thetaDeg = Math.toDegrees(atan(hdif / STREET_WIDTH_M))
@@ -136,7 +155,7 @@ object LandCover {
         return data
     }
 
-    /** Clase en un punto (la del píxel), o 0 si no hay dato. Bloquea: fuera del hilo principal. */
+    /** El píxel (clase y copas) en un punto, o 0 si no hay dato. Bloquea: fuera del hilo principal. */
     fun classAt(ctx: Context, lat: Double, lon: Double, network: Boolean): Int {
         val n = 1 shl ZOOM
         val fx = (lon + 180.0) / 360.0 * n
