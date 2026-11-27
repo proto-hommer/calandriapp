@@ -79,11 +79,13 @@ fun OfflineMapsPanel(modifier: Modifier = Modifier) {
     HudPanel(modifier.fillMaxWidth(), title = "Mapas sin conexión") {
         Text(
             "Elegí en una cuadrícula qué zonas bajar para usar sin señal: el mapa (si la fuente lo " +
-                "permite) y el relieve para los perfiles, todo junto.",
+                "permite), el relieve y el monte y la ciudad para los perfiles y la cobertura, todo junto.",
             style = MaterialTheme.typography.bodySmall,
         )
         Spacer(Modifier.height(4.dp))
         HudLabel("Relieve guardado: ${stored.tiles} tiles · ${MapTiles.formatSize(stored.bytes)}")
+        val lc = remember(stored) { io.github.protohommer.meshpaper.map.LandCover.stored(ctx) }
+        HudLabel("Monte y ciudad: ${lc.tiles} tiles · ${MapTiles.formatSize(lc.bytes)}")
         Spacer(Modifier.height(6.dp))
         HudButton(onClick = { open = true }) { Text("Abrir cuadrícula") }
     }
@@ -166,6 +168,8 @@ private fun OfflineMapsScreen(onClose: () -> Unit) {
                 job = DownloadState.Running(i + 1, cells.size, label, 0, total)
                 dem.forEachIndexed { k, (x, y) ->
                     if (!withContext(Dispatchers.IO) { Dem.download(ctx, x, y) }) fails++
+                    // Monte y ciudad, en la misma grilla. Fuera de la zona publicada no hay: no es un error.
+                    withContext(Dispatchers.IO) { io.github.protohommer.meshpaper.map.LandCover.download(ctx, x, y) }
                     job = DownloadState.Running(i + 1, cells.size, label, k + 1, total)
                 }
                 if (canMap) {

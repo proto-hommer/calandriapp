@@ -23,7 +23,9 @@ import kotlin.math.sqrt
  *   Deygout sobreestima mucho en terreno que roza la línea todo el camino.
  * - Margen = presupuesto del enlace − pérdida, en el sentido más débil de los dos.
  *
- * No incluye edificios ni árboles: el SRTM es el suelo (más o menos, en el bosque mide la copa).
+ * Con [Clutter] (monte y ciudad de WorldCover, ver LandCover): pérdida de ITU-R P.2108 en cada
+ * extremo metido entre obstáculos, y los obstáculos suman altura en el medio del camino. Sin eso, el
+ * SRTM es el suelo (más o menos: en el bosque mide parte de la copa).
  */
 object Profile {
     private const val EARTH_R = 6_371_000.0
@@ -32,6 +34,12 @@ object Profile {
 
     /** Un extremo del enlace: dónde está y su antena. */
     data class End(val lat: Double, val lon: Double, val antenna: Antenna)
+
+    /**
+     * Lo que hay sobre el suelo a lo largo del perfil: [heightsM] = altura de obstáculos en cada
+     * muestra (mismo orden que el relieve), [classA]/[classB] = clase de WorldCover en cada extremo.
+     */
+    class Clutter(val heightsM: DoubleArray, val classA: Int, val classB: Int)
 
     data class Result(
         val distanceM: Double,
@@ -45,6 +53,8 @@ object Profile {
         val diffractionDb: Double,
         val pathLossDb: Double,
         val marginDb: Double?,        // null si no se conoce la sensibilidad del preset
+        val clutterDb: Double = 0.0,  // pérdida por monte o ciudad en los extremos (P.2108)
+        val obstacles: DoubleArray = terrain, // terreno + curvatura + obstáculos del medio
     ) {
         val verdict: Verdict
             get() = when {
@@ -97,21 +107,31 @@ object Profile {
         if (v <= -0.78) 0.0 else 6.9 + 20 * log10(sqrt((v - 0.1) * (v - 0.1) + 1) + v - 0.1)
 
     /** Solo la pérdida del camino (dB): espacio libre + difracción, como en [compute]. */
-    fun pathLossDb(a: End, b: End, ground: List<Double>, freqMHz: Double): Double =
-        compute(a, b, ground, freqMHz, ModemPreset.LONG_FAST).pathLossDb
+    fun pathLossDb(a: End, b: End, ground: List<Double>, freqMHz: Double, clutter: Clutter? = null): Double =
+        compute(a, b, ground, freqMHz, ModemPreset.LONG_FAST, clutter).pathLossDb
 
     /**
      * [ground]: alturas del terreno en los puntos de [samplePoints] (mismo orden).
      */
-    fun compute(a: End, b: End, ground: List<Double>, freqMHz: Double, preset: ModemPreset): Result {
+    fun compute(a: End, b: End, ground: List<Double>, freqMHz: Double, preset: ModemPreset, clutter: Clutter? = null): Result {
         val n = ground.size - 1
         val dist = distanceM(a.lat, a.lon, b.lat, b.lon)
         val lambda = 299.792458 / freqMHz
         val xs = DoubleArray(n + 1) { dist * it / n }
         val g = ground.toDoubleArray()
         val terrain = DoubleArray(n + 1) { xs[it] * (dist - xs[it]) / (2 * K * EARTH_R) + g[it] }
-        val hA = g[0] + a.antenna.heightM
-        val hB = g[n] + b.antenna.heightM
+        // Extremos entre obstáculos: la propagación va desde arriba de ellos, más la pérdida de P.2108.
+        val (antA, lossA) = clutter?.let { io.github.protohommer.meshpaper.map.LandCover.terminal(it.classA, a.antenna.heightM, freqMHz) }
+            ?: (a.antenna.heightM to 0.0)
+        val (antB, lossB) = clutter?.let { io.github.protohommer.meshpaper.map.LandCover.terminal(it.classB, b.antenna.heightM, freqMHz) }
+            ?: (b.antenna.heightM to 0.0)
+        val obst = if (clutter == null || clutter.heightsM.size != n + 1) terrain
+            else DoubleArray(n + 1) { i ->
+                if (i == 0 || i == n) terrain[i]
+                else terrain[i] + io.github.protohommer.meshpaper.map.LandCover.MID_PATH_FACTOR * clutter.heightsM[i]
+            }
+        val hA = g[0] + antA
+        val hB = g[n] + antB
         val los = DoubleArray(n + 1) { hA + (hB - hA) * xs[it] / max(dist, 1.0) }
         val fres = DoubleArray(n + 1) { sqrt(lambda * xs[it] * (dist - xs[it]) / max(dist, 1.0)) }
 
@@ -119,7 +139,7 @@ object Profile {
         var worstRatio = Double.MAX_VALUE
         for (i in 1 until n) {
             if (fres[i] < 0.01) continue
-            val r = (los[i] - terrain[i]) / fres[i]
+            val r = (los[i] - obst[i]) / fres[i]
             if (r < worstRatio) { worstRatio = r; worst = i }
         }
         if (worstRatio == Double.MAX_VALUE) worstRatio = 1.0
@@ -128,14 +148,14 @@ object Profile {
         fun edges(i0: Int, i1: Int, depth: Int): Double {
             if (i1 - i0 < 2 || depth > 1) return 0.0
             val d = xs[i1] - xs[i0]
-            val y0 = terrain[i0] + if (i0 == 0) a.antenna.heightM else 0.0
-            val y1 = terrain[i1] + if (i1 == n) b.antenna.heightM else 0.0
+            val y0 = obst[i0] + if (i0 == 0) antA else 0.0
+            val y1 = obst[i1] + if (i1 == n) antB else 0.0
             var best = -1; var bestV = -Double.MAX_VALUE
             for (i in i0 + 1 until i1) {
                 val d1 = xs[i] - xs[i0]; val d2 = xs[i1] - xs[i]
                 if (d1 <= 0 || d2 <= 0) continue
                 val line = y0 + (y1 - y0) * d1 / d
-                val v = (terrain[i] - line) * sqrt(2 * d / (lambda * d1 * d2))
+                val v = (obst[i] - line) * sqrt(2 * d / (lambda * d1 * d2))
                 if (v > bestV) { bestV = v; best = i }
             }
             if (best < 0 || bestV <= -0.78) return 0.0
@@ -143,12 +163,12 @@ object Profile {
         }
         val diff = edges(0, n, 0)
         val fspl = 20 * log10(max(dist, 1.0) / 1000) + 20 * log10(freqMHz) + 32.44
-        val loss = fspl + diff
+        val loss = fspl + diff + lossA + lossB
         val margin = Range.sensitivityDbm(preset)?.let { sens ->
             fun budget(tx: Antenna, rx: Antenna) =
                 tx.txDbm + tx.gainDbi - tx.cableDb + rx.gainDbi - rx.cableDb - sens
             min(budget(a.antenna, b.antenna), budget(b.antenna, a.antenna)) - loss
         }
-        return Result(dist, xs, g, terrain, los, fres, worst, worstRatio, diff, loss, margin)
+        return Result(dist, xs, g, terrain, los, fres, worst, worstRatio, diff, loss, margin, lossA + lossB, obst)
     }
 }

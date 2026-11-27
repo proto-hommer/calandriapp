@@ -3,6 +3,7 @@ package io.github.protohommer.meshpaper.mesh
 import android.content.Context
 import android.graphics.Bitmap
 import io.github.protohommer.meshpaper.map.Dem
+import io.github.protohommer.meshpaper.map.LandCover
 import org.meshtastic.proto.ConfigProtos.Config.LoRaConfig.ModemPreset
 import kotlin.math.PI
 import kotlin.math.abs
@@ -29,8 +30,11 @@ import kotlin.math.sqrt
  * todo el desnivel, que es lo que hace que un nodo alto llegue lejos.
  *
  * Es la versión de un solo filo de lo que hace [Profile] con Deygout: unas mil veces más barato,
- * algo optimista cuando hay varias lomas seguidas. Tierra con curvatura k = 4/3. Sin árboles ni
- * edificios (el SRTM es el suelo).
+ * algo optimista cuando hay varias lomas seguidas. Tierra con curvatura k = 4/3.
+ *
+ * Monte y ciudad (si están los tiles de [LandCover] de la zona): el de mano y el nodo, si quedan
+ * entre obstáculos, pierden lo que dice ITU-R P.2108; en el medio del camino los obstáculos suman
+ * altura al relieve. Donde no hay ese dato, solo relieve.
  */
 object Coverage {
     const val RADIUS_M = 25_000.0
@@ -45,6 +49,8 @@ object Coverage {
         val sensitivityDbm: Double,
         /** Porcentaje del círculo con señal. */
         val coveredPct: Int,
+        /** Se usaron monte y ciudad (había datos de cobertura del suelo en la zona). */
+        val usedCover: Boolean = false,
     )
 
     sealed interface Outcome {
@@ -60,7 +66,7 @@ object Coverage {
      */
     fun compute(
         ctx: Context, lat: Double, lon: Double, antenna: Antenna, freqMHz: Double, preset: ModemPreset,
-        network: Boolean, progress: (Int, Int) -> Unit = { _, _ -> },
+        network: Boolean, useCover: Boolean = true, progress: (Int, Int) -> Unit = { _, _ -> },
     ): Outcome {
         val sens = Range.sensitivityDbm(preset) ?: return Outcome.NoPreset
         val mPerPx = 2 * PI * EARTH_R * cos(Math.toRadians(lat)) / Dem.worldPx
@@ -94,10 +100,31 @@ object Coverage {
         progress(tiles.size, tiles.size)
         if (missing > 0) return Outcome.MissingTerrain(missing, tiles.size)
 
+        // Cobertura del suelo, en la misma grilla (los tiles que falten quedan "sin dato").
+        val cover = ByteArray(n * n)
+        var anyCover = false
+        if (useCover) for ((tx, ty) in tiles) {
+            val t = LandCover.tileData(ctx, tx, ty, network) ?: continue
+            anyCover = true
+            for (py in 0 until Dem.SIZE) {
+                val gy = ty * Dem.SIZE + py - y0
+                if (gy !in 0 until n) continue
+                for (px in 0 until Dem.SIZE) {
+                    val gx = tx * Dem.SIZE + px - x0
+                    if (gx !in 0 until n) continue
+                    cover[gy * n + gx] = t[py * Dem.SIZE + px]
+                }
+            }
+        }
+        // Por clase: altura de obstáculos en el medio y lo que le pasa al de mano metido ahí.
+        val midH = DoubleArray(256) { LandCover.MID_PATH_FACTOR * LandCover.clutterHeightM(it) }
+        val rxTerm = Array(256) { LandCover.terminal(it, Range.RX_HEIGHT_M, freqMHz) }
+
         val c = r  // el nodo, en la grilla
-        val hTx = ground[c * n + c] + antenna.heightM
+        val (txH, txLoss) = LandCover.terminal(cover[c * n + c].toInt() and 0xff, antenna.heightM, freqMHz)
+        val hTx = ground[c * n + c] + txH
         val lambda = 299.792458 / freqMHz
-        val eirp = antenna.txDbm + antenna.gainDbi - antenna.cableDb + Range.RX_GAIN_DBI
+        val eirp = antenna.txDbm + antenna.gainDbi - antenna.cableDb + Range.RX_GAIN_DBI - txLoss
         val fsplConst = 20 * log10(freqMHz) + 32.44
         val margin = FloatArray(n * n) { Float.NEGATIVE_INFINITY }
         val r2 = r.toLong() * r
@@ -110,8 +137,7 @@ object Coverage {
             return (ground[k] * (1 - fx) + ground[k + 1] * fx) * (1 - fy) +
                 (ground[k + n] * (1 - fx) + ground[k + n + 1] * fx) * fy
         }
-        val minEff = antenna.heightM.coerceAtLeast(0.5)
-        val rxTerm = 20 * log10(Range.RX_HEIGHT_M)
+        val minEff = txH.coerceAtLeast(0.5)
 
         fun ray(ex: Int, ey: Int) {
             val dx = ex - c; val dy = ey - c
@@ -128,8 +154,11 @@ object Coverage {
                 val d = i * stepM
                 val curv = d * d / (2 * K * EARTH_R)
                 val g = groundAt(fx, fy) - curv
+                val k = gy * n + gx
+                val cls = cover[k].toInt() and 0xff
+                val (rxH, rxLoss) = rxTerm[cls]
                 // Señal en este punto, con el filo que haya antes.
-                val los = (g + Range.RX_HEIGHT_M - hTx) / d
+                val los = (g + rxH - hTx) / d
                 var diff = 0.0
                 if (bestD > 0) {
                     val d1 = bestD; val d2 = d - bestD
@@ -139,12 +168,11 @@ object Coverage {
                 }
                 val fspl = 20 * log10(d / 1000) + fsplConst
                 val hEff = max(minEff, hTx - g)
-                val planeEarth = 40 * log10(d) - 20 * log10(hEff) - rxTerm
-                val m = (eirp - max(fspl, planeEarth) - diff - sens).toFloat()
-                val k = gy * n + gx
+                val planeEarth = 40 * log10(d) - 20 * log10(hEff) - 20 * log10(rxH)
+                val m = (eirp - max(fspl, planeEarth) - diff - rxLoss - sens).toFloat()
                 if (m > margin[k]) margin[k] = m
-                // El terreno de este punto pasa a ser filo para lo que sigue.
-                val s = (g - hTx) / d
+                // El terreno de este punto (con su monte o sus casas) pasa a ser filo para lo que sigue.
+                val s = (g + midH[cls] - hTx) / d
                 if (s > bestSlope) { bestSlope = s; bestD = d }
             }
         }
@@ -164,7 +192,7 @@ object Coverage {
         val bmp = Bitmap.createBitmap(px, n, n, Bitmap.Config.ARGB_8888)
         val (north, west) = Dem.latLonOfPx(x0.toDouble(), y0.toDouble())
         val (south, east) = Dem.latLonOfPx((x0 + n).toDouble(), (y0 + n).toDouble())
-        return Outcome.Done(Result(bmp, north, west, south, east, sens, if (inside == 0) 0 else covered * 100 / inside))
+        return Outcome.Done(Result(bmp, north, west, south, east, sens, if (inside == 0) 0 else covered * 100 / inside, anyCover))
     }
 
     // ---------- CMRmap (matplotlib, _cm._CMRmap_data) ----------

@@ -150,6 +150,28 @@ private fun ReportView(r: ModelCheck.Report) {
         style = MaterialTheme.typography.bodySmall, color = HudTextDim,
     )
     for (b in r.byDistance) HudLabel("${b.label}: ${db(b.meanDb)} (${b.n})")
+    val wc = r.withCover; val base = r.baseOnCovered
+    if (wc != null && base != null) {
+        Spacer(Modifier.height(6.dp))
+        HudLabel("Sumando monte y ciudad (${wc.n} mediciones con ese dato)", color = HudCyan, maxLines = 2)
+        Text(
+            "Solo relieve: ${db(base.meanDb)} ±${base.stdDb.roundToInt()} dB · con monte y ciudad: ${db(wc.meanDb)} ±${wc.stdDb.roundToInt()} dB. " +
+                // Error total (sesgo y dispersión juntos): raíz del error cuadrático medio.
+                run {
+                    val rw = kotlin.math.sqrt(wc.meanDb * wc.meanDb + wc.stdDb * wc.stdDb)
+                    val rb = kotlin.math.sqrt(base.meanDb * base.meanDb + base.stdDb * base.stdDb)
+                    "Error total: ${rb.roundToInt()} dB sin, ${rw.roundToInt()} dB con. " + when {
+                        rw < rb - 1 -> "Con monte y ciudad acierta mejor."
+                        rw > rb + 1 -> "Con monte y ciudad acierta peor: hay que ajustar los valores."
+                        else -> "Casi igual con y sin."
+                    }
+                },
+            style = MaterialTheme.typography.bodySmall,
+        )
+    } else Text(
+        "Monte y ciudad: no hay datos de cobertura del suelo en la zona de estas mediciones.",
+        style = MaterialTheme.typography.bodySmall, color = HudTextDim,
+    )
     if (r.skipped > 0) Text(
         "${r.skipped} no se usaron: muy cerca, con la posición del otro vieja, repetidas en el mismo lugar o sin relieve bajado.",
         style = MaterialTheme.typography.bodySmall, color = HudTextDim,

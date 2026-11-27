@@ -95,9 +95,13 @@ class MeasureStore(private val dir: File) {
  * error = medido − predicho: positivo = el modelo es pesimista; negativo = promete de más.
  */
 object ModelCheck {
-    data class Sample(val m: Measurement, val predictedDbm: Double) {
+    /** [predictedDbm]: solo relieve. [withCoverDbm]: con monte y ciudad (null si no hay ese dato ahí). */
+    data class Sample(val m: Measurement, val predictedDbm: Double, val withCoverDbm: Double? = null) {
         val errorDb: Double get() = m.signalDbm - predictedDbm
+        val coverErrorDb: Double? get() = withCoverDbm?.let { m.signalDbm - it }
     }
+
+    data class Stats(val n: Int, val meanDb: Double, val stdDb: Double)
 
     data class Report(
         val samples: List<Sample>,
@@ -105,6 +109,8 @@ object ModelCheck {
         val meanDb: Double,        // sesgo
         val stdDb: Double,         // dispersión
         val byDistance: List<Bin>, // por tramo de distancia
+        val withCover: Stats? = null, // el mismo cálculo sumando monte y ciudad, donde hay ese dato
+        val baseOnCovered: Stats? = null, // el modelo de solo relieve en esas mismas mediciones
     )
 
     data class Bin(val label: String, val n: Int, val meanDb: Double)
@@ -133,10 +139,18 @@ object ModelCheck {
             val pts = Profile.samplePoints(tx, rx)
             val ground = ArrayList<Double>(pts.size)
             for ((la, lo) in pts) ground += Dem.elevation(ctx, la, lo, network) ?: run { skipped++; return@forEachIndexed }
-            val loss = Profile.pathLossDb(tx, rx, ground, freqMHz)
-            val predicted = tx.antenna.txDbm + tx.antenna.gainDbi - tx.antenna.cableDb +
-                rx.antenna.gainDbi - rx.antenna.cableDb - loss
-            out += Sample(m, predicted)
+            val budget = tx.antenna.txDbm + tx.antenna.gainDbi - tx.antenna.cableDb + rx.antenna.gainDbi - rx.antenna.cableDb
+            val predicted = budget - Profile.pathLossDb(tx, rx, ground, freqMHz)
+            // Con monte y ciudad, si hay datos de cobertura del suelo en todo el camino.
+            val classes = pts.map { (la, lo) -> io.github.protohommer.meshpaper.map.LandCover.classAt(ctx, la, lo, network) }
+            val withCover = if (classes.any { it == 0 }) null else {
+                val clutter = Profile.Clutter(
+                    DoubleArray(classes.size) { io.github.protohommer.meshpaper.map.LandCover.clutterHeightM(classes[it]) },
+                    classes.first(), classes.last(),
+                )
+                budget - Profile.pathLossDb(tx, rx, ground, freqMHz, clutter)
+            }
+            out += Sample(m, predicted, withCover)
         }
         progress(picked.size, picked.size)
         val errs = out.map { it.errorDb }
@@ -147,7 +161,18 @@ object ModelCheck {
                 val s = out.filter { it.m.distanceM >= a && it.m.distanceM < b }
                 if (s.isEmpty()) null else Bin(binLabel(a, b), s.size, s.map { it.errorDb }.average())
             }
-        return Report(out, max(0, skipped), mean, std, bins)
+        val covered = out.filter { it.coverErrorDb != null }
+        return Report(
+            out, max(0, skipped), mean, std, bins,
+            stats(covered.map { it.coverErrorDb!! }), stats(covered.map { it.errorDb }),
+        )
+    }
+
+    private fun stats(e: List<Double>): Stats? {
+        if (e.isEmpty()) return null
+        val mean = e.average()
+        val std = if (e.size < 2) 0.0 else sqrt(e.sumOf { (it - mean) * (it - mean) } / (e.size - 1))
+        return Stats(e.size, mean, std)
     }
 
     private fun binLabel(a: Double, b: Double): String = when {

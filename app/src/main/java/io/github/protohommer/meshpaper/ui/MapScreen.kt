@@ -309,6 +309,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                 saving = "Guardando el camino: cuadrante ${i + 1} de ${cells.size}…"
                 for ((x, y) in io.github.protohommer.meshpaper.map.OfflineCells.demTiles(c)) {
                     if (!withContext(Dispatchers.IO) { Dem.download(context, x, y) }) fails++
+                    withContext(Dispatchers.IO) { io.github.protohommer.meshpaper.map.LandCover.download(context, x, y) }
                 }
                 if (canMap) {
                     val errors = downloadMap(map, c, 15) {}
@@ -865,6 +866,7 @@ private fun CoverageLegend(cv: Coverage.Result, modifier: Modifier, collapsed: B
         }
         HudLabel("Al límite → fuerte")
         HudLabel("Hacia un nodo de mano")
+        if (cv.usedCover) HudLabel("Con monte y ciudad (ESA WorldCover)", maxLines = 2)
     }
 }
 
@@ -1094,7 +1096,8 @@ private fun NodeCard(
                 if (showingRange) Text(
                     when {
                         coverageMsg != null -> coverageMsg
-                        coverage != null -> "Con relieve: señal en ${coverage.coveredPct}% del círculo de " +
+                        coverage != null -> (if (coverage.usedCover) "Con relieve, monte y ciudad" else "Con relieve") +
+                            ": señal en ${coverage.coveredPct}% del círculo de " +
                             "${(Coverage.RADIUS_M / 1000).toInt()} km. Sin pintar = sombra o muy lejos."
                         else -> "Hacia un nodo de mano (1,5 m). Sin relieve: un cerro en el medio lo corta."
                     },

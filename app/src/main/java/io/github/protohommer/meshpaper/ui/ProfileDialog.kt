@@ -52,7 +52,7 @@ private const val MOVE_M = 30.0
 private sealed interface ProfileState {
     data object Loading : ProfileState
     data object NoData : ProfileState
-    data class Ready(val r: Profile.Result) : ProfileState
+    data class Ready(val r: Profile.Result, val clutter: Profile.Clutter? = null) : ProfileState
 }
 
 /**
@@ -83,9 +83,16 @@ fun ProfileDialog(
         val b = bK
         if (state !is ProfileState.Ready) state = ProfileState.Loading
         val pts = Profile.samplePoints(a, b)
-        val ground = Dem.elevations(ctx, pts, network = MapTiles.useInternet(ctx))
+        val net = MapTiles.useInternet(ctx)
+        val ground = Dem.elevations(ctx, pts, network = net)
+        // Monte y ciudad en el camino, si están los tiles de la zona (sin dato = abierto).
+        val clutter = if (ground == null) null else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val cls = pts.map { (la, lo) -> io.github.protohommer.meshpaper.map.LandCover.classAt(ctx, la, lo, net) }
+            if (cls.all { it == 0 }) null
+            else Profile.Clutter(DoubleArray(cls.size) { io.github.protohommer.meshpaper.map.LandCover.clutterHeightM(cls[it]) }, cls.first(), cls.last())
+        }
         state = if (ground == null) ProfileState.NoData
-        else ProfileState.Ready(Profile.compute(a, b, ground, freqMHz, preset))
+        else ProfileState.Ready(Profile.compute(a, b, ground, freqMHz, preset, clutter), clutter)
     }
 
     AlertDialog(
@@ -160,6 +167,12 @@ private fun ProfileBody(
             style = MaterialTheme.typography.bodySmall,
         )
     }
+    if (r.clutterDb >= 1) {
+        Text(
+            "Pérdida por monte o ciudad alrededor de las antenas ≈ ${r.clutterDb.roundToInt()} dB.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
     Spacer(Modifier.height(6.dp))
     fun endText(name: String, ground: Double, e: Profile.End, guess: Boolean) =
         "$name: terreno ${ground.roundToInt()} m, antena a ${fmt(e.antenna.heightM)} m" +
@@ -170,13 +183,16 @@ private fun ProfileBody(
     Text("Frecuencia %.3f MHz".format(freqMHz).replace('.', ','), style = small, color = HudTextDim)
     Spacer(Modifier.height(6.dp))
     Text(
-        "Estimado con el relieve del SRTM (≈30 m): no incluye edificios ni árboles, y un margen de " +
-            "10 dB o más es lo que da un enlace estable." +
+        (if (r.obstacles !== r.terrain) "Estimado con el relieve del SRTM (≈30 m) y el monte y la ciudad de WorldCover (en verde, " +
+            "arriba del terreno). Un margen de 10 dB o más es lo que da un enlace estable."
+        else "Estimado con el relieve del SRTM (≈30 m), sin monte ni ciudad (no están los datos de la zona). " +
+            "Un margen de 10 dB o más es lo que da un enlace estable.") +
             if (aGuess || bGuess) " Con los datos de antena (ANTENA en la ficha) el cálculo mejora." else "",
         style = MaterialTheme.typography.bodySmall, color = HudTextDim,
     )
     Spacer(Modifier.height(4.dp))
     Text(Dem.ATTRIBUTION, style = MaterialTheme.typography.labelSmall, color = HudTextDim)
+    if (r.obstacles !== r.terrain) Text(io.github.protohommer.meshpaper.map.LandCover.ATTRIBUTION, style = MaterialTheme.typography.labelSmall, color = HudTextDim)
 }
 
 private fun fmt(v: Double) = if (abs(v - v.roundToInt()) < 0.05) "${v.roundToInt()}" else "%.1f".format(v).replace('.', ',')
@@ -212,6 +228,16 @@ private fun ProfileChart(r: Profile.Result, losColor: Color, modifier: Modifier)
         drawPath(t, Color(0xFF3B4A3A))
         val edge = Path().apply { for (i in 0..n) if (i == 0) moveTo(x(i), y(r.terrain[i])) else lineTo(x(i), y(r.terrain[i])) }
         drawPath(edge, Color(0xFF8DA77F), style = Stroke(width = 2f))
+        // Monte y ciudad (lo que el cálculo suma al relieve en el medio del camino).
+        if (r.obstacles !== r.terrain) {
+            val top = Path().apply {
+                moveTo(x(0), y(r.terrain[0]))
+                for (i in 0..n) lineTo(x(i), y(r.obstacles[i]))
+                for (i in n downTo 0) lineTo(x(i), y(r.terrain[i]))
+                close()
+            }
+            drawPath(top, Color(0xFF2E7D32).copy(alpha = 0.75f))
+        }
         // Zona de Fresnel: borde de abajo y de arriba, punteados.
         val fresnelDash = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))
         for (sign in listOf(-1.0, 1.0)) {
