@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Lo único que se comparte con el instalador de Android: el APK de la actualización, ya verificado. -->
+<!-- Lo que se comparte con otras apps: el APK de la actualización (ya verificado) y lo que el
+     usuario pide exportar (mediciones). Nada más. -->
 <paths>
     <cache-path name="updates" path="updates/" />
+    <cache-path name="exports" path="exports/" />
 </paths>

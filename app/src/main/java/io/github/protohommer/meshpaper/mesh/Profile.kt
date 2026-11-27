@@ -96,6 +96,10 @@ object Profile {
     fun knifeEdgeDb(v: Double): Double =
         if (v <= -0.78) 0.0 else 6.9 + 20 * log10(sqrt((v - 0.1) * (v - 0.1) + 1) + v - 0.1)
 
+    /** Solo la pérdida del camino (dB): espacio libre + difracción, como en [compute]. */
+    fun pathLossDb(a: End, b: End, ground: List<Double>, freqMHz: Double): Double =
+        compute(a, b, ground, freqMHz, ModemPreset.LONG_FAST).pathLossDb
+
     /**
      * [ground]: alturas del terreno en los puntos de [samplePoints] (mismo orden).
      */

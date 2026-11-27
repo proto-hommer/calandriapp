@@ -131,12 +131,14 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     val channels by vm.channels.collectAsState()
     val since by vm.groupSince.collectAsState()
     val tracks by vm.tracks.collectAsState()
+    val measurements by vm.measurements.collectAsState()
     val waypoints by vm.waypoints.collectAsState()
     val fix by vm.myFix.collectAsState()
     val hasGroup = remember(channels) { vm.hasPrivateGroup() }
 
     var showOthers by remember { mutableStateOf(true) }
     var showTracks by remember { mutableStateOf(false) } // los rastros, solo si se piden (RAS)
+    var showMeasured by remember { mutableStateOf(false) } // lo medido de verdad (MED)
     val mapPrefs = remember { context.getSharedPreferences("map", Context.MODE_PRIVATE) }
     var showLegend by remember { mutableStateOf(mapPrefs.getBoolean("legend", true)) }
     // Fichas y escala de cobertura minimizadas (quedan así hasta que se vuelvan a abrir).
@@ -154,6 +156,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
     val antennas by vm.antennas.collectAsState()
     val lora by vm.lora.collectAsState()
     val preset = lora?.modemPreset ?: ModemPreset.LONG_FAST
+    val measureOverlay = remember(measurements, preset) { MeasureOverlay(context, measurements, preset) }
     var rangeNode by remember { mutableStateOf<Int?>(null) }   // nodo con el alcance dibujado
     var antennaFor by remember { mutableStateOf<Int?>(null) }  // nodo al que se le cargan los datos de antena
     var profileFor by remember { mutableStateOf<Int?>(null) }  // nodo con el perfil de terreno abierto
@@ -545,6 +548,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
                     }
                 }))
                 mv.overlays.add(scaleBar)
+                if (showMeasured) mv.overlays.add(measureOverlay)
                 if (showTracks) for (n in visibleNodes + listOfNotNull(me?.let { nodes[it] })) {
                     val pts = tracks[n.num] ?: continue
                     if (pts.size < 2) continue
@@ -735,6 +739,7 @@ fun MapScreen(vm: MeshViewModel, onMessage: (Int) -> Unit, modifier: Modifier = 
             })
             if (!guided) HudIconButton("TODO", enabled = visibleNodes.isNotEmpty(), onClick = { fitAll(map, visibleNodes, fix) })
             if (!guided) HudIconButton("RAS", active = showTracks, onClick = { showTracks = !showTracks })
+            if (!guided && measurements.isNotEmpty()) HudIconButton("MED", active = showMeasured, onClick = { showMeasured = !showMeasured })
             if (!guided) HudIconButton("REP", active = showOthers, onClick = { showOthers = !showOthers })
             if (!guided) HudIconButton("CAPA", onClick = { showLayers = true })
         }
@@ -866,7 +871,7 @@ private fun CoverageLegend(cv: Coverage.Result, modifier: Modifier, collapsed: B
 @Composable
 private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, members: Int, relays: Int, relaysActive: Int) {
     HudPanel(
-        modifier.width(220.dp), title = "Grupo $members · Rep $relaysActive de $relays", collapsed = !expanded, onToggle = onToggle,
+        modifier.width(220.dp), title = "Grupo $members · Rep $relaysActive/$relays", collapsed = !expanded, onToggle = onToggle,
         padding = androidx.compose.foundation.layout.PaddingValues(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 10.dp),
     ) {
         Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -887,8 +892,8 @@ private fun Legend(modifier: Modifier, expanded: Boolean, onToggle: () -> Unit, 
                 SignalBars(2, false); HudLabel("2-3", color = HudText)
                 SignalBars(1, false); HudLabel("4-5", color = HudText)
             }
-            HudLabel("Rep: activos (oídos en la última hora) de todos los conocidos", maxLines = 2)
-            HudLabel("Ajeno sin oír 30 min = oculto (router y base: 13 h)", maxLines = 2)
+            HudLabel("Rep 4/35 = activos (última hora) / todos", maxLines = 3)
+            HudLabel("Ajeno sin oír 30 min = oculto (router y base: 13 h)", maxLines = 3)
             HudLabel("Largo en el mapa = waypoint", maxLines = 2)
             HudLabel("Largo en un nodo = alcance", maxLines = 2)
         }
@@ -1200,8 +1205,19 @@ private fun WaypointCard(
  * mar) menos el terreno del relieve en ese punto. [aboveGround] null si falta alguno de los dos.
  */
 data class GpsHeight(val altM: Int?, val groundM: Double?) {
-    val aboveGround: Double?
-        get() = if (altM == null || groundM == null) null else (altM - groundM).coerceIn(0.5, 500.0)
+    /** GPS − relieve, tal cual. */
+    val raw: Double? get() = if (altM == null || groundM == null) null else altM - groundM
+
+    /**
+     * Fuera de esto el número no es una antena: el GPS (o el relieve) erró. Antes se recortaba a
+     * 0,5..500 m en silencio, y una antena "enterrada" o "a 300 m" arruinaba el alcance sin aviso.
+     */
+    val implausible: Boolean get() = raw?.let { it < -5.0 || it > MAX_PLAUSIBLE_M } == true
+
+    /** La altura sobre el suelo, o null si falta algo o no es creíble (entonces vale la cargada a mano). */
+    val aboveGround: Double? get() = raw?.takeIf { !implausible }?.coerceAtLeast(0.5)
+
+    companion object { const val MAX_PLAUSIBLE_M = 150.0 }
 }
 
 /** Bloquea (lee el relieve): fuera del hilo principal, salvo con [network] = false y poco uso. */
@@ -1212,6 +1228,8 @@ private fun gpsHint(g: GpsHeight?): String = when {
     g == null || g.altM == null -> "Este nodo no está mandando su altitud ahora. Con el GPS de la placa o del " +
         "celular (iPhone, o Android 14 o más nuevo) la manda."
     g.groundM == null -> "Manda su altitud (${g.altM} m), pero falta el relieve de la zona: bajalo en Ajustes → Mapas sin conexión."
+    g.implausible -> "Ahora: ${g.altM} m (GPS) − ${g.groundM.roundToInt()} m (terreno) = ${g.raw!!.roundToInt()} m sobre el suelo, " +
+        "y eso no es creíble para una antena (el GPS erra en altura, sobre todo bajo techo). Se usa la altura cargada a mano."
     else -> "Ahora: ${g.altM} m (GPS) − ${g.groundM.roundToInt()} m (terreno) = ${fmtNum(g.aboveGround!!)} m sobre el suelo. " +
         "El GPS erra ±10 m en altura: sirve para torres, cerros y edificios, no para medir un mástil corto."
 }

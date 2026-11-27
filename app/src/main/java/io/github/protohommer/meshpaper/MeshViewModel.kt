@@ -249,6 +249,74 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- Mapa: rastros y waypoints ----------
 
     private val trackStore = TrackStore(app.filesDir)
+
+    // ---------- Mediciones de señal (paquetes directos con posición) ----------
+
+    private val measureStore = io.github.protohommer.meshpaper.mesh.MeasureStore(app.filesDir)
+    private val _measurements = MutableStateFlow<List<io.github.protohommer.meshpaper.mesh.Measurement>>(emptyList())
+    /** Lo medido con el nodo local actual: para el mapa de lo medido y para ver cuánto le erra el modelo. */
+    val measurements: StateFlow<List<io.github.protohommer.meshpaper.mesh.Measurement>> = _measurements
+    private val _recordMeasurements = MutableStateFlow(prefs.getBoolean("recordMeasurements", true))
+    val recordMeasurements: StateFlow<Boolean> = _recordMeasurements
+    private val lastMeasured = mutableMapOf<Int, Long>()
+
+    fun setRecordMeasurements(on: Boolean) {
+        _recordMeasurements.value = on
+        prefs.edit().putBoolean("recordMeasurements", on).apply()
+    }
+
+    fun clearMeasurements() {
+        val me = _myNodeNum.value ?: return
+        _measurements.value = emptyList()
+        viewModelScope.launch(Dispatchers.IO) { measureStore.clear(me) }
+    }
+
+    /** CSV para compartir (lo pide el usuario: lleva posiciones). */
+    fun measurementsCsv(): String = buildString {
+        append("time_utc,from,rx_lat,rx_lon,rx_acc_m,tx_lat,tx_lon,tx_pos_age_s,distance_m,rssi_dbm,snr_db,signal_dbm\n")
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+        for (m in _measurements.value) {
+            append(fmt.format(java.util.Date(m.time * 1000))).append(',')
+            append("!%08x".format(m.from)).append(',')
+            append("%.6f,%.6f,%d,%.6f,%.6f,%d,%.0f,%d,%.1f,%.1f".format(java.util.Locale.US,
+                m.rxLat, m.rxLon, m.rxAccM, m.txLat, m.txLon, m.txAgeS, m.distanceM, m.rssi, m.snr, m.signalDbm))
+            append('\n')
+        }
+    }
+
+    /**
+     * Un paquete llegó directo: si sabemos dónde estábamos (GPS del teléfono, reciente y preciso) y
+     * dónde estaba el otro, queda una medición. Solo en el teléfono; no sale a ningún lado.
+     */
+    private fun recordMeasurement(from: Int, p: MeshPacket, t: Long) {
+        if (BuildConfig.DEMO || !_recordMeasurements.value) return
+        val me = _myNodeNum.value ?: return
+        if (!p.hasRxRssi() || p.rxRssi == 0) return
+        val now = System.currentTimeMillis() / 1000
+        if (kotlin.math.abs(now - t) > 120) return // de la cola del nodo, no de recién
+        if (now - (lastMeasured[from] ?: 0L) < io.github.protohommer.meshpaper.mesh.MeasureStore.MIN_GAP_S) return
+        val fix = _myFix.value ?: return
+        if (now - fix.time / 1000 > io.github.protohommer.meshpaper.mesh.MeasureStore.MAX_FIX_AGE_S) return
+        if (!fix.hasAccuracy() || fix.accuracy > io.github.protohommer.meshpaper.mesh.MeasureStore.MAX_FIX_ACC_M) return
+        val n = _nodes.value[from] ?: return
+        val la = n.lat ?: return; val lo = n.lon ?: return
+        // Posición redondeada a propósito (canal con precisión reducida): no sirve para medir.
+        if ((n.precisionBits ?: 32) in 1..31) return
+        val posTime = _tracks.value[from]?.lastOrNull()?.time ?: return
+        val m = io.github.protohommer.meshpaper.mesh.Measurement(
+            time = now, from = from,
+            rxLat = fix.latitude, rxLon = fix.longitude, rxAccM = fix.accuracy.toInt(),
+            txLat = la, txLon = lo, txAgeS = (now - posTime).coerceAtLeast(0),
+            rssi = p.rxRssi, snr = p.rxSnr,
+        )
+        lastMeasured[from] = now
+        val list = _measurements.value + m
+        _measurements.value = if (list.size > io.github.protohommer.meshpaper.mesh.MeasureStore.MAX) list.takeLast(io.github.protohommer.meshpaper.mesh.MeasureStore.MAX) else list
+        viewModelScope.launch(Dispatchers.IO) {
+            measureStore.append(me, m)
+            if (list.size > io.github.protohommer.meshpaper.mesh.MeasureStore.MAX + 1000) measureStore.save(me, _measurements.value)
+        }
+    }
     private val waypointStore = WaypointStore(app.filesDir)
 
     /** Rastro de cada nodo (incluido el propio, con el GPS del teléfono). */
@@ -369,6 +437,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         _tracks.value = d.tracks
         _waypoints.value = d.waypoints
         _antennas.value = d.antennas
+        _measurements.value = d.measurements
         _myFix.value = d.fix
     }
 
@@ -1391,6 +1460,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             .filter { !it.mine && it.conv == Conv.Channel(0).key && it.time >= since && it.from != num }
             .map { it.from }
         _tracks.value = trackStore.load(num)
+        _measurements.value = measureStore.load(num)
         _waypoints.value = waypointStore.load(num)
         syncGroup()
         _lastRead.value = _messages.value.map { it.conv }.distinct()
@@ -1441,6 +1511,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             ))
         }
         _nodes.value[from]?.let(::maybeAskIdentity)
+        if (direct) recordMeasurement(from, p, t)
     }
 
     // ---------- Calandria ----------

@@ -50,6 +50,7 @@ object Demo {
         val waypoints: Map<Int, Wpt>,
         val antennas: Map<Int, Antenna>,
         val fix: Location,
+        val measurements: List<io.github.protohommer.meshpaper.mesh.Measurement> = emptyList(),
     )
 
     fun build(now: Long): Data {
@@ -141,6 +142,29 @@ object Demo {
             messages, tracks, waypoints,
             antennas = mapOf(BASE to Antenna(gainDbi = 6.0, heightM = 12.0)),
             fix = fix,
+            measurements = demoMeasurements(now),
         )
+    }
+
+    /**
+     * Mediciones inventadas: una caminata desde el centro hacia el oeste oyendo a la Base, con la
+     * señal que cae con la distancia y un poco de ruido (determinístico, para las capturas).
+     */
+    private fun demoMeasurements(now: Long): List<io.github.protohommer.meshpaper.mesh.Measurement> {
+        val baseLat = -31.9310; val baseLon = -64.6230
+        val rnd = java.util.Random(7)
+        return List(70) { i ->
+            val t = i / 69.0
+            val la = MY_LAT + (-31.9450 - MY_LAT) * t + (rnd.nextDouble() - 0.5) * 0.004
+            val lo = MY_LON + (-64.6900 - MY_LON) * t + (rnd.nextDouble() - 0.5) * 0.004
+            val d = io.github.protohommer.meshpaper.mesh.Profile.distanceM(la, lo, baseLat, baseLon).coerceAtLeast(200.0)
+            val signal = -62 - 32 * kotlin.math.log10(d / 300) + rnd.nextGaussian() * 6
+            val noise = -118.0
+            val rssi = kotlin.math.max(signal, noise).toInt()
+            val snr = (signal - noise).coerceIn(-20.0, 12.0).toFloat()
+            io.github.protohommer.meshpaper.mesh.Measurement(
+                now - (70 - i) * 60L, BASE, la, lo, 5, baseLat, baseLon, 300, rssi, snr,
+            )
+        }
     }
 }

@@ -91,6 +91,7 @@ fun SettingsScreen(vm: MeshViewModel, connected: Boolean = true) {
         when (tab) {
             SettingsTab.APP -> ScrollPanels {
                 AppearancePanel()
+                MeasurementsPanel(vm)
                 OfflineMapsPanel()
                 RoutesPanel(here)
             }
