@@ -120,6 +120,7 @@ Calandria son varios proyectos que se usan juntos, pero cada uno anda solo y va 
 |---|---|---|
 | **CalandriApp** (este repo) | La app Android. Anda con **cualquier** nodo Meshtastic con Bluetooth. | [![app](https://img.shields.io/github/v/release/proto-hommer/calandriapp?label=&color=2ea44f)](https://github.com/proto-hommer/calandriapp/releases/latest) |
 | [**Calandria MK1 epaper**](https://github.com/proto-hommer/calandria-mk1-epaper) | Un nodo de bolsillo con pantalla e-paper, hecho a mano, y su firmware. | [![mk1](https://img.shields.io/github/v/release/proto-hommer/calandria-mk1-epaper?label=&color=ff7a2f)](https://github.com/proto-hommer/calandria-mk1-epaper/releases/latest) |
+| [**Calandria Base**](https://github.com/proto-hommer/calandria-base) | El cliente web para un nodo fijo conectado a una PC: chat, mapa, grupo y un bot de IA local. | 0.1 alpha |
 | [**Calandria Flasher**](https://github.com/proto-hommer/calandria-flasher) | Una página web para instalarle el firmware al MK1 por USB, desde Chrome o Edge. | [abrir](https://proto-hommer.github.io/calandria-flasher/) |
 | [**calandria-datos**](https://github.com/proto-hommer/calandria-datos) | Los datos de monte y ciudad que usa la app para calcular el alcance. | — |
 
