@@ -44,12 +44,17 @@ import org.meshtastic.proto.AppOnlyProtos.ChannelSet
 
 private enum class Mode { Menu, Create, Join, Review, Rename }
 
-/** Pantalla del grupo: ver/compartir el actual, crear uno nuevo o unirse con QR/link. */
+/**
+ * Pantalla de los grupos: un nodo puede estar en varios a la vez (cada uno es un canal privado con
+ * su clave). Se ve cada grupo con su QR; se suma uno nuevo sin perder los que hay, se elige cuál es
+ * el principal (el que recibe la posición automática) y se puede salir de uno.
+ */
 @Composable
 fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
     var mode by remember { mutableStateOf(Mode.Menu) }
     var pending by remember { mutableStateOf<ChannelSet?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var renaming by remember { mutableStateOf(0) }
     val channels by vm.channels.collectAsState()
 
     val scan = rememberLauncherForActivityResult(ScanContract()) { res ->
@@ -67,31 +72,79 @@ fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
 
         when (mode) {
             Mode.Menu -> {
-                val current = remember(channels) { vm.currentChannelSet() }
-                if (vm.hasPrivateGroup() && current != null) {
-                    Text("Grupo: ${current.getSettings(0).name}", style = MaterialTheme.typography.titleLarge)
-                    HudOutlinedButton(onClick = { mode = Mode.Rename }, Modifier.fillMaxWidth()) { Text("Cambiar el nombre") }
-                    Text("Mostrale este QR a los demás para que se unan (sirve con esta app o la oficial).")
-                    QrCard(Group.toUrl(current))
-                    if (vm.trackingConfigured() == false) {
-                        Text(
-                            "El nodo todavía difunde la posición con la config por defecto (cada hora). " +
-                                "Para seguir al grupo en el campo conviene cada 5 min, o antes si te movés 25 m.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        HudOutlinedButton(onClick = { vm.applyTracking(); onBack() }, Modifier.fillMaxWidth()) {
-                            Text("Ajustar el nodo para rastreo")
-                        }
-                    }
-                } else {
+                val groups = remember(channels) { vm.privateGroups() }
+                var openQr by remember { mutableStateOf<Int?>(if (groups.size == 1) groups[0].index else null) }
+                var leaving by remember { mutableStateOf<Int?>(null) }
+                var note by remember { mutableStateOf<String?>(null) }
+                if (groups.isEmpty()) {
                     Text("Este nodo no tiene grupo privado", style = MaterialTheme.typography.titleLarge)
                     Text("Hoy usa el canal público como principal: lo que mandes (incluida tu posición) lo puede leer cualquiera.")
+                } else {
+                    Text(if (groups.size == 1) "Tu grupo" else "Tus ${groups.size} grupos", style = MaterialTheme.typography.titleLarge)
+                    if (groups.size > 1) Text(
+                        "Cada grupo es un canal privado con su clave: los de un grupo no leen lo del otro. Tu posición " +
+                            "sale sola solo por el principal; a los demás se la mandás con un toque.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
-                HudButton(onClick = { mode = Mode.Create }, Modifier.fillMaxWidth()) { Text("Crear grupo nuevo") }
+                for (g in groups) {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(g.settings.name.ifEmpty { "(sin nombre)" }, style = MaterialTheme.typography.titleMedium)
+                            HudLabel(
+                                (if (g.index == 0) "Principal · recibe tu posición automática" else "Canal ${g.index}") +
+                                    " · ${vm.groupMemberCount(g.index)} miembros oídos",
+                                maxLines = 2,
+                            )
+                            if (openQr == g.index) vm.groupChannelSet(g.index)?.let { QrCard(Group.toUrl(it)) }
+                            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(onClick = { openQr = if (openQr == g.index) null else g.index }) {
+                                    Text(if (openQr == g.index) "Ocultar QR" else "Mostrar QR")
+                                }
+                                if (groups.size > 1) TextButton(onClick = {
+                                    note = vm.sendPositionTo(g.index) ?: "Posición mandada a ${g.settings.name}."
+                                }) { Text("Mandar mi posición") }
+                                if (g.index != 0) TextButton(onClick = { vm.makePrimary(g.index); onBack() }) { Text("Hacer principal") }
+                                TextButton(onClick = { renaming = g.index; mode = Mode.Rename }) { Text("Cambiar el nombre") }
+                                TextButton(onClick = { leaving = g.index }) {
+                                    Text("Salir", color = io.github.protohommer.meshpaper.ui.theme.SigWeak)
+                                }
+                            }
+                            if (leaving == g.index) {
+                                Text(
+                                    "¿Salir de ${g.settings.name}? Dejás de leer sus mensajes y de ver a sus miembros. " +
+                                        "Para volver hace falta el QR." + if (g.index == 0) " Otro canal pasa a ser el principal." else "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(onClick = { leaving = null }) { Text("Cancelar") }
+                                    TextButton(onClick = { vm.leaveGroup(g.index); onBack() }) {
+                                        Text("Salir del grupo", color = io.github.protohommer.meshpaper.ui.theme.SigWeak)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                note?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                if (groups.isNotEmpty() && vm.trackingConfigured() == false) {
+                    Text(
+                        "El nodo todavía difunde la posición con la config por defecto (cada hora). " +
+                            "Para seguir al grupo en el campo conviene cada 5 min, o antes si te movés 25 m.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    HudOutlinedButton(onClick = { vm.applyTracking(); onBack() }, Modifier.fillMaxWidth()) {
+                        Text("Ajustar el nodo para rastreo")
+                    }
+                }
+                HudButton(onClick = { mode = Mode.Create }, Modifier.fillMaxWidth()) {
+                    Text(if (groups.isEmpty()) "Crear grupo nuevo" else "Crear otro grupo")
+                }
                 HudOutlinedButton(onClick = {
                     scan.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                         .setPrompt("Apuntá al QR del grupo").setBeepEnabled(false).setOrientationLocked(false))
-                }, Modifier.fillMaxWidth()) { Text("Unirme escaneando QR") }
+                }, Modifier.fillMaxWidth()) { Text(if (groups.isEmpty()) "Unirme escaneando QR" else "Sumarme a otro grupo (QR)") }
                 HudOutlinedButton(onClick = { mode = Mode.Join }, Modifier.fillMaxWidth()) { Text("Unirme pegando el link") }
             }
 
@@ -129,7 +182,7 @@ fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
             }
 
             Mode.Rename -> {
-                val old = remember(channels) { channels[0]?.settings?.name.orEmpty() }
+                val old = remember(channels, renaming) { channels[renaming]?.settings?.name.orEmpty() }
                 var name by remember { mutableStateOf(old) }
                 Text("Cambiar el nombre del grupo", style = MaterialTheme.typography.titleLarge)
                 OutlinedTextField(
@@ -147,7 +200,7 @@ fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
                     color = io.github.protohommer.meshpaper.ui.theme.SigFair,
                 )
                 HudButton(
-                    onClick = { vm.renameGroup(name); mode = Mode.Menu },
+                    onClick = { vm.renameGroup(name, renaming); mode = Mode.Menu },
                     enabled = name.isNotBlank() && name != old,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Cambiar y reiniciar el nodo") }
@@ -156,13 +209,38 @@ fun GroupScreen(vm: MeshViewModel, onBack: () -> Unit) {
             Mode.Review -> pending?.let { set ->
                 Text("Revisá antes de aplicar", style = MaterialTheme.typography.titleLarge)
                 Summary(set)
+                val has = vm.privateGroups().isNotEmpty()
+                val fresh = remember(set, channels) { vm.newGroupsIn(set) }
+                val clash = remember(set, channels) { vm.addIncompatibility(set) }
+                if (has && fresh.isNotEmpty()) {
+                    if (clash == null) {
+                        Text(
+                            "Lo podés sumar a tus grupos: seguís en los que tenés y además entrás a este. " +
+                                "El nodo se reinicia y la app se reconecta sola.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        HudButton(onClick = { vm.addGroups(set); onBack() }, Modifier.fillMaxWidth()) {
+                            Text("Sumar a mis grupos")
+                        }
+                    } else {
+                        Text(
+                            "Este grupo usa otra radio ($clash). Un nodo tiene una sola radio para todos sus grupos: " +
+                                "para estar en los dos tienen que usar la misma. Si lo aplicás, reemplaza a los que tenés.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = io.github.protohommer.meshpaper.ui.theme.SigFair,
+                        )
+                    }
+                } else if (has) {
+                    Text("Ya estás en este grupo.", style = MaterialTheme.typography.bodySmall)
+                }
                 Text(
-                    "Se reemplazan los canales del nodo y su radio. El nodo se reinicia y la app se reconecta sola.",
+                    if (has) "O reemplazar: se borran los canales del nodo (todos tus grupos) y quedan los de este QR, con su radio."
+                    else "Se reemplazan los canales del nodo y su radio. El nodo se reinicia y la app se reconecta sola.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                HudButton(onClick = { vm.applyChannelSet(set); onBack() }, Modifier.fillMaxWidth()) {
-                    Text("Aplicar al nodo")
-                }
+                val replace = @Composable { Text(if (has) "Reemplazar todo" else "Aplicar al nodo") }
+                if (has) HudOutlinedButton(onClick = { vm.applyChannelSet(set); onBack() }, Modifier.fillMaxWidth()) { replace() }
+                else HudButton(onClick = { vm.applyChannelSet(set); onBack() }, Modifier.fillMaxWidth()) { replace() }
             }
         }
     }

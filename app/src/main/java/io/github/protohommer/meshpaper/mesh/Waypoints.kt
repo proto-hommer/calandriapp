@@ -22,6 +22,7 @@ data class Wpt(
     val lockedTo: Int,
     val from: Int,        // quién lo mandó (0 = desconocido)
     val time: Long,       // cuándo lo recibimos/creamos, epoch s
+    val channel: Int = 0, // canal (grupo) por el que vino o salió
 ) {
     /**
      * El ícono como texto. El protobuf trae un solo code point, sin el selector de variante: los
@@ -97,7 +98,7 @@ class WaypointStore(private val dir: File) {
     private fun toJson(w: Wpt) = JSONObject().apply {
         put("id", w.id); put("lat", w.lat); put("lon", w.lon); put("name", w.name)
         put("desc", w.description); put("icon", w.icon); put("expire", w.expire)
-        put("locked", w.lockedTo); put("from", w.from); put("time", w.time)
+        put("locked", w.lockedTo); put("from", w.from); put("time", w.time); put("ch", w.channel)
     }
 
     private fun fromJson(o: JSONObject): Wpt? = try {
@@ -105,7 +106,7 @@ class WaypointStore(private val dir: File) {
             id = o.getInt("id"), lat = o.getDouble("lat"), lon = o.getDouble("lon"),
             name = o.optString("name"), description = o.optString("desc"), icon = o.optInt("icon"),
             expire = o.optLong("expire"), lockedTo = o.optInt("locked"), from = o.optInt("from"),
-            time = o.optLong("time"),
+            time = o.optLong("time"), channel = o.optInt("ch"),
         )
     } catch (e: Exception) {
         null

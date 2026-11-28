@@ -70,7 +70,7 @@ fun convTitle(vm: MeshViewModel, key: String): String = when (val c = Conv.parse
         val ch = vm.channels.value[c.index]
         val name = ch?.settings?.name.orEmpty().ifEmpty { "LongFast" }
         when {
-            c.index == 0 && vm.hasPrivateGroup() -> "Grupo: $name"
+            vm.groupName(c.index) != null -> "Grupo: $name"
             c.index == 0 -> "Canal principal ($name)"
             else -> "Canal $name"
         }

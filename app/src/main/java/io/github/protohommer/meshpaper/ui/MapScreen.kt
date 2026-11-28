@@ -976,6 +976,10 @@ private fun NodeCard(
         Tone.MUTE -> "Ajeno · no repite"
         Tone.FIXED -> (if (Signal.isBaseRole(n)) "Grupo · base" else "Grupo · fijo") + (if (Signal.isLost(n, now)) " · sin noticias" else "")
         else -> if (Signal.isLost(n, now)) "Grupo · sin noticias" else "Grupo"
+    }.let { k ->
+        // Con varios grupos: cuáles ("Grupo · familia, trabajo").
+        val names = if (n.num != me && vm.privateGroups().size > 1) n.groups.mapNotNull { vm.groupName(it) } else emptyList()
+        if (names.isEmpty() || !k.startsWith("Grupo")) k else k.replaceFirst("Grupo", "Grupo · " + names.joinToString(", "))
     }
     // Minimizada queda la barra con el nombre, para ver el mapa (o la cobertura) de abajo.
     val title = if (collapsed) "$kind · ${n.shortName.ifEmpty { n.longName.ifEmpty { n.id } }}" else kind
@@ -1365,6 +1369,8 @@ private fun NewWaypointDialog(vm: MeshViewModel, at: GeoPoint, onDone: () -> Uni
     var icon by remember { mutableIntStateOf(Wpt.DEFAULT_ICON) }
     var expire by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
+    val groups = remember { vm.privateGroups() }
+    var channel by remember { mutableIntStateOf(groups.firstOrNull()?.index ?: 0) }
     AlertDialog(
         onDismissRequest = onDone,
         title = { Text("Nuevo waypoint") },
@@ -1393,7 +1399,18 @@ private fun NewWaypointDialog(vm: MeshViewModel, at: GeoPoint, onDone: () -> Uni
                         FilterChip(selected = expire == i, onClick = { expire = i }, label = { Text(label, softWrap = false) })
                     }
                 }
-                HudLabel("Sale por el canal del grupo · solo vos lo borrás", maxLines = 2)
+                if (groups.size > 1) {
+                    HudLabel("Para qué grupo")
+                    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                    androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (g in groups) FilterChip(selected = channel == g.index, onClick = { channel = g.index },
+                            label = { Text(g.settings.name, softWrap = false) })
+                    }
+                }
+                HudLabel(
+                    (if (groups.size > 1) "Lo ve solo ${groups.firstOrNull { it.index == channel }?.settings?.name ?: "ese grupo"}" else "Sale por el canal del grupo") +
+                        " · solo vos lo borrás", maxLines = 2,
+                )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -1401,7 +1418,7 @@ private fun NewWaypointDialog(vm: MeshViewModel, at: GeoPoint, onDone: () -> Uni
             TextButton(onClick = {
                 val secs = EXPIRES[expire].second
                 val exp = if (secs == 0L) 0L else System.currentTimeMillis() / 1000 + secs
-                error = vm.sendWaypoint(at.latitude, at.longitude, name, desc, icon, exp)
+                error = vm.sendWaypoint(at.latitude, at.longitude, name, desc, icon, exp, channel)
                 if (error == null) onDone()
             }) { Text("Mandar") }
         },

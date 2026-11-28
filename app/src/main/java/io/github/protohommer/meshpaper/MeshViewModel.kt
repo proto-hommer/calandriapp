@@ -95,7 +95,9 @@ data class MeshNode(
     val channel: Int?,        // índice local del canal en que lo oímos (0 = primario); null = sin prueba
     val rssi: Int? = null,    // del último paquete que llegó directo (0 saltos)
     val mute: Boolean = false, // rol CLIENT_MUTE: no repite, no aporta cobertura
-    val group: Boolean = false, // alguna vez lo oímos (con prueba) por el canal privado: tiene la clave
+    val group: Boolean = false, // alguna vez lo oímos (con prueba) por un canal privado: tiene la clave
+    /** Índices de los canales privados (grupos) en que lo oímos. Con un solo grupo, {0}. */
+    val groups: Set<Int> = emptySet(),
     val role: DeviceConfig.Role? = null, // del NodeInfo; null = todavía no sabemos
     val hw: MeshProtos.HardwareModel? = null, // modelo de placa, del NodeInfo
     val alt: Int? = null,     // altitud sobre el nivel del mar (m), si la manda
@@ -200,7 +202,14 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     private val _nodes = MutableStateFlow<Map<Int, MeshNode>>(emptyMap())
     val nodes: StateFlow<Map<Int, MeshNode>> = _nodes
 
-    /** Nodos que alguna vez oímos por el canal privado. Se guarda por nodo propio y se borra al cambiar el grupo. */
+    /**
+     * Miembros de cada grupo: huella del canal privado (nombre + clave, [Group.fingerprint]) → nodos
+     * que oímos por ese canal. Por huella y no por índice: un grupo puede cambiar de lugar (hacerlo
+     * principal) sin perder a sus miembros. Se guarda por nodo propio.
+     */
+    @Volatile private var groupMembers: Map<String, Set<Int>> = emptyMap()
+
+    /** Todos los miembros de los grupos que tiene hoy el nodo (la unión). */
     @Volatile private var groupNums: Set<Int> = emptySet()
 
     /** Canales del nodo, por índice (solo los activos). */
@@ -377,6 +386,8 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     private val _lastPosSent = MutableStateFlow(0L)
     val lastPosSent: StateFlow<Long> = _lastPosSent
     private var lastSentFix: Location? = null
+    /** La última ubicación buena del celular (para "mandar mi posición a este grupo"). */
+    private var lastFix: Location? = null
 
     private val phoneLocation = PhoneLocation(app) { loc ->
         if (BuildConfig.DEMO) return@PhoneLocation // la posición es la inventada
@@ -428,6 +439,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         groupNums = d.group
         _myNodeNum.value = Demo.ME
         _channels.value = d.channels
+        d.channels[0]?.let { groupMembers = mapOf(Group.fingerprint(it.settings) to d.group) }
         _lora.value = d.lora
         _owner.value = d.owner
         _device.value = d.device
@@ -567,6 +579,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
      * el nodo tenga hora y posición frescas. El firmware descarta más de una cada 10 s.
      */
     private fun maybeSendPosition(loc: Location) {
+        if (!loc.hasAccuracy() || loc.accuracy <= MAX_FIX_ACCURACY_M) lastFix = loc
         val me = _myNodeNum.value ?: return
         if (link.value != LinkState.Connected || !_sharePosition.value) return
         if (loc.hasAccuracy() && loc.accuracy > MAX_FIX_ACCURACY_M) return
@@ -753,8 +766,138 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         return b.build()
     }
 
+    /** ¿El canal principal es un grupo privado? (si no, la posición sale por el público). */
     fun hasPrivateGroup(): Boolean =
         _channels.value[0]?.let { it.role == Channel.Role.PRIMARY && Group.isPrivate(it.settings) } == true
+
+    /** Los grupos del nodo: sus canales privados, del principal (0) para adelante. */
+    fun privateGroups(): List<Channel> = _channels.value.values
+        .filter { it.role != Channel.Role.DISABLED && Group.isPrivate(it.settings) }.sortedBy { it.index }
+
+    /** Nombre del grupo del canal [index], o null si ese canal no es un grupo. */
+    fun groupName(index: Int): String? =
+        _channels.value[index]?.takeIf { it.role != Channel.Role.DISABLED && Group.isPrivate(it.settings) }?.settings?.name
+
+    /** Cuántos miembros (con prueba) tiene el grupo del canal [index], sin contarnos. */
+    fun groupMemberCount(index: Int): Int {
+        val ch = _channels.value[index] ?: return 0
+        return groupMembers[Group.fingerprint(ch.settings)]?.count { it != _myNodeNum.value } ?: 0
+    }
+
+    /**
+     * El QR de UN grupo: su canal privado + el público + la radio. Así quien lo escanea entra a
+     * ese grupo solo, aunque este nodo esté en varios.
+     */
+    fun groupChannelSet(index: Int): ChannelSet? {
+        val ch = _channels.value[index]?.takeIf { Group.isPrivate(it.settings) } ?: return null
+        val b = ChannelSet.newBuilder().addSettings(ch.settings)
+        val public = _channels.value.values.firstOrNull { it.role != Channel.Role.DISABLED && !Group.isPrivate(it.settings) }
+        b.addSettings(public?.settings ?: Group.publicSettings())
+        _lora.value?.let { b.setLoraConfig(it) }
+        return b.build()
+    }
+
+    /**
+     * ¿Se puede sumar este grupo sin cambiar la radio? Un nodo tiene una sola radio para todos sus
+     * canales: región, modo y slot tienen que ser los mismos. Devuelve el motivo si no, o null.
+     */
+    fun addIncompatibility(set: ChannelSet): String? {
+        if (!set.hasLoraConfig()) return null
+        val g = set.loraConfig
+        val cur = _lora.value ?: return null
+        val diff = buildList {
+            if (g.region != cur.region) add("región ${g.region} (este nodo: ${cur.region})")
+            if (g.modemPreset != cur.modemPreset || g.usePreset != cur.usePreset) add("modo ${g.modemPreset} (este nodo: ${cur.modemPreset})")
+            if (g.channelNum != 0 && cur.channelNum != 0 && g.channelNum != cur.channelNum) add("slot ${g.channelNum} (este nodo: ${cur.channelNum})")
+        }
+        return if (diff.isEmpty()) null else diff.joinToString(", ")
+    }
+
+    /** Los grupos privados de [set] que este nodo todavía no tiene. */
+    fun newGroupsIn(set: ChannelSet): List<ChannelSettings> {
+        val have = privateGroups().map { Group.fingerprint(it.settings) }.toSet()
+        return set.settingsList.filter { Group.isPrivate(it) && Group.fingerprint(it) !in have }
+    }
+
+    /**
+     * Suma los grupos privados de [set] como canales secundarios, sin tocar los que ya hay ni la
+     * radio. La posición automática sigue saliendo por el principal.
+     */
+    fun addGroups(set: ChannelSet) = runEdit("Sumando el grupo…", "Grupo sumado: ahora estás en ${privateGroups().size + newGroupsIn(set).size} grupos.") { me ->
+        val add = newGroupsIn(set)
+        if (add.isEmpty()) error("ya estás en ese grupo")
+        val used = _channels.value.filterValues { it.role != Channel.Role.DISABLED }.keys
+        val free = (1 until MAX_CHANNELS).filter { it !in used }
+        if (free.size < add.size) error("no quedan canales libres (un nodo tiene 8)")
+        add.zip(free).forEach { (s, i) ->
+            val ch = Channel.newBuilder().setIndex(i).setSettings(s).setRole(Channel.Role.SECONDARY)
+            sendAdmin(me, AdminMessage.newBuilder().setSetChannel(ch).build())
+        }
+    }
+
+    /**
+     * Pasa el grupo del canal [index] al lugar del principal (0), intercambiándolos. El principal
+     * es el que recibe la posición automática y la ficha del nodo. Los mensajes y waypoints de
+     * cada grupo se mueven con él.
+     */
+    fun makePrimary(index: Int) = runEdit("Cambiando el grupo principal…", "Listo: ${groupName(index).orEmpty()} es el principal.") { me ->
+        swapChannels(me, 0, index)
+    }
+
+    /** Sale del grupo del canal [index]. Si es el principal, antes pasa otro canal a ese lugar. */
+    fun leaveGroup(index: Int) = runEdit("Saliendo del grupo…", "Saliste de ${groupName(index).orEmpty()}.") { me ->
+        var target = index
+        if (index == 0) {
+            val next = privateGroups().firstOrNull { it.index != 0 }?.index
+                ?: _channels.value.values.filter { it.role != Channel.Role.DISABLED && it.index != 0 }.minOfOrNull { it.index }
+                ?: error("es el único canal del nodo: creá o sumá otro antes de salir")
+            swapChannels(me, 0, next)
+            target = next
+        }
+        val off = Channel.newBuilder().setIndex(target).setSettings(ChannelSettings.getDefaultInstance()).setRole(Channel.Role.DISABLED)
+        sendAdmin(me, AdminMessage.newBuilder().setSetChannel(off).build())
+    }
+
+    private suspend fun swapChannels(me: Int, a: Int, b: Int) {
+        if (a == b) return
+        val ca = _channels.value[a] ?: error("no existe el canal $a")
+        val cb = _channels.value[b] ?: error("no existe el canal $b")
+        // Si el slot de frecuencia no está fijo, sale del nombre del principal: lo fijamos en el actual.
+        val lora = _lora.value
+        if (lora != null && lora.channelNum == 0 && (a == 0 || b == 0)) {
+            Regions.slotCount(lora.region, lora.modemPreset)?.let { slots ->
+                val primaryName = _channels.value[0]?.settings?.name.orEmpty()
+                sendAdmin(me, AdminMessage.newBuilder().setSetConfig(
+                    Config.newBuilder().setLora(lora.toBuilder().setChannelNum(Group.slotFor(primaryName.ifEmpty { "LongFast" }, slots)))
+                ).build())
+            }
+        }
+        fun role(i: Int) = if (i == 0) Channel.Role.PRIMARY else Channel.Role.SECONDARY
+        sendAdmin(me, AdminMessage.newBuilder().setSetChannel(Channel.newBuilder().setIndex(a).setSettings(cb.settings).setRole(role(a))).build())
+        sendAdmin(me, AdminMessage.newBuilder().setSetChannel(Channel.newBuilder().setIndex(b).setSettings(ca.settings).setRole(role(b))).build())
+        remapChannels(mapOf(a to b, b to a))
+    }
+
+    /** Los mensajes, lo leído y los waypoints de cada canal siguen a su grupo cuando cambia de lugar. */
+    private fun remapChannels(m: Map<Int, Int>) {
+        val me = _myNodeNum.value ?: return
+        fun key(i: Int) = Conv.Channel(i).key
+        val convs = m.entries.associate { (from, to) -> key(from) to key(to) }
+        _messages.update { list ->
+            list.map { msg ->
+                val to = convs[msg.conv]
+                if (to != null) msg.copy(conv = to, channel = m[msg.channel] ?: msg.channel) else msg
+            }
+        }
+        persist()
+        val read = _lastRead.value
+        val e = prefs.edit()
+        _lastRead.value = read.mapKeys { (k, _) -> convs[k] ?: k }
+        for ((from, to) in convs) e.putLong(readKey(me, to), read[from] ?: 0L)
+        e.apply()
+        _waypoints.update { w -> w.mapValues { (_, x) -> m[x.channel]?.let { x.copy(channel = it) } ?: x } }
+        persistWaypoints()
+    }
 
     fun newGroup(name: String): ChannelSet = Group.create(name, _lora.value)
 
@@ -764,10 +907,10 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
      * leen entre ustedes. Si el slot de frecuencia no está fijo, sale del nombre: lo fijamos en el
      * actual para no cambiar de frecuencia.
      */
-    fun renameGroup(name: String) = runEdit("Cambiando el nombre del grupo…", "Grupo renombrado: compartí el QR nuevo.") { me ->
-        val ch0 = _channels.value[0] ?: error("el nodo no tiene canal principal")
+    fun renameGroup(name: String, index: Int = 0) = runEdit("Cambiando el nombre del grupo…", "Grupo renombrado: compartí el QR nuevo.") { me ->
+        val ch0 = _channels.value[index] ?: error("el nodo no tiene ese canal")
         val lora = _lora.value
-        if (lora != null && lora.channelNum == 0) {
+        if (index == 0 && lora != null && lora.channelNum == 0) {
             val slots = Regions.slotCount(lora.region, lora.modemPreset)
             if (slots != null) {
                 val old = ch0.settings.name
@@ -812,13 +955,16 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         resetGroup(me, primary?.takeIf { Group.isPrivate(it) }?.let { Group.fingerprint(it) })
     }
 
-    /** Grupo nuevo (o distinto): nadie es miembro hasta que lo oigamos por el privado. */
+    /** Grupos nuevos (reemplazan a todos): nadie es miembro hasta que lo oigamos por un privado. */
     private fun resetGroup(me: Int, id: String?) {
         val now = System.currentTimeMillis() / 1000
-        prefs.edit().putLong(sinceKey(me), now).putString(idKey(me), id).remove(groupKey(me)).apply()
+        val e = prefs.edit().putLong(sinceKey(me), now).putString(idKey(me), id).remove(groupKey(me))
+        for (fp in groupMembers.keys) e.remove(memberKey(me, fp))
+        e.apply()
         _groupSince.value = now
+        groupMembers = emptyMap()
         groupNums = emptySet()
-        _nodes.update { m -> m.mapValues { it.value.copy(group = false) } }
+        _nodes.update { m -> m.mapValues { it.value.copy(group = false, groups = emptySet()) } }
     }
 
     /** Huella del grupo que tiene ahora el nodo, o null si el primario no es privado. */
@@ -832,11 +978,42 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun syncGroup() {
         val me = _myNodeNum.value ?: return
-        val id = currentGroupId() ?: return
-        if (prefs.getString(idKey(me), null) != id) {
-            Log.i(TAG, "grupo distinto del anotado: miembros a cero")
-            resetGroup(me, id)
+        val groups = privateGroups()
+        if (groups.isEmpty()) {
+            groupNums = emptySet()
+            return
         }
+        val since = _groupSince.value
+        val legacyId = prefs.getString(idKey(me), null)
+        val m = groupMembers.toMutableMap()
+        for (ch in groups) {
+            val fp = Group.fingerprint(ch.settings)
+            if (fp in m) continue
+            var set = prefs.getStringSet(memberKey(me, fp), emptySet()).orEmpty()
+                .mapNotNull { it.toLongOrNull(16)?.toInt() }.toSet()
+            // Hasta la 2.3: un solo grupo, guardado sin huella. Pasa a ser el del grupo que era.
+            if (legacyId == fp) set = set + loadGroup(me)
+            // Los mensajes guardados de ese canal también prueban que el emisor tiene la clave.
+            set = set + _messages.value
+                .filter { !it.mine && it.conv == Conv.Channel(ch.index).key && it.time >= since && it.from != me }
+                .map { it.from }
+            m[fp] = set
+            if (set.isNotEmpty()) saveMembers(me, fp, set)
+        }
+        groupMembers = m
+        groupNums = groups.flatMap { m[Group.fingerprint(it.settings)].orEmpty() }.toSet()
+        currentGroupId()?.let { if (it != legacyId) prefs.edit().putString(idKey(me), it).apply() }
+        _nodes.update { nodes -> nodes.mapValues { (num, n) -> n.copy(group = num in groupNums, groups = groupsOf(num)) } }
+    }
+
+    /** Índices de los canales privados en cuyo grupo está [num]. */
+    private fun groupsOf(num: Int): Set<Int> = privateGroups()
+        .filter { num in groupMembers[Group.fingerprint(it.settings)].orEmpty() }.map { it.index }.toSet()
+
+    private fun memberKey(me: Int, fp: String) = "groupm:%08x:%s".format(me, fp)
+
+    private fun saveMembers(me: Int, fp: String, set: Set<Int>) {
+        prefs.edit().putStringSet(memberKey(me, fp), set.map { "%08x".format(it) }.toSet()).apply()
     }
 
     private fun groupKey(me: Int) = "group:%08x".format(me)
@@ -846,15 +1023,21 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
     private fun loadGroup(me: Int): Set<Int> =
         prefs.getStringSet(groupKey(me), emptySet()).orEmpty().mapNotNull { it.toLongOrNull(16)?.toInt() }.toSet()
 
-    /** Anota un miembro probado (y lo guarda, para que siga siéndolo al reconectar). */
-    private fun markGroup(num: Int) {
-        if (num in groupNums) return
+    /**
+     * Anota un miembro probado del grupo del canal [channel] (y lo guarda, para que siga siéndolo
+     * al reconectar). Un paquete por un canal privado prueba que el emisor tiene esa clave.
+     */
+    private fun markGroup(num: Int, channel: Int?) {
         val me = _myNodeNum.value ?: return
-        // Un paquete por el canal 0 prueba algo solo si el 0 es el privado del grupo anotado.
-        val id = currentGroupId() ?: return
-        if (prefs.getString(idKey(me), null) != id) return
+        if (channel == null || num == me) return
+        val ch = _channels.value[channel]?.takeIf { it.role != Channel.Role.DISABLED && Group.isPrivate(it.settings) } ?: return
+        val fp = Group.fingerprint(ch.settings)
+        val set = groupMembers[fp].orEmpty()
+        if (num in set) return
+        val now = set + num
+        groupMembers = groupMembers + (fp to now)
         groupNums = groupNums + num
-        prefs.edit().putStringSet(groupKey(me), groupNums.map { "%08x".format(it) }.toSet()).apply()
+        saveMembers(me, fp, now)
     }
 
     /**
@@ -928,8 +1111,11 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         }
         _nodes.update { it - list.toSet() }
         if (list.any { it in groupNums }) {
-            groupNums = groupNums - list.toSet()
-            prefs.edit().putStringSet(groupKey(me), groupNums.map { "%08x".format(it) }.toSet()).apply()
+            val gone = list.toSet()
+            groupMembers = groupMembers.mapValues { (fp, set) ->
+                (set - gone).also { if (it.size != set.size) saveMembers(me, fp, it) }
+            }
+            groupNums = groupNums - gone
         }
         return list.size
     }
@@ -1332,6 +1518,22 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) { runCatching { trackStore.save(me, emptyMap()) } }
     }
 
+    /**
+     * Manda la posición del celular ahora, a todo el grupo del canal [channel]. La automática sale
+     * solo por un canal (el primero con posición); así los otros grupos también te ven.
+     */
+    fun sendPositionTo(channel: Int): String? {
+        if (link.value != LinkState.Connected) return "sin conexión con el nodo"
+        val me = _myNodeNum.value ?: return "sin conexión con el nodo"
+        val loc = lastFix ?: return "todavía no hay posición del celular (¿GPS prendido?)"
+        val p = PhoneLocation.toPacket(loc, me, newPacketId()).toBuilder()
+            .setTo(BROADCAST).setChannel(channel).setPriority(MeshPacket.Priority.RELIABLE).build()
+        viewModelScope.launch {
+            try { ble.send(ToRadio.newBuilder().setPacket(p).build()) } catch (e: Exception) { Log.e(TAG, "posición al grupo", e) }
+        }
+        return null
+    }
+
     // ---------- Waypoints ----------
 
     /**
@@ -1339,7 +1541,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
      * Queda bloqueado a nuestro nodo: solo nosotros lo podemos cambiar o borrar.
      * Devuelve null si salió, o el motivo si no se puede.
      */
-    fun sendWaypoint(lat: Double, lon: Double, name: String, description: String, icon: Int, expire: Long): String? {
+    fun sendWaypoint(lat: Double, lon: Double, name: String, description: String, icon: Int, expire: Long, channel: Int = 0): String? {
         val me = _myNodeNum.value ?: return "sin conexión con el nodo"
         if (link.value != LinkState.Connected) return "sin conexión con el nodo"
         val n = Wpt.fitBytes(name.trim(), Wpt.MAX_NAME)
@@ -1348,8 +1550,9 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             id = newPacketId(), lat = lat, lon = lon, name = n,
             description = Wpt.fitBytes(description.trim(), Wpt.MAX_DESCRIPTION),
             icon = icon, expire = expire, lockedTo = me, from = me, time = System.currentTimeMillis() / 1000,
+            channel = channel,
         )
-        broadcastWaypoint(w.toProto())
+        broadcastWaypoint(w.toProto(), channel)
         putWaypoint(w)
         return null
     }
@@ -1366,16 +1569,16 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun deleteWaypoint(w: Wpt) {
         if (canDeleteForAll(w) && link.value == LinkState.Connected) {
-            broadcastWaypoint(w.toProto().toBuilder().setExpire(1).build())
+            broadcastWaypoint(w.toProto().toBuilder().setExpire(1).build(), w.channel)
         }
         removeWaypoint(w.id)
     }
 
-    private fun broadcastWaypoint(w: Waypoint) {
+    private fun broadcastWaypoint(w: Waypoint, channel: Int = 0) {
         val packet = MeshPacket.newBuilder()
             .setTo(BROADCAST)
             .setId(newPacketId())
-            .setChannel(0)
+            .setChannel(channel)
             .setDecoded(
                 MeshProtos.Data.newBuilder()
                     .setPortnum(PortNum.WAYPOINT_APP)
@@ -1399,7 +1602,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         val old = _waypoints.value[w.id]
         // Respetar el bloqueo: solo el dueño lo puede cambiar o borrar.
         if (old != null && old.lockedTo != 0 && old.lockedTo != from) return
-        val wpt = Wpt.fromProto(w, from, now)
+        val wpt = Wpt.fromProto(w, from, now)?.copy(channel = p.channel)
         if (wpt == null || !wpt.isActive(now)) {
             if (old != null) removeWaypoint(w.id)
             return
@@ -1434,7 +1637,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             FromRadio.PayloadVariantCase.CHANNEL -> {
                 val c = msg.channel
                 _channels.update { if (c.role == Channel.Role.DISABLED) it - c.index else it + (c.index to c) }
-                if (c.index == 0) syncGroup()
+                syncGroup()
             }
             FromRadio.PayloadVariantCase.CONFIG -> when (msg.config.payloadVariantCase) {
                 Config.PayloadVariantCase.LORA -> _lora.value = msg.config.lora
@@ -1456,9 +1659,8 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         // Los mensajes guardados del canal privado también prueban que el emisor tiene la clave.
         val since = prefs.getLong(sinceKey(num), Long.MAX_VALUE)
         _groupSince.value = since.takeIf { it != Long.MAX_VALUE } ?: 0L
-        groupNums = loadGroup(num) + _messages.value
-            .filter { !it.mine && it.conv == Conv.Channel(0).key && it.time >= since && it.from != num }
-            .map { it.from }
+        groupMembers = emptyMap() // se arman por grupo en syncGroup(), cuando llegan los canales
+        groupNums = emptySet()
         _tracks.value = trackStore.load(num)
         _measurements.value = measureStore.load(num)
         _waypoints.value = waypointStore.load(num)
@@ -1487,7 +1689,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
         val hops = if (p.hopStart != 0 && p.hopStart >= p.hopLimit) p.hopStart - p.hopLimit else null
         val direct = hops == 0
         val channel = channelProof(p)
-        if (channel == 0) markGroup(from)
+        if (channel != null) markGroup(from, channel)
         if (user != null) rememberIdent(from, user)
         _nodes.update { map ->
             val old = map[from] ?: MeshNode(
@@ -1508,6 +1710,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
                 role = user?.role ?: old.role,
                 hw = user?.hwModel ?: old.hw,
                 group = from in groupNums,
+                groups = groupsOf(from),
             ))
         }
         _nodes.value[from]?.let(::maybeAskIdentity)
@@ -1660,7 +1863,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             val old = map[from] ?: MeshNode(
                 from, "!%08x".format(from), "", "", 0, 0f, null, null, null, null, channelProof(p),
             )
-            map + (from to old.copy(lat = pos.latitudeI / 1e7, lon = pos.longitudeI / 1e7, alt = mslOf(pos), precisionBits = pos.precisionBits, group = from in groupNums))
+            map + (from to old.copy(lat = pos.latitudeI / 1e7, lon = pos.longitudeI / 1e7, alt = mslOf(pos), precisionBits = pos.precisionBits, group = from in groupNums, groups = groupsOf(from)))
         }
         val t = when {
             pos.time != 0 -> pos.time.toLong() and 0xffffffffL
@@ -1673,7 +1876,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun upsert(n: NodeInfo) {
         if (n.num == _myNodeNum.value && n.hasUser()) _owner.value = n.user
-        if (n.hasUser() && n.channel == 0 && n.num != _myNodeNum.value) markGroup(n.num)
+        if (n.hasUser() && n.num != _myNodeNum.value) markGroup(n.num, n.channel)
         if (n.hasUser()) rememberIdent(n.num, n.user)
         // Sin ficha en el nodo conectado: lo último que la app supo de él (nombre, rol, placa).
         val known = if (n.hasUser()) null else idents[n.num] ?: _nodes.value[n.num]?.takeIf { !it.noIdent }?.let {
@@ -1699,6 +1902,7 @@ class MeshViewModel(app: Application) : AndroidViewModel(app) {
             alt = if (n.position.hasLatitudeI()) mslOf(n.position) else _nodes.value[n.num]?.alt,
             precisionBits = if (n.position.hasLatitudeI()) n.position.precisionBits else _nodes.value[n.num]?.precisionBits,
             group = n.num in groupNums,
+            groups = groupsOf(n.num),
             favorite = n.isFavorite,
             ignored = n.isIgnored,
             identCached = known != null,

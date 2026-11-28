@@ -59,6 +59,12 @@ object Group {
         return ChannelSet.newBuilder().addSettings(private).addSettings(public).setLoraConfig(lora).build()
     }
 
+    /** El canal público LongFast, como lo arma [create]. */
+    fun publicSettings(): ChannelSettings = ChannelSettings.newBuilder()
+        .setName("").setPsk(DEFAULT_PSK)
+        .setModuleSettings(ModuleSettings.newBuilder().setPositionPrecision(0))
+        .build()
+
     fun toUrl(set: ChannelSet): String {
         val b64 = Base64.encodeToString(set.toByteArray(), Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
         return "https://meshtastic.org/e/#$b64"

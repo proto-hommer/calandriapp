@@ -3,7 +3,7 @@
 **Una app Android chica y propia para usar nodos Meshtastic en el campo: mensajes, mapa offline y
 seguimiento de un grupo cerrado, sin cuentas, sin nube y sin internet.**
 
-Versión **2.3.2** | Android 8 o más nuevo | *powered by Meshtastic®*
+Versión **2.4.0** | Android 8 o más nuevo | *powered by Meshtastic®*
 
 [![Descargar APK](https://img.shields.io/github/v/release/proto-hommer/calandriapp?label=descargar%20APK&color=2ea44f)](https://github.com/proto-hommer/calandriapp/releases/latest)
 
@@ -262,6 +262,13 @@ En dos toques crea un canal privado con clave AES-256 y lo comparte por **QR**, 
 de Meshtastic (sirve también con la app oficial). El nombre del grupo se puede cambiar después: los
 demás vuelven a escanear el QR. El QR de la captura es del grupo inventado.
 
+**Varios grupos a la vez** (desde la 2.4): el mismo nodo puede estar, por ejemplo, en el grupo de la
+familia y en el del trabajo. Al escanear el QR de otro grupo, la app ofrece **sumarlo** (seguís en los que
+tenés) o reemplazar todo. Cada grupo tiene su QR, su chat y sus miembros; al crear un waypoint se elige
+para qué grupo es. Dos cosas de Meshtastic: todos los grupos de un nodo usan la misma radio (región, modo
+y slot), y la posición automática sale solo por el **principal**; a los demás se la mandás con
+**Mandar mi posición**, y con **Hacer principal** elegís cuál la recibe sola.
+
 <p><img src="docs/img/titulos/s-mapas-sin-conexion.png" alt="Mapas sin conexión" height="26"/></p>
 
 <p align="center">
@@ -323,7 +330,7 @@ sin cuentas, sin nube ni servicios de Google: todo queda en el teléfono.
 <a id="descargar-e-instalar"></a>
 <p><img src="docs/img/titulos/descargar-e-instalar.png" alt="Descargar e instalar" width="100%"/></p>
 
-1. Bajá el `CalandriApp-2.3.2.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
+1. Bajá el `CalandriApp-2.4.0.apk` de la [última versión](https://github.com/proto-hommer/calandriapp/releases/latest).
 2. Abrilo en el celular. Android va a pedir permiso para **instalar apps de origen desconocido**:
    dáselo al navegador o al gestor de archivos con el que lo abriste.
 3. Abrí CalandriApp, dale los permisos de **Bluetooth** y **ubicación**, tocá **BUSCAR** y
